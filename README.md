@@ -13,6 +13,8 @@ images are supported.
 - **SegmentationEvaluator** (`segmentationEvlauater.py`) – generate synthetic
   data or load real results and compute IoU, Dice, precision, recall and other
   metrics【F:segmentationEvlauater.py†L28-L38】.
+- **Orientation analysis** (`hydrideOrientationAnalyzer.py`) – compute mean
+  plate orientation for each hydride region with optional debug plots.
 - **Dataset utilities** – dataset preparation and augmentation scripts to help
   create training data for deep learning (`prepare_segmentation_dataset_for_training.py`,
   `Augment_Hydride_Dataset.py`).
@@ -33,6 +35,7 @@ HydrideSegmentation/
 ├── prepare_segmentation_dataset_for_training.py
 ├── segmentationEvlauater.py         # evaluation utilities
 ├── segmentationMaskCreation.py      # conventional segmentation
+├── hydrideOrientationAnalyzer.py    # orientation measurement
 ├── test_data/                       # sample and synthetic images
 └── README.md
 ```
@@ -63,6 +66,12 @@ python GUI.py
 python prepare_segmentation_dataset_for_training.py
 ```
 
+5. **Analyse hydride orientations** on the provided synthetic image:
+
+```bash
+python hydrideOrientationAnalyzer.py --debug
+```
+
 ## Testing
 
 Example images are provided in `test_data/`.  To validate the segmentation
@@ -70,7 +79,7 @@ pipeline, run the evaluator in simulation mode which generates synthetic
 shapes, predicts a tampered mask and prints evaluation metrics:
 
 ```bash
-python segmentationEvlauater.py
+python segmentationEvlauater.py --simulate
 ```
 
 The `SegmentationEvaluator` class can also be configured to load real

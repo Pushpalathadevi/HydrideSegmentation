@@ -39,6 +39,7 @@ MODEL_BACKENDS = {
 
 #test
 class HydrideSegmentationGUI:
+    """Tkinter front-end for running segmentation and viewing results."""
     def __init__(self, master):
         self.master = master
         master.title("Hydride Segmentation GUI")

@@ -222,6 +222,7 @@ class ImageMerger:
         return merged_path, mask_path
 
     def run(self, imgA_path: str, imgB_path: str):
+        """Merge a hydride patch onto a matrix image and save outputs."""
         mask_path = self._derive_mask_path(imgB_path)
 
         imgA = self.load_image(imgA_path, grayscale=True)

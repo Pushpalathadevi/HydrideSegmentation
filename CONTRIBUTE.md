@@ -17,6 +17,9 @@ GUI applications and automated workflows.
    `test_data/`.
 2. **Synthetic cases** – the `SegmentationEvaluator` can generate known ground
    truth masks for quick checks.
+   Scripts such as `segmentationEvlauater.py` must run in this simulated mode
+   by default so they execute without external image files during remote
+   development. Invoke with `python segmentationEvlauater.py --simulate`.
 3. **Debug vs Regular modes** – when modules provide a `debug` flag, ensure both
    paths work:
    - *Regular mode* should run quickly and return only final results.
@@ -24,6 +27,8 @@ GUI applications and automated workflows.
      troubleshooting.
 4. Document new test cases in the README whenever you add a new module or
    feature.
+5. Scripts performing analysis (e.g., `hydrideOrientationAnalyzer.py`) should
+   offer a `--debug` mode to annotate a small subset of results for clarity.
 
 ## Documentation Updates
 
