@@ -1,3 +1,4 @@
+import argparse
 import logging
 import random
 from typing import Dict
@@ -26,6 +27,7 @@ class SegmentationEvaluator:
         self.pred_mask = None
 
     def run(self):
+        """Run data generation/loading, metric calculation and reporting."""
         logging.info("Starting segmentation evaluation.")
         if self.simulate:
             logging.info("Generating simulated data.")
@@ -47,6 +49,7 @@ class SegmentationEvaluator:
         return metrics
 
     def generate_simulated_data(self):
+        """Create a set of toy rectangles/triangles for testing."""
         h, w = self.image_size
         self.input_image = np.ones((h, w, 3), dtype=np.uint8) * 255
         self.gt_mask = np.zeros((h, w), dtype=np.uint8)
@@ -70,6 +73,7 @@ class SegmentationEvaluator:
         self.pred_mask = self.tamper_mask(self.gt_mask, self.tamper_ratio)
 
     def tamper_mask(self, mask: np.ndarray, ratio: float) -> np.ndarray:
+        """Flip a fraction of pixels to mimic imperfect predictions."""
         tampered = mask.copy()
         h, w = mask.shape
         num_pixels = int(h * w * ratio)
@@ -78,6 +82,7 @@ class SegmentationEvaluator:
         return tampered
 
     def load_real_data(self):
+        """Read images and masks from disk for evaluation."""
         self.input_image = cv2.imread(self.config['input_image_path'])
         self.input_image = cv2.cvtColor(self.input_image, cv2.COLOR_BGR2RGB)
         self.gt_mask = cv2.imread(self.config['ground_truth_path'], cv2.IMREAD_GRAYSCALE)
@@ -89,6 +94,7 @@ class SegmentationEvaluator:
         self.pred_mask = (self.pred_mask > 127).astype(np.uint8)
 
     def compute_metrics(self) -> Dict:
+        """Return IoU, Dice and other metrics as a dictionary."""
         gt = self.gt_mask.flatten()
         pred = self.pred_mask.flatten()
 
@@ -111,6 +117,7 @@ class SegmentationEvaluator:
         }
 
     def write_report(self, metrics: Dict):
+        """Write metrics to a text report file."""
         with open(self.report_path, 'w') as f:
             f.write("Segmentation Evaluation Report\n")
             f.write("==============================\n")
@@ -119,6 +126,7 @@ class SegmentationEvaluator:
         logging.info(f"Report written to {self.report_path}")
 
     def plot_results(self, metrics: Dict):
+        """Visualize ground truth, prediction and overlay with scores."""
         fig, axs = plt.subplots(1, 4, figsize=(18, 5))
 
         axs[0].imshow(self.input_image)
@@ -147,18 +155,29 @@ class SegmentationEvaluator:
         plt.show()
 
 
-if __name__ == "__main__":
-    config = {
-        "simulate": False,
-        "plot": True,
+def main() -> None:
+    """Entry point allowing simulation for remote development."""
+    p = argparse.ArgumentParser(description="Evaluate segmentation masks")
+    p.add_argument("--simulate", action="store_true",
+                   help="use generated shapes instead of real files")
+    p.add_argument("--plot", action="store_true", help="display result figures")
+    args = p.parse_args()
+
+    cfg = {
+        "simulate": args.simulate,
+        "plot": args.plot,
         "image_size": (100, 200),
         "tamper_ratio": 0.2,
-        "input_image_path": r"V:\maniBackUp\HydrideSegmentation\segmentationEvaluationResults\3PB_SRT_7293_ASh_3_input.png",
-        "ground_truth_path": r"V:\maniBackUp\HydrideSegmentation\segmentationEvaluationResults\3PB_SRT_7293_ASh_3_ground_truth.png",
-        "predicted_mask_path": r"V:\maniBackUp\HydrideSegmentation\segmentationEvaluationResults\3PB_SRT_7293_ASh_3_Conv_prediction.png",
-        "report_path": "segmentation_report.txt"
+        "input_image_path": "input.png",
+        "ground_truth_path": "gt.png",
+        "predicted_mask_path": "pred.png",
+        "report_path": "segmentation_report.txt",
     }
 
-    evaluator = SegmentationEvaluator(config)
+    evaluator = SegmentationEvaluator(cfg)
     results = evaluator.run()
     logging.info("Computed Metrics: %s", results)
+
+
+if __name__ == "__main__":
+    main()

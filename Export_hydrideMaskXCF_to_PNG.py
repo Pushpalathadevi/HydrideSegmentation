@@ -3,6 +3,7 @@ import os
 from tqdm import tqdm
 
 def export_hydride_mask_with_gimp(xcf_filepath):
+    """Use GIMP in batch mode to export hydride and background layers."""
     if not os.path.isfile(xcf_filepath):
         print(f"File not found: {xcf_filepath}")
         return
@@ -26,6 +27,7 @@ def export_hydride_mask_with_gimp(xcf_filepath):
 from gimpfu import *
 
 def find_layer_by_name(layers, name):
+    """Recursively search for a layer with the given name."""
     for layer in layers:
         if layer.name == name:
             return layer

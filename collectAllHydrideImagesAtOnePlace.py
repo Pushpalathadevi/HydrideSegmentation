@@ -36,6 +36,7 @@ def process_image(image_path: str) -> Image.Image:
     return img
 
 def process_all_images():
+    """Copy and normalise images listed in *imageNames.txt* to one folder."""
     # Ensure output directory exists
     os.makedirs(output_folder, exist_ok=True)
 
