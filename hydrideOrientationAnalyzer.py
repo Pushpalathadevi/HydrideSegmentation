@@ -114,10 +114,11 @@ class HydrideOrientationAnalyzer:
             self.logger.debug(f"Hydride {i:02d} orientation calculated: {angle:.1f}°")
 
     def plot_results(self) -> None:
-        """Create a 3-panel publication-quality plot:
-        (a) Color map of hydrides by orientation,
-        (b) Hydride size distribution,
-        (c) Hydride orientation (angle) distribution.
+        """Create a 2x2 publication-quality plot:
+        (a) Original input image,
+        (b) Color map of hydrides by orientation,
+        (c) Hydride size distribution,
+        (d) Hydride orientation (angle) distribution.
         """
         cmap = plt.get_cmap("coolwarm")
         rgb = np.zeros((*self.labels.shape, 3))
@@ -127,12 +128,24 @@ class HydrideOrientationAnalyzer:
             rgb[mask] = cmap(angle / 90)[:3]
             sizes.append(np.sum(mask))
 
-        fig, axes = plt.subplots(1, 3, figsize=(18, 7))
-        # (a) Color map
-        ax = axes[0]
-        im = ax.imshow(rgb)
-        ax.axis("off")
-        ax.set_title("(a) Hydride Orientation Color Map", fontsize=16, fontweight="bold")
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        # (a) Original input image
+        ax0 = axes[0, 0]
+        # Always reload original image from disk for display
+        img = io.imread(self.image_path)
+        if img.ndim == 3:
+            img_disp = color.rgb2gray(img)
+        else:
+            img_disp = img
+        ax0.imshow(img_disp, cmap="gray")
+        ax0.set_title("(a) Original Input Image", fontsize=16, fontweight="bold")
+        ax0.axis("off")
+
+        # (b) Color map
+        ax1 = axes[0, 1]
+        im = ax1.imshow(rgb)
+        ax1.axis("off")
+        ax1.set_title("(b) Hydride Orientation Color Map", fontsize=16, fontweight="bold")
         # Annotate random hydrides if debug
         if self.debug and self.orientations:
             ids = list(range(1, len(self.orientations) + 1))
@@ -140,19 +153,19 @@ class HydrideOrientationAnalyzer:
             ids = ids[:min(20, len(ids))]
             for i in ids:
                 y, x = np.mean(np.nonzero(self.labels == i), axis=1)
-                ax.text(x, y, f"{self.orientations[i-1]:.0f}°", color="white",
-                        ha="center", va="center", fontsize=10, fontweight="bold")
+                ax1.text(x, y, f"{self.orientations[i-1]:.0f}°", color="white",
+                         ha="center", va="center", fontsize=10, fontweight="bold")
         # Color bar
         norm = plt.Normalize(0, 90)
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        cbar = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+        cbar = plt.colorbar(sm, ax=ax1, fraction=0.046, pad=0.04)
         cbar.set_label('Hydride Orientation (degrees)', fontsize=12)
 
-        # (b) Hydride size distribution
-        ax2 = axes[1]
+        # (c) Hydride size distribution
+        ax2 = axes[1, 0]
         ax2.hist(sizes, bins=20, color="dodgerblue", edgecolor="black", alpha=0.8)
-        ax2.set_title("(b) Hydride Size Distribution", fontsize=16, fontweight="bold")
+        ax2.set_title("(c) Hydride Size Distribution", fontsize=16, fontweight="bold")
         ax2.set_xlabel("Hydride Size (pixels)", fontsize=12)
         ax2.set_ylabel("Count", fontsize=12)
         ax2.grid(True, linestyle="--", alpha=0.5)
@@ -163,10 +176,10 @@ class HydrideOrientationAnalyzer:
         ax2.axvline(median_size, color="green", linestyle=":", linewidth=2, label=f"Median: {median_size:.0f}")
         ax2.legend(fontsize=10)
 
-        # (c) Hydride orientation distribution
-        ax3 = axes[2]
+        # (d) Hydride orientation distribution
+        ax3 = axes[1, 1]
         ax3.hist(self.orientations, bins=18, color="orange", edgecolor="black", alpha=0.8)
-        ax3.set_title("(c) Hydride Orientation Distribution", fontsize=16, fontweight="bold")
+        ax3.set_title("(d) Hydride Orientation Distribution", fontsize=16, fontweight="bold")
         ax3.set_xlabel("Orientation Angle (degrees)", fontsize=12)
         ax3.set_ylabel("Count", fontsize=12)
         ax3.grid(True, linestyle="--", alpha=0.5)
@@ -177,7 +190,7 @@ class HydrideOrientationAnalyzer:
         ax3.axvline(median_angle, color="green", linestyle=":", linewidth=2, label=f"Median: {median_angle:.1f}°")
         ax3.legend(fontsize=10)
 
-        plt.suptitle("Hydride Segmentation & Orientation Analysis", fontsize=20, fontweight="bold")
+        plt.suptitle("Hydride Segmentation & Orientation Analysis", fontsize=22, fontweight="bold")
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         os.makedirs("tmp", exist_ok=True)
         out_path = os.path.join("tmp", "orientation_plot.png")
