@@ -114,38 +114,78 @@ class HydrideOrientationAnalyzer:
             self.logger.debug(f"Hydride {i:02d} orientation calculated: {angle:.1f}°")
 
     def plot_results(self) -> None:
-        """Create color map of hydrides with optional angle annotations and color bar."""
+        """Create a 3-panel publication-quality plot:
+        (a) Color map of hydrides by orientation,
+        (b) Hydride size distribution,
+        (c) Hydride orientation (angle) distribution.
+        """
         cmap = plt.get_cmap("coolwarm")
         rgb = np.zeros((*self.labels.shape, 3))
+        sizes = []
         for i, angle in enumerate(self.orientations, start=1):
             mask = self.labels == i
             rgb[mask] = cmap(angle / 90)[:3]
-        fig, ax = plt.subplots(figsize=(10, 8))
+            sizes.append(np.sum(mask))
+
+        fig, axes = plt.subplots(1, 3, figsize=(18, 7))
+        # (a) Color map
+        ax = axes[0]
         im = ax.imshow(rgb)
         ax.axis("off")
+        ax.set_title("(a) Hydride Orientation Color Map", fontsize=16, fontweight="bold")
+        # Annotate random hydrides if debug
         if self.debug and self.orientations:
             ids = list(range(1, len(self.orientations) + 1))
             random.shuffle(ids)
             ids = ids[:min(20, len(ids))]
             for i in ids:
                 y, x = np.mean(np.nonzero(self.labels == i), axis=1)
-                self.logger.debug(f"Annotating hydride {i} at ({x:.1f}, {y:.1f}) with angle {self.orientations[i-1]:.0f}°")
                 ax.text(x, y, f"{self.orientations[i-1]:.0f}°", color="white",
-                        ha="center", va="center", fontsize=8)
-        # Add color bar for angle
+                        ha="center", va="center", fontsize=10, fontweight="bold")
+        # Color bar
         norm = plt.Normalize(0, 90)
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label('Hydride Orientation (degrees)', fontsize=10)
+        cbar.set_label('Hydride Orientation (degrees)', fontsize=12)
+
+        # (b) Hydride size distribution
+        ax2 = axes[1]
+        ax2.hist(sizes, bins=20, color="dodgerblue", edgecolor="black", alpha=0.8)
+        ax2.set_title("(b) Hydride Size Distribution", fontsize=16, fontweight="bold")
+        ax2.set_xlabel("Hydride Size (pixels)", fontsize=12)
+        ax2.set_ylabel("Count", fontsize=12)
+        ax2.grid(True, linestyle="--", alpha=0.5)
+        # Annotate mean and median
+        mean_size = np.mean(sizes)
+        median_size = np.median(sizes)
+        ax2.axvline(mean_size, color="red", linestyle="--", linewidth=2, label=f"Mean: {mean_size:.0f}")
+        ax2.axvline(median_size, color="green", linestyle=":", linewidth=2, label=f"Median: {median_size:.0f}")
+        ax2.legend(fontsize=10)
+
+        # (c) Hydride orientation distribution
+        ax3 = axes[2]
+        ax3.hist(self.orientations, bins=18, color="orange", edgecolor="black", alpha=0.8)
+        ax3.set_title("(c) Hydride Orientation Distribution", fontsize=16, fontweight="bold")
+        ax3.set_xlabel("Orientation Angle (degrees)", fontsize=12)
+        ax3.set_ylabel("Count", fontsize=12)
+        ax3.grid(True, linestyle="--", alpha=0.5)
+        # Annotate mean and median
+        mean_angle = np.mean(self.orientations)
+        median_angle = np.median(self.orientations)
+        ax3.axvline(mean_angle, color="red", linestyle="--", linewidth=2, label=f"Mean: {mean_angle:.1f}°")
+        ax3.axvline(median_angle, color="green", linestyle=":", linewidth=2, label=f"Median: {median_angle:.1f}°")
+        ax3.legend(fontsize=10)
+
+        plt.suptitle("Hydride Segmentation & Orientation Analysis", fontsize=20, fontweight="bold")
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         os.makedirs("tmp", exist_ok=True)
         out_path = os.path.join("tmp", "orientation_plot.png")
-        plt.tight_layout()
-        plt.savefig(out_path, dpi=150)
+        plt.savefig(out_path, dpi=200)
         # Save to {basename}_hydride_orientation.png
         base = os.path.splitext(os.path.basename(self.image_path))[0]
         hydride_out = f"{base}_hydride_orientation.png"
-        plt.savefig(hydride_out, dpi=150)
+        plt.savefig(hydride_out, dpi=200)
         self.logger.log(logging.DEBUG if self.debug else logging.INFO,
                         f"✅ Orientation plot saved → {out_path} and {hydride_out}")
         if self.debug:
@@ -160,8 +200,7 @@ class HydrideOrientationAnalyzer:
         self.logger.debug("Plotting results...")
         self.plot_results()
         for idx, angle in enumerate(self.orientations, start=1):
-            self.logger.log(logging.DEBUG if self.debug else logging.INFO,
-                            f"Hydride {idx:02d}: {angle:.1f}°")
+            self.logger.debug(f"Hydride {idx:02d}: {angle:.1f}°")
 
 
 def main() -> None:
