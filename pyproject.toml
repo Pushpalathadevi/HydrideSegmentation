@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hydride-segmentation"
+version = "0.1.0"
+description = "Toolkit for zirconium hydride segmentation and analysis"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "opencv-python",
+    "scikit-image",
+    "scikit-learn",
+    "pillow",
+    "albumentations",
+    "tqdm",
+    "scipy",
+    "tkinterdnd2",
+]
+
+[project.scripts]
+hydride-gui = "hydride_segmentation.gui:main"
+hydride-orientation = "hydride_segmentation.hydride_orientation_analyzer:main"
+segmentation-eval = "hydride_segmentation.segmentation_evaluator:main"
