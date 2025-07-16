@@ -29,7 +29,7 @@ import threading
 import numpy as np
 import importlib
 import logging
-from hydrideseg.analysis import orientation_analysis, combined_figure
+from .analysis import orientation_analysis, combined_figure
 
 
 MAX_HISTORY = 10
