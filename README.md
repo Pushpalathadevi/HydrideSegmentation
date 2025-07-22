@@ -80,6 +80,25 @@ pytest
 
 This will execute all tests under the `tests/` folder.
 
+## Running as a Service
+
+HydrideSegmentation ships with a small Flask application exposing `/infer` and
+`/health` endpoints. Start the server with:
+
+```bash
+hydride-service
+```
+
+POST an image to `/infer` with optional form fields:
+
+- `model` – `ml` (default) or `conventional`
+- `analysis` – `true` to include orientation analysis
+- parameters like `clahe`, `adaptive`, etc. when using the conventional model
+
+If `analysis=true`, the response is a JSON payload containing base64-encoded
+images for the input, mask, overlay and orientation plots along with the area
+fraction. Otherwise the mask PNG bytes are returned directly.
+
 ## Citation
 
 If you use HydrideSegmentation in your research, please cite this repository.

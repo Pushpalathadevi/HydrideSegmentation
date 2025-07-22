@@ -28,3 +28,4 @@ dependencies = [
 hydride-gui = "hydride_segmentation.gui:main"
 hydride-orientation = "hydride_segmentation.hydride_orientation_analyzer:main"
 segmentation-eval = "hydride_segmentation.segmentation_evaluator:main"
+hydride-service = "hydride_segmentation.service:main"
