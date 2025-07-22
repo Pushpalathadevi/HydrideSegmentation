@@ -20,6 +20,8 @@ dependencies = [
     "tqdm",
     "scipy",
     "tkinterdnd2",
+    "torch",
+    "segmentation-models-pytorch",
 ]
 
 [project.scripts]

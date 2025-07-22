@@ -3,6 +3,7 @@
 from .core.analysis import orientation_analysis, combined_figure
 from .core.gui_app import HydrideSegmentationGUI
 from .segmentation_mask_creation import HydrideSegmentation, run_model
+from .inference import run_model as run_ml_model
 
 __all__ = [
     "orientation_analysis",
@@ -10,4 +11,5 @@ __all__ = [
     "HydrideSegmentationGUI",
     "HydrideSegmentation",
     "run_model",
+    "run_ml_model",
 ]
