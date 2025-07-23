@@ -2,6 +2,7 @@
 
 from .core.analysis import orientation_analysis, combined_figure
 from .core.gui_app import HydrideSegmentationGUI
+from .api import segment_hydride_image
 
 def run_model(*args, **kwargs):
     """Lazy import wrapper for the conventional segmentation."""
@@ -26,4 +27,5 @@ __all__ = [
     "HydrideSegmentation",
     "run_model",
     "run_ml_model",
+    "segment_hydride_image",
 ]
