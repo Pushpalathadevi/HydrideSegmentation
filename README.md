@@ -99,6 +99,16 @@ If `analysis=true`, the response is a JSON payload containing base64-encoded
 images for the input, mask, overlay and orientation plots along with the area
 fraction. Otherwise the mask PNG bytes are returned directly.
 
+## Deploying with ml_server
+
+HydrideSegmentation can be embedded as a model inside the
+[ml_server](https://github.com/kvmani/ml_server) project. Install this package
+into the same Python environment as `ml_server` and ensure the model weights are
+available via the `HYDRIDE_MODEL_PATH` environment variable. After starting
+`ml_server`, choose **Hydride Segmentation** in the browser interface or send a
+`POST` request to `/hydride_segmentation` with an image file to trigger this
+module.
+
 ## Citation
 
 If you use HydrideSegmentation in your research, please cite this repository.
