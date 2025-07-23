@@ -4,12 +4,26 @@ Thank you for considering a contribution to **HydrideSegmentation**.  This
 project relies on clean object‑oriented Python code to remain compatible with
 GUI applications and automated workflows.
 
+## Setup
+
+Create a virtual environment and install the package in editable mode:
+
+```bash
+pip install -r requirements.txt
+pip install -e .
+```
+
+Running `pre-commit install` will enable formatting checks similar to the
+[ml_server](https://github.com/kvmani/ml_server) project.
+
 ## Coding Standards
 
 - Use object‑oriented designs wherever possible.  Keep classes small and focused.
 - Every public function or class must include a Python docstring.  Add inline
   comments where the logic is non‑trivial.
 - Keep modules modular so they can be reused from the GUI and other tools.
+- Ensure code passes `black` formatting and basic `flake8` checks before
+  committing.
 
 ## Testing Protocol
 
@@ -29,6 +43,12 @@ GUI applications and automated workflows.
    feature.
 5. Scripts performing analysis (e.g., `hydrideOrientationAnalyzer.py`) should
    offer a `--debug` mode to annotate a small subset of results for clarity.
+
+Run the full test suite with:
+
+```bash
+PYTHONPATH=. pytest -q
+```
 
 ## Documentation Updates
 
