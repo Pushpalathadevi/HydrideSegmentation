@@ -222,37 +222,3 @@ def augment_batch(cfg: Dict) -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 #                               DEMO CONFIG
 # ──────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    example_config = {
-        "input_dir":  r"L:\maniBackUp\HydrideSegmentation\HydrideMask_Manual\dataset_raw",
-        "output_dir": r"L:\maniBackUp\HydrideSegmentation\HydrideMask_Manual\Hydride_dataset_5.0",
-        "num_augments": 20,
-        "debug": False,
-
-        "augmentations": {
-            # geometry / photometric
-    #if aug.get("rotate", {}).get("enable", False):
-            "rotate":        {"enable": True,  "prob": 0.6},
-            "random_crop":        {"enable": True,  "size": (320, 320), "prob": 0.7},
-            "brightness_contrast":{"enable": True,  "brightness_limit": (-0.5, 0.5),
-                                 "contrast_limit":   (-0.2, 0.2), "prob": 0.},
-            "h_flip":             {"enable": True,  "prob": 0.5},
-            "v_flip":             {"enable": True, "prob": 0.5},
-            "random_rotate90":    {"enable": True,  "prob": 0.5},
-
-            # noise family (each has its own p → any combination possible)
-            "gaussian_noise":       {"enable": True,  "var_limit": (200, 300), "prob": 0.4},
-            "iso_noise":            {"enable": True,  "color_shift": (0.6,1.0),
-                                                     "intensity": (0.6,1.0), "prob": 0.3},
-            "multiplicative_noise": {"enable": True,  "multiplier": (0.2,2),
-                                                     "per_channel": True,
-                                                     "elementwise": True,
-                                                     "prob": 0.3},
-            "salt_pepper_noise":    {"enable": True,  "amount": 0.01,
-                                                     "salt_vs_pepper": 0.5,
-                                                     "prob_apply": 0.25},
-            "poisson_noise":        {"enable": True,  "lam_range": (20, 60), "prob": 0.25}
-        }
-    }
-
-    augment_batch(example_config)

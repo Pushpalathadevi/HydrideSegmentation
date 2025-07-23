@@ -213,28 +213,6 @@ class HydrideSegmentation:
         #self.save_input_image()
 
 # ------------------------------------------------------------- SETTINGS
-if __name__ == "__main__":
-    settings = {
-        'image_path': r'L:\maniBackUp\HydrideSegmentation\HydridedImagesForTraining\3PB_SRT_7293_ASh_ASH_from_3PB_2.png',
-
-        'area_threshold': 150,
-        'clahe':    {'clip_limit': 2.0, 'tile_grid_size': [8, 8]},
-        'adaptive': {'block_size': 13, 'C': 20},
-        'morph':    {'kernel_size': [5, 5], 'iterations': 0},
-
-        'plot':  True,
-        'debug': True,
-
-        'output_path': r'L:\maniBackUp\HydrideSegmentation\HydridedImagesForTraining',
-        'mask_output_path': r'L:\maniBackUp\HydrideSegmentation\HydrideMask',
-
-        'crop': False,
-        'crop_percent': 10  # Crops 10% from bottom, changeable anytime
-    }
-
-    HydrideSegmentation(settings).run()
-
-# Add this at the END of segmentationMaskCreation.py
 
 def run_model(image_path, params):
     settings = {

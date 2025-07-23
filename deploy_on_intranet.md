@@ -27,6 +27,7 @@ export HYDRIDE_MODEL_PATH=/path/to/weights
 ## Integrating with `ml_server`
 
 The `ml_server` repository provides a REST endpoint that invokes `hydride_segmentation.inference.run_model`.
+For direct integration without HTTP you can import `hydride_segmentation.ml_api.run_inference_from_image`.
 To enable it:
 
 1. Install HydrideSegmentation inside the same environment used by `ml_server`:

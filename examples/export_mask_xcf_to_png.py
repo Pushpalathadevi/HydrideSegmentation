@@ -10,8 +10,7 @@ def export_hydride_mask_with_gimp(xcf_filepath):
 
     base_name = os.path.splitext(os.path.basename(xcf_filepath))[0]
 
-    # ✅ Change 1: Fixed export directory
-    export_dir = r"L:\maniBackUp\HydrideSegmentation\HydrideMask_Manual\dataset_raw"
+    export_dir = os.environ.get("HYDRIDE_EXPORT_DIR", "./exported_masks")
     os.makedirs(export_dir, exist_ok=True)
 
     # ✅ Change 2: Keep same base name, different extensions
@@ -71,7 +70,7 @@ pdb.gimp_quit(0)
 '''
 
     command = [
-        r"C:\Program Files\GIMP 2\bin\gimp-console-2.10.exe",
+        os.environ.get("GIMP_CONSOLE", "gimp"),
         "-i",
         "--batch-interpreter=python-fu-eval",
         "-b", gimp_batch_script,
@@ -86,10 +85,3 @@ pdb.gimp_quit(0)
     except subprocess.CalledProcessError as e:
         print(f"❌ Error running GIMP: {e}")
 
-if __name__ == "__main__":
-    input_folder = r"L:\maniBackUp\HydrideSegmentation\HydridedImagesForTraining"
-    xcf_files = [f for f in os.listdir(input_folder) if f.lower().endswith(".xcf")]
-    for filename in tqdm(xcf_files, desc="Processing XCF files", unit="file"):
-        if filename.lower().endswith(".xcf"):
-            xcf_file = os.path.join(input_folder, filename)
-            export_hydride_mask_with_gimp(xcf_file)

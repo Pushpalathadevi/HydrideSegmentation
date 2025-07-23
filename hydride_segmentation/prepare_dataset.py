@@ -115,7 +115,7 @@ class DatasetPreparer:
             stem = img.stem.replace("_mask", "")  # robustness
             # preferred mask names in order
             for cand in (img.with_name(f"{stem}.png"),
-                         img.with_name(f"{stem}.png")):
+                         img.with_name(f"{stem}_mask.png")):
                 if cand.exists():
                     pairs.append((img, cand))
                     break
@@ -226,17 +226,3 @@ class DatasetPreparer:
 
 
 # -------------------------------------------------------------------- main
-if __name__ == "__main__":
-    SETTINGS = {
-        "input_dir": r"V:\maniBackUp\HydrideSegmentation\inputForHydrideData6.0",
-        "output_dir": r"V:\maniBackUp\HydrideSegmentation\HydrideData6.0",
-        "train_pct": 0.95,
-        "val_pct": 0.05,
-        "seed": 123,
-        "debug": False,
-        "num_debug": 2,
-        "skip_sanity": True,  # set False to enable sanity checks
-        "export_oxford_style": True,
-        "export_modo_style": True,
-    }
-    DatasetPreparer(SETTINGS).run()

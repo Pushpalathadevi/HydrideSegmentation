@@ -3,8 +3,8 @@ import shutil
 from PIL import Image
 
 # === User Configurable Paths ===
-input_folder = r"V:\maniBackUp\hydride_data"
-output_folder = r"V:\maniBackUp\allHydridedImages"
+input_folder = os.getenv("HYDRIDE_INPUT_DIR", "./input")
+output_folder = os.getenv("HYDRIDE_OUTPUT_DIR", "./output")
 image_list_file = os.path.join(input_folder, "imageNames.txt")
 
 # === Constants ===
@@ -64,5 +64,3 @@ def process_all_images():
                 print(f"⚠️ File missing: {source_path}")
 
 # === Run ===
-if __name__ == "__main__":
-    process_all_images()
