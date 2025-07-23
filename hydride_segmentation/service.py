@@ -2,6 +2,7 @@ import base64
 import io
 import os
 import tempfile
+import ast
 from typing import Tuple
 
 from flask import Flask, jsonify, request, send_file
@@ -62,7 +63,7 @@ def infer():
         for key in params:
             if key in request.form:
                 try:
-                    params[key] = eval(request.form[key])
+                    params[key] = ast.literal_eval(request.form[key])
                 except Exception:
                     pass
 

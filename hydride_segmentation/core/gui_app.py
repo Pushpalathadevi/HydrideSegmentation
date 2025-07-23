@@ -3,44 +3,27 @@
 import os
 import sys
 
-# Dynamically add path to semanticsegmentation
-SEMANTIC_PATH_PRIMARY = r"C:\Users\Admin\PycharmProjects\semanticsegmentation"
-ALTERNATIVE_SEMANTIC_PATH = r"C:\Users\ManiKrishna\PycharmProjects\semanticsegmentation"
-
-SEMANTIC_PATH = (
-    SEMANTIC_PATH_PRIMARY
-    if os.path.isdir(SEMANTIC_PATH_PRIMARY)
-    else ALTERNATIVE_SEMANTIC_PATH
-)
-
-print(f"[DEBUG] Adding to sys.path: {SEMANTIC_PATH}")
-if SEMANTIC_PATH not in sys.path:
-    sys.path.append(SEMANTIC_PATH)
+# Optional extra project path can be provided via environment variable
+EXTRA_PATH = os.getenv("HYDRIDE_EXTRA_PATH")
+if EXTRA_PATH and EXTRA_PATH not in sys.path:
+    sys.path.append(EXTRA_PATH)
 
 # Now you can import inference
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, Menu, Scrollbar, Canvas, PanedWindow, ttk, Text
-#sys.path.append(r"C:\Users\Admin\anaconda3\Lib\site-packages")
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image, ImageTk, ImageGrab
 import os
 import threading
 import numpy as np
-import importlib
 import logging
 from .analysis import orientation_analysis, combined_figure
+from .image_processing import run_segmentation, MODEL_BACKENDS
 
 
 MAX_HISTORY = 10
 
-# Model backend mapping
-MODEL_BACKENDS = {
-    "Conventional Model": "segmentationMaskCreation",
-    "ML Model": "inference"
-}
-
-#test
 class HydrideSegmentationGUI:
     """Tkinter front-end for running segmentation and viewing results."""
     def __init__(self, master):
@@ -432,70 +415,24 @@ class HydrideSegmentationGUI:
         if not params:
             return
         model_name = self.model_var.get()
-        backend_module_name = MODEL_BACKENDS[model_name]
-
-        try:
-            backend = importlib.import_module(backend_module_name)
-        except ModuleNotFoundError as e:
-            messagebox.showerror("Module Error", f"Could not import model: {e}")
-            self.logger.error(f"ModuleNotFoundError: {e}")
-            return
-        except Exception as e:
-            messagebox.showerror("Import Error", str(e))
-            self.logger.error(f"Unexpected import error: {e}")
-            return
-
         def process():
             try:
                 self.logger.info("Running segmentation...")
-                image, mask = backend.run_model(params['image_path'], params)
+                input_img, mask_img, overlay_img = run_segmentation(params, model_name)
+                self.last_mask = np.array(mask_img)
+                self.last_mask_filename = params['image_path']
             except Exception as e:
                 messagebox.showerror("Backend Error", str(e))
                 self.logger.error(f"Segmentation failed: {e}")
                 return
 
-            self.last_mask = mask
-            #mask_arr = np.array(self.last_mask)
-            self.last_mask_filename = params['image_path']
-
-            # 1) Make sure `rgb_image` is always H×W×3
-            if image.ndim == 2:
-                # grayscale → replicate into 3 channels
-                rgb_image = np.stack([image] * 3, axis=-1)
-            else:
-                rgb_image = image
-
-            # 2) Convert to PIL only once
-            input_img = Image.fromarray(rgb_image)
-            mask_img = Image.fromarray(mask)
-
-            # 3) Build overlay in RGB
-            overlay_np = rgb_image.copy()
-            overlay_np[mask > 0] = [255, 0, 0]  # paint red wherever mask is positive
-            overlay_img = Image.fromarray(overlay_np)
-
-            overlay_img = Image.fromarray(overlay_np)
-
-
-            # at segmentation time
             self.current_input, self.current_mask, self.current_overlay = (
                 input_img, mask_img, overlay_img
             )
             self.undo_stack.append((input_img, mask_img, overlay_img))
-            # CAP the undo history
             if len(self.undo_stack) > MAX_HISTORY:
                 self.undo_stack.pop(0)
-
             self.redo_stack.clear()
-
-            self.master.after(
-                0,
-                self.update_panels,
-                input_img,
-                mask_img,
-                overlay_img,
-            )
-
             self.master.after(0, self.update_panels, input_img, mask_img, overlay_img)
             self.logger.info("Segmentation completed")
 

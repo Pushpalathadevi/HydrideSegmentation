@@ -11,4 +11,5 @@ scipy
 tkinterdnd2
 torch
 segmentation-models-pytorch
+Flask
 pytest
