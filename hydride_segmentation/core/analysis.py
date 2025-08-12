@@ -112,3 +112,24 @@ def combined_figure(input_img: Image.Image, mask_img: Image.Image, overlay_img: 
     if save_path:
         fig.savefig(save_path, dpi=200)
     return fig
+
+from .utils import image_to_png_base64
+
+
+def compute_metrics(mask: np.ndarray) -> dict:
+    labels = measure.label(mask > 0)
+    area_fraction = float(np.count_nonzero(mask) / mask.size)
+    hydride_count = int(labels.max())
+    return {
+        "mask_area_fraction": area_fraction,
+        "hydride_count": hydride_count,
+    }
+
+
+def analyze_mask(mask: np.ndarray) -> dict:
+    orient_img, size_img, angle_img = orientation_analysis(mask)
+    return {
+        "orientation_map_png_b64": image_to_png_base64(orient_img),
+        "size_histogram_png_b64": image_to_png_base64(size_img),
+        "angle_histogram_png_b64": image_to_png_base64(angle_img),
+    }
