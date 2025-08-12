@@ -80,24 +80,29 @@ pytest
 
 This will execute all tests under the `tests/` folder.
 
-## Running as a Service
+## Flask Blueprint and Minimal App
 
-HydrideSegmentation ships with a small Flask application exposing `/infer` and
-`/health` endpoints. Start the server with:
+HydrideSegmentation now exposes a Flask blueprint factory at
+`hydride_segmentation.api.create_blueprint`. The blueprint provides two
+endpoints:
+
+- `GET /health` – simple health check returning `{"status": "ok"}`
+- `POST /segment` – accepts a single image upload and returns JSON with base64
+  encoded analysis images and metrics.
+
+For standalone testing a minimal app is included. Run it with:
 
 ```bash
-hydride-service
+python -m hydride_segmentation.app_minimal.app
 ```
 
-POST an image to `/infer` with optional form fields:
+The app serves the blueprint at `/api/v1/hydride_segmentation`. Example `curl`
+request:
 
-- `model` – `ml` (default) or `conventional`
-- `analysis` – `true` to include orientation analysis
-- parameters like `clahe`, `adaptive`, etc. when using the conventional model
-
-If `analysis=true`, the response is a JSON payload containing base64-encoded
-images for the input, mask, overlay and orientation plots along with the area
-fraction. Otherwise the mask PNG bytes are returned directly.
+```bash
+curl -F "file=@path/to/image.png" \
+     http://localhost:5000/api/v1/hydride_segmentation/segment
+```
 
 ## Deploying with ml_server
 
