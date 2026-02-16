@@ -1,45 +1,43 @@
-# HydrideSegmentation -> Microstructural Segmentation Platform (Transition)
+# HydrideSegmentation -> MicroSeg Platform (Transition)
 
-Current release version: `0.8.0`
+Current release version: `0.14.0`
 
-This repository is transitioning from a hydride-specific toolkit into a general-purpose microstructural segmentation platform.
-Hydride segmentation remains the baseline implemented workflow.
+This repository is transitioning from a hydride-specific toolkit into a general local platform for microstructural segmentation.
+Hydride segmentation is the first validated workflow.
 
 ## Mission
 
-Build a scientifically robust local application and backend stack for microstructural segmentation with:
-- pluggable segmentation models
+Build a scientifically robust, CPU-first desktop + CLI platform for microstructural segmentation with:
+- pluggable model backends
 - quantitative analysis pipelines
 - human-in-the-loop correction
-- correction export for future model retraining
+- correction export for retraining loops
+- reproducible experiment and deployment artifacts
 
-See `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/mission_statement.md`.
+See `docs/mission_statement.md`.
 
-## Current Capabilities
+## Core Capabilities
 
 - Registry-backed segmentation orchestration (`src/microseg`)
-- Qt desktop GUI as default (`hydride-gui`)
-- Batch inference + run history
-- Advanced correction tools:
-  - brush, polygon, lasso
+- Qt desktop GUI (`hydride-gui`) with:
+  - brush/polygon/lasso tools
   - connected-feature delete/relabel
-  - class index and color map editing
+  - class index + color map editing
   - split-view synchronized zoom/pan and layer transparency
+  - project/session save-load
 - Correction export schema `microseg.correction.v1`
-- Orchestration pane for train/infer/evaluate/package jobs
-- GPU-compatible training/inference with CPU default and automatic fallback
-- Export mask formats: indexed PNG, color PNG, NumPy
-- Session persistence schema `microseg.project.v1`
 - Deterministic correction dataset packaging
-- YAML config + `--set` override support in unified CLI
+- Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
+- GPU-compatible training/inference/evaluation with CPU default + safe fallback
+- UNet training backend with checkpoint/resume + fixed/random validation sample tracking
+- JSON + HTML run reports for training and evaluation
+- Frozen checkpoint metadata registry for model selection guidance
 
-## Transition Roadmap and Architecture
+## Standards Baseline
 
-- Docs index: `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/README.md`
-- Target architecture: `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/target_architecture.md`
-- Phase plan: `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/development_roadmap.md`
-- Foundation strategy: `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/foundation_strategy.md`
-- Gap analysis: `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/current_state_gap_analysis.md`
+The documentation and implementation policies are aligned with and adapted from the standards style used in
+[DeepImageDeconvolution](https://github.com/kvmani/DeepImageDeconvolution), then extended for segmentation-specific
+annotation, correction, and deployment needs.
 
 ## Installation
 
@@ -48,9 +46,14 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+Qt GUI dependency:
+```bash
+pip install PySide6
+```
+
 ## Primary Usage
 
-Qt GUI (default):
+Qt GUI:
 ```bash
 hydride-gui
 ```
@@ -60,59 +63,96 @@ Legacy Tk GUI fallback:
 hydride-gui --framework tk
 ```
 
-Unified CLI inference (YAML + overrides):
+Model listing with dynamic metadata:
+```bash
+microseg-cli models --details
+```
+
+Inference:
 ```bash
 microseg-cli infer --config configs/inference.default.yml --set params.area_threshold=120
 ```
 
-GPU-enabled inference (auto device selection):
+Training (UNet):
 ```bash
-microseg-cli infer --config configs/inference.default.yml --enable-gpu --device-policy auto
+microseg-cli train --config configs/train.default.yml --set epochs=20
 ```
 
-Unified CLI dataset packaging:
+Training with tracked validation samples:
 ```bash
-microseg-cli package --config configs/package.default.yml --set train_ratio=0.75
+microseg-cli train \
+  --config configs/train.default.yml \
+  --set val_tracking_samples=8 \
+  --set "val_tracking_fixed_samples=val_000.png|val_123.png"
 ```
 
-Unified CLI training:
-```bash
-microseg-cli train --config configs/train.default.yml --set max_samples=300000
-```
-
-GPU-enabled torch training:
-```bash
-microseg-cli train --config configs/train.default.yml --enable-gpu --device-policy auto
-```
-
-Unified CLI evaluation:
+Evaluation:
 ```bash
 microseg-cli evaluate --config configs/evaluate.default.yml --set split=test
 ```
 
-Legacy packaging script remains supported:
+Dataset packaging:
 ```bash
-python scripts/package_corrections_dataset.py --input-dir <correction_exports> --output-dir <dataset_out>
+microseg-cli package --config configs/package.default.yml --set train_ratio=0.75
 ```
 
-## Model Weights
-
-ML inference expects model weights from:
-- `HYDRIDE_MODEL_PATH` environment variable, or
-- `/opt/models/hydride_segmentation/model.pt` by default.
-
-## GUI Dependency Note
-
-Qt GUI requires `PySide6`.
-Install with:
+Leakage-aware split planning (v2):
 ```bash
-pip install PySide6
+microseg-cli dataset-split --config configs/dataset_split.default.yml
 ```
+
+Unsplit `source/masks` auto-prepare (leakage-aware default + global IDs):
+```bash
+microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml
+```
+
+RGB mask colormap conversion during auto-prepare:
+```bash
+microseg-cli dataset-prepare \
+  --config configs/dataset_prepare.default.yml \
+  --set mask_input_type=rgb_colormap \
+  --set 'mask_colormap={"0":[0,0,0],"1":[255,0,0]}'
+```
+
+Dataset QA:
+```bash
+microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict
+```
+
+Registry validation:
+```bash
+microseg-cli validate-registry --config configs/registry_validation.default.yml --strict
+```
+
+Phase closeout gate:
+```bash
+microseg-cli phase-gate --phase-label "Phase N" --strict
+```
+
+## Frozen Checkpoints
+
+- Metadata registry: `frozen_checkpoints/model_registry.json`
+- Guidance: `docs/frozen_checkpoint_registry.md`
+- Binary weights are intentionally excluded from git tracking.
+
+## Documentation
+
+- Docs index: `docs/README.md`
+- Mission: `docs/mission_statement.md`
+- Phase roadmap: `docs/development_roadmap.md`
+- Foundation strategy: `docs/foundation_strategy.md`
+- Current gap analysis: `docs/current_state_gap_analysis.md`
+- Training data requirements: `docs/training_data_requirements.md`
+- GUI user guide: `docs/gui_user_guide.md`
+- Configuration workflow: `docs/configuration_workflow.md`
+- Development workflow + phase closeout gate: `docs/development_workflow.md`
+- Developer guide: `developer_guide.md`
+- Repository contract: `AGENTS.md`
 
 ## Contributing
 
-- Contributor guide: `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/CONTRIBUTE.md`
-- Repository working contract: `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/AGENTS.md`
+- Contributor guide: `CONTRIBUTE.md`
+- Working contract: `AGENTS.md`
 
 ## License
 

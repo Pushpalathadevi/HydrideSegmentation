@@ -1,4 +1,4 @@
-# Current State Gap Analysis (v0.8.0)
+# Current State Gap Analysis (v0.14.0)
 
 ## Baseline Status
 
@@ -14,15 +14,23 @@ Implemented:
 - GUI orchestration pane for inference/training/evaluation/packaging
 - Baseline CPU training and evaluation pipelines (pixel classifier)
 - Torch-based baseline training/evaluation with opt-in GPU runtime and CPU fallback
+- UNet binary training backend with checkpoint/resume lifecycle controls
+- Frozen checkpoint metadata registry with GUI/CLI model guidance
+- Training `report.json` + HTML summaries with fixed/random val sample tracking
+- Evaluation JSON + HTML reports with tracked sample panels
+- Phase-gate automation for end-of-phase test pass + stocktake + gap + docs checks
+- Strict frozen registry validation and leakage-aware dataset split/QA tooling
+- Training dataset auto-prepare from unsplit source/masks with deterministic 80:10:10 default split
+- Leakage-aware auto-prepare grouping policies with optional RGB-colormap mask conversion and global IDs
 
 ## Remaining Gaps To World-Class Target
 
 High-priority gaps:
 - Advanced model-training pipelines beyond baseline pixel classifier
-- Rich evaluation visualization/reporting in GUI
 - Advanced augmentation workflow authoring and preview in GUI
 - Hardware profile capture beyond current run metadata basics
 - Formal uncertainty quantification pathways in inference outputs
+- Comprehensive GUI-native visualization for training/evaluation reports
 
 Medium-priority gaps:
 - Multi-feature default registries beyond hydrides

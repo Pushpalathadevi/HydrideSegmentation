@@ -7,6 +7,9 @@
 - Config-first workflows with explicit overrides
 - Thin UI layer over reusable core library modules
 - No hidden fallback for critical scientific logic
+- Timestamped progress logging + ETA for long-running jobs
+- Machine-readable reports and optional HTML summaries for inspectability
+- Repository-relative documentation links only
 
 ## Must-Have Capabilities
 
@@ -16,6 +19,10 @@
 - Session persistence and restart
 - Dataset packaging for retraining loops
 - Comprehensive user and developer documentation
+- Frozen checkpoint metadata registry and model-selection guidance
+- Fixed + random validation sample tracking during training
+- Leakage-aware deterministic split planning and dataset QA gates
+- Deterministic auto-prepare path for unsplit source/masks datasets
 
 ## Desirable Capabilities
 
@@ -31,6 +38,8 @@
 3. Build GUI as orchestration layer over tested services.
 4. Add CLI parity for reproducibility and automation.
 5. Promote phase exits only with tests and documentation complete.
+6. Apply standards inspired by DeepImageDeconvolution and adapt them for segmentation workflows.
+7. Use a standardized phase-gate closeout run before phase completion.
 
 ## Testing Strategy
 
@@ -43,3 +52,4 @@
 - User docs: GUI workflows, CLI examples, config conventions
 - Developer docs: architecture, contracts, migration decisions
 - Release docs: semver changes and behavior-impact notes
+- Keep mission/roadmap docs as living strategy artifacts with phase-level updates

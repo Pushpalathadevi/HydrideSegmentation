@@ -5,7 +5,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='hydride-segmentation',
-    version='0.8.0',
+    version='0.14.0',
     description='Toolkit for zirconium hydride segmentation and analysis',
     packages=find_packages(),
     include_package_data=True,
@@ -19,6 +19,7 @@ setup(
             'segmentation-eval=hydride_segmentation.segmentation_evaluator:main',
             'package-corrections-dataset=scripts.package_corrections_dataset:main',
             'microseg-cli=scripts.microseg_cli:main',
+            'microseg-phase-gate=scripts.run_phase_gate:main',
         ]
     },
 )

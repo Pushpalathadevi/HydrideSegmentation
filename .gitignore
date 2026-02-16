@@ -51,6 +51,7 @@ static/temp/*
 *.log
 logs/
 log/
+outputs/
 
 # Model files and large binaries
 *.pkl
@@ -61,6 +62,10 @@ log/
 *.pth
 models/weights/*
 !models/weights/.gitkeep
+frozen_checkpoints/**/*.pt
+frozen_checkpoints/**/*.pth
+frozen_checkpoints/**/*.ckpt
+frozen_checkpoints/**/*.onnx
 
 # Local development
 .env.local

@@ -1,0 +1,54 @@
+{
+  "schema_version": "microseg.frozen_checkpoint_registry.v1",
+  "updated_utc": "2026-02-16T00:00:00Z",
+  "models": [
+    {
+      "model_id": "hydride_ml",
+      "model_nickname": "hydride_unet_optical_v1",
+      "model_type": "binary_unet",
+      "framework": "pytorch",
+      "input_size": "variable",
+      "input_dimensions": "H x W x 3",
+      "checkpoint_path_hint": "frozen_checkpoints/hydride_unet_optical_v1/model.pth",
+      "application_remarks": "Suitable for optical microscopy hydride segmentation after contrast normalization.",
+      "short_description": "Recommended for optical hydride segmentation when a validated checkpoint is available.",
+      "detailed_description": "Learns hydride morphology from labeled masks. Validate on representative samples and use correction workflow for edge cases before production reporting.",
+      "classes": [
+        {
+          "index": 0,
+          "name": "background",
+          "color_hex": "#000000"
+        },
+        {
+          "index": 1,
+          "name": "hydride",
+          "color_hex": "#00FFFF"
+        }
+      ]
+    },
+    {
+      "model_id": "hydride_conventional",
+      "model_nickname": "hydride_conventional_cpu_baseline",
+      "model_type": "rule_based",
+      "framework": "opencv+numpy",
+      "input_size": "variable",
+      "input_dimensions": "H x W x 3",
+      "checkpoint_path_hint": "n/a (classical pipeline)",
+      "application_remarks": "Fast CPU baseline for hydride-like contrast patterns and quick QA workflows.",
+      "short_description": "No checkpoint required; deterministic and easy to inspect.",
+      "detailed_description": "Uses CLAHE, adaptive thresholding, and morphology. Best for baseline sanity checks and environments without GPU/ML dependencies.",
+      "classes": [
+        {
+          "index": 0,
+          "name": "background",
+          "color_hex": "#000000"
+        },
+        {
+          "index": 1,
+          "name": "hydride",
+          "color_hex": "#00FFFF"
+        }
+      ]
+    }
+  ]
+}

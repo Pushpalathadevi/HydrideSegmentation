@@ -12,28 +12,44 @@ If a future task conflicts with this document, use this priority order:
 
 ## 1. Mission Alignment (Mandatory)
 
-All changes must align with `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/mission_statement.md`.
+All changes must align with `docs/mission_statement.md`.
 The repository must evolve toward:
 - General microstructural feature segmentation (hydrides, grain boundaries, phases, inclusions, cracks, pores, etc.)
 - CPU-first local inference workflows
 - Human-in-the-loop review and correction
 - Export of corrected data for future model retraining / active learning loops
 - Field-deployable desktop usage with robust logging and error handling
+- GPU-compatible training/inference with safe CPU fallback
 
 ## 2. Scope And Product Direction
 
 In-scope (current):
 - Local desktop GUI and local CLI workflows
-- Inference, correction, export, packaging, evaluation orchestration
+- Inference, correction, export, packaging, training, and evaluation orchestration
 - Config-driven execution (`.yml` + `--set` overrides)
 - Session/project save and resume
+- Frozen-checkpoint metadata registry for dynamic user guidance
 
 Out-of-scope until explicitly reprioritized:
 - Web-first productization
 - Cloud-only assumptions
 - GPU-required core paths
 
-## 3. Non-Negotiable Engineering Terms
+## 3. Policy Baseline (DeepImageDeconvolution-Inspired)
+
+This repository adopts and extends standards inspired by `kvmani/DeepImageDeconvolution`:
+- Thin scripts, heavy library modules
+- Debuggable and traceable run artifacts
+- Documentation sync in the same change as behavior updates
+- Structured logs and machine-readable manifests/reports
+- Beginner-friendly user and developer documentation
+
+Where this repository differs:
+- Segmentation-centric architecture (not deconvolution)
+- Human correction loops with export-ready annotations
+- Local desktop deployment with annotation-first UX
+
+## 4. Non-Negotiable Engineering Terms
 
 - Keep architecture modular: domain contracts, pipelines, models, UI, and I/O are separate.
 - Keep GUI and core computation decoupled.
@@ -48,7 +64,37 @@ Out-of-scope until explicitly reprioritized:
   - GPU use must be explicit/configurable (or opt-in auto mode)
   - missing GPU runtime must automatically and visibly fall back to CPU
 
-## 4. Annotation And Correction Standards
+## 5. Observability And Run Reporting Standards
+
+Long-running jobs (training/evaluation/packaging) must:
+- Log timestamped progress with counts, percent complete, and ETA
+- Persist restart/useful intermediate artifacts during execution
+- Write machine-readable report files (`report.json`) for automated summarization
+- Emit structured epoch/sample artifacts for human inspection
+- Write HTML summaries when practical
+- On interruption/failure, preserve partial outputs and write failure context
+
+Validation tracking for training must support:
+- `n` tracked validation samples per epoch
+- fixed named samples from config
+- random sampled remainder for coverage
+- stored panels/metrics per tracked sample
+
+## 6. Frozen Checkpoint Registry Standards
+
+`frozen_checkpoints/model_registry.json` is the canonical metadata registry.
+Each entry must include:
+- model ID and nickname
+- model type and framework
+- input dimensions and size assumptions
+- class index mapping
+- checkpoint path hint
+- short and detailed user guidance
+- application suitability remarks
+
+Binary weights (`.pt`, `.pth`, `.ckpt`, `.onnx`) are not tracked in git.
+
+## 7. Annotation And Correction Standards
 
 The correction workflow must support:
 - Deleting wrongly segmented connected features
@@ -63,17 +109,18 @@ Correction exports are scientific artifacts and must include:
 - Class map used during correction
 - Annotator + timestamp provenance
 
-## 5. Training/Inference/Evaluation Workflow Standards
+## 8. Workflow Configuration Standards
 
-- Inference, correction export, and dataset packaging must be callable from both GUI and CLI.
+- Inference, correction export, dataset packaging, training, and evaluation must be callable from both GUI and CLI.
 - Config strategy is mandatory:
   - YAML base configs
   - `--set` dotted-key overrides
-  - GUI editable entries that map to same config model
+  - GUI editable entries mapped to the same config model
 - Split generation must be deterministic with explicit seed control.
+- Split generation must include leakage guards (at minimum source-group-aware split constraints).
 - Validation/test isolation must be documented and preserved.
 
-## 6. Coding And Packaging Expectations
+## 9. Coding And Packaging Expectations
 
 - Python 3.10+.
 - Type hints for public APIs.
@@ -82,7 +129,7 @@ Correction exports are scientific artifacts and must include:
 - No GUI-only dependencies imported by package top-level modules.
 - Keep entry points thin; heavy logic belongs in library modules.
 
-## 7. Testing Expectations (Release Gate)
+## 10. Testing Expectations (Release Gate)
 
 - Unit tests for pure functions and data contracts.
 - Integration tests for inference and correction export pipelines.
@@ -91,15 +138,26 @@ Correction exports are scientific artifacts and must include:
 - Existing behavior must be captured in regression tests before major rewrites.
 - Behavior-changing PRs must add or update tests in the same change.
 
-## 8. Documentation Sync (Mandatory)
+## 10A. Mandatory End-Of-Phase Closeout
+
+At the end of each development phase, the following are mandatory:
+- Run full repository tests and ensure all pass.
+- Take stock of implemented features vs phase goals.
+- Identify and document remaining gaps explicitly.
+- Update `README.md`, roadmap/gap docs, and relevant phase docs in the same change.
+- Produce a closeout artifact (machine-readable + human-readable summary) for traceability.
+
+## 11. Documentation Sync (Mandatory)
 
 Any behavior change must update docs in the same change.
 At minimum update:
-- `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/README.md` for user-facing usage changes
-- `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/` architecture/workflow docs for internal behavior changes
-- `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/tests/README.md` when validation protocol changes
+- `README.md` for user-facing usage changes
+- `docs/` architecture/workflow docs for internal behavior changes
+- `tests/README.md` when validation protocol changes
 
-## 9. Migration Rules
+All markdown links must be repository-relative, not absolute local filesystem paths.
+
+## 12. Migration Rules
 
 The current `hydride_segmentation` package is base-zero implementation.
 During migration:
@@ -107,12 +165,12 @@ During migration:
 - Introduce compatibility wrappers where needed.
 - Remove legacy paths only after equivalent tests and docs exist.
 
-## 10. Local Deployment Focus
+## 13. Local Deployment Focus
 
 This repository is desktop/local-app-first.
 Do not prioritize web deployment or cloud-only assumptions until local CPU workflows are complete and stable.
 
-## 11. What To Avoid
+## 14. What To Avoid
 
 - Monolithic scripts that mix UI, inference, and file I/O.
 - Hidden global state for model instances without lifecycle control.

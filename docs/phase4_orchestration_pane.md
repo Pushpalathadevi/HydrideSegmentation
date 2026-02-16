@@ -21,20 +21,20 @@ All jobs execute through `scripts/microseg_cli.py` using YAML configs plus `--se
 ## Backend Additions
 
 - Command builder for reproducible orchestration commands:
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/app/orchestration.py`
+  - `src/microseg/app/orchestration.py`
 - Baseline CPU training pipeline:
 - Baseline torch training pipeline (GPU-compatible):
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/training/pixel_classifier.py`
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/training/torch_pixel_classifier.py`
+  - `src/microseg/training/pixel_classifier.py`
+  - `src/microseg/training/torch_pixel_classifier.py`
 - Baseline evaluation pipeline:
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/evaluation/pixel_model_eval.py`
+  - `src/microseg/evaluation/pixel_model_eval.py`
 - Unified CLI expanded with `train` and `evaluate`:
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/scripts/microseg_cli.py`
+  - `scripts/microseg_cli.py`
 
 ## GUI Integration
 
 Updated workflow hub in:
-- `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/hydride_segmentation/qt/main_window.py`
+- `hydride_segmentation/qt/main_window.py`
 
 Features:
 - Tabbed orchestration panel (`Inference`, `Training`, `Evaluation`, `Packaging`)
@@ -46,8 +46,8 @@ Features:
 ## Config Templates
 
 Added defaults:
-- `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/configs/train.default.yml`
-- `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/configs/evaluate.default.yml`
+- `configs/train.default.yml`
+- `configs/evaluate.default.yml`
 
 ## Validation
 

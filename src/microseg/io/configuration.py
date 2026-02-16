@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,11 @@ def _parse_scalar(raw: str) -> Any:
         return text.lower() == "true"
     if text.lower() in {"none", "null"}:
         return None
+    if (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]")):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
     try:
         if "." in text:
             return float(text)

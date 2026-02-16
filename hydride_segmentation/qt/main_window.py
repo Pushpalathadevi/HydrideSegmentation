@@ -690,8 +690,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_train_dataset_edit = QLineEdit("outputs/packaged_dataset")
         self.orch_train_output_edit = QLineEdit("outputs/training")
         self.orch_train_backend = QComboBox()
-        self.orch_train_backend.addItems(["torch_pixel", "sklearn_pixel"])
-        self.orch_train_backend.setCurrentText("torch_pixel")
+        self.orch_train_backend.addItems(["unet_binary", "torch_pixel", "sklearn_pixel"])
+        self.orch_train_backend.setCurrentText("unet_binary")
         self.orch_train_enable_gpu = QCheckBox("Enable GPU")
         self.orch_train_enable_gpu.setChecked(False)
         self.orch_train_device_policy = QComboBox()
@@ -704,8 +704,41 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_train_epochs.setRange(1, 1000)
         self.orch_train_epochs.setValue(8)
         self.orch_train_batch_size = QSpinBox()
-        self.orch_train_batch_size.setRange(128, 131072)
-        self.orch_train_batch_size.setValue(4096)
+        self.orch_train_batch_size.setRange(1, 131072)
+        self.orch_train_batch_size.setValue(8)
+        self.orch_train_learning_rate = QDoubleSpinBox()
+        self.orch_train_learning_rate.setDecimals(6)
+        self.orch_train_learning_rate.setRange(0.000001, 1.0)
+        self.orch_train_learning_rate.setValue(0.001)
+        self.orch_train_weight_decay = QDoubleSpinBox()
+        self.orch_train_weight_decay.setDecimals(6)
+        self.orch_train_weight_decay.setRange(0.0, 1.0)
+        self.orch_train_weight_decay.setValue(0.00001)
+        self.orch_train_patience = QSpinBox()
+        self.orch_train_patience.setRange(1, 200)
+        self.orch_train_patience.setValue(5)
+        self.orch_train_min_delta = QDoubleSpinBox()
+        self.orch_train_min_delta.setDecimals(6)
+        self.orch_train_min_delta.setRange(0.0, 1.0)
+        self.orch_train_min_delta.setValue(0.0001)
+        self.orch_train_checkpoint_every = QSpinBox()
+        self.orch_train_checkpoint_every.setRange(1, 100)
+        self.orch_train_checkpoint_every.setValue(1)
+        self.orch_train_resume_checkpoint = QLineEdit()
+        self.orch_train_resume_checkpoint.setPlaceholderText("Optional checkpoint path for resume")
+        self.orch_train_val_tracking_samples = QSpinBox()
+        self.orch_train_val_tracking_samples.setRange(0, 200)
+        self.orch_train_val_tracking_samples.setValue(6)
+        self.orch_train_val_tracking_fixed = QLineEdit()
+        self.orch_train_val_tracking_fixed.setPlaceholderText("Fixed val names, separated by | (e.g. val_000.png|val_123.png)")
+        self.orch_train_val_tracking_seed = QSpinBox()
+        self.orch_train_val_tracking_seed.setRange(0, 100000)
+        self.orch_train_val_tracking_seed.setValue(17)
+        self.orch_train_write_html_report = QCheckBox("Write HTML report")
+        self.orch_train_write_html_report.setChecked(True)
+        self.orch_train_progress_interval = QSpinBox()
+        self.orch_train_progress_interval.setRange(1, 50)
+        self.orch_train_progress_interval.setValue(10)
         self.orch_train_seed = QSpinBox()
         self.orch_train_seed.setRange(0, 100000)
         self.orch_train_seed.setValue(42)
@@ -720,6 +753,17 @@ class QtSegmentationMainWindow(QMainWindow):
         train_form.addRow("Max Samples", self.orch_train_max_samples)
         train_form.addRow("Epochs", self.orch_train_epochs)
         train_form.addRow("Batch Size", self.orch_train_batch_size)
+        train_form.addRow("Learning Rate", self.orch_train_learning_rate)
+        train_form.addRow("Weight Decay", self.orch_train_weight_decay)
+        train_form.addRow("Early Stop Patience", self.orch_train_patience)
+        train_form.addRow("Early Stop Min Δ", self.orch_train_min_delta)
+        train_form.addRow("Checkpoint Every", self.orch_train_checkpoint_every)
+        train_form.addRow("Resume Checkpoint", self.orch_train_resume_checkpoint)
+        train_form.addRow("Track Val Samples", self.orch_train_val_tracking_samples)
+        train_form.addRow("Fixed Val Names", self.orch_train_val_tracking_fixed)
+        train_form.addRow("Val Tracking Seed", self.orch_train_val_tracking_seed)
+        train_form.addRow("Progress Log Interval (%)", self.orch_train_progress_interval)
+        train_form.addRow(self.orch_train_write_html_report)
         train_form.addRow("Seed", self.orch_train_seed)
         train_form.addRow(self.btn_orch_train)
         self.workflow_tabs.addTab(train_tab, "Training")
@@ -739,6 +783,14 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_eval_split_combo = QComboBox()
         self.orch_eval_split_combo.addItems(["val", "test", "train"])
         self.orch_eval_output_edit = QLineEdit("outputs/evaluation/pixel_eval_report.json")
+        self.orch_eval_tracking_samples = QSpinBox()
+        self.orch_eval_tracking_samples.setRange(0, 200)
+        self.orch_eval_tracking_samples.setValue(8)
+        self.orch_eval_tracking_seed = QSpinBox()
+        self.orch_eval_tracking_seed.setRange(0, 100000)
+        self.orch_eval_tracking_seed.setValue(17)
+        self.orch_eval_write_html_report = QCheckBox("Write HTML report")
+        self.orch_eval_write_html_report.setChecked(True)
         self.btn_orch_eval = QPushButton("Run Evaluation Job")
         self.btn_orch_eval.clicked.connect(self.on_orchestrate_evaluation)
         eval_form.addRow("Config", self.orch_eval_config_edit)
@@ -748,6 +800,9 @@ class QtSegmentationMainWindow(QMainWindow):
         eval_form.addRow(self.orch_eval_enable_gpu, self.orch_eval_device_policy)
         eval_form.addRow("Split", self.orch_eval_split_combo)
         eval_form.addRow("Output Path", self.orch_eval_output_edit)
+        eval_form.addRow("Track Sample Panels", self.orch_eval_tracking_samples)
+        eval_form.addRow("Tracking Seed", self.orch_eval_tracking_seed)
+        eval_form.addRow(self.orch_eval_write_html_report)
         eval_form.addRow(self.btn_orch_eval)
         self.workflow_tabs.addTab(eval_tab, "Evaluation")
 
@@ -955,9 +1010,22 @@ class QtSegmentationMainWindow(QMainWindow):
         if not spec:
             self.model_desc.setText("")
             return
-        self.model_desc.setText(
-            f"<b>{spec['display_name']}</b> | {spec.get('description', '')}<br>{spec.get('details', '')}"
-        )
+        lines = [
+            f"<b>{spec['display_name']}</b> | {spec.get('description', '')}",
+            spec.get("details", ""),
+        ]
+        if spec.get("model_nickname"):
+            lines.append(
+                f"<b>Frozen model:</b> {spec.get('model_nickname')} | {spec.get('framework', '')} | "
+                f"{spec.get('model_type', '')} | input={spec.get('input_dimensions', '')}"
+            )
+        if spec.get("checkpoint_path_hint"):
+            lines.append(f"<b>Checkpoint hint:</b> {spec.get('checkpoint_path_hint')}")
+        if spec.get("application_remarks"):
+            lines.append(f"<b>Application:</b> {spec.get('application_remarks')}")
+        if spec.get("short_description"):
+            lines.append(f"<b>User tip:</b> {spec.get('short_description')}")
+        self.model_desc.setText("<br>".join([line for line in lines if line]))
 
     def _on_class_changed(self, class_label: str) -> None:
         class_index = self._selected_class_index()
@@ -1058,11 +1126,26 @@ class QtSegmentationMainWindow(QMainWindow):
                 f"max_samples={int(self.orch_train_max_samples.value())}",
                 f"epochs={int(self.orch_train_epochs.value())}",
                 f"batch_size={int(self.orch_train_batch_size.value())}",
+                f"learning_rate={float(self.orch_train_learning_rate.value())}",
+                f"weight_decay={float(self.orch_train_weight_decay.value())}",
+                f"early_stopping_patience={int(self.orch_train_patience.value())}",
+                f"early_stopping_min_delta={float(self.orch_train_min_delta.value())}",
+                f"checkpoint_every={int(self.orch_train_checkpoint_every.value())}",
+                f"val_tracking_samples={int(self.orch_train_val_tracking_samples.value())}",
+                f"val_tracking_seed={int(self.orch_train_val_tracking_seed.value())}",
+                f"write_html_report={str(self.orch_train_write_html_report.isChecked()).lower()}",
+                f"progress_log_interval_pct={int(self.orch_train_progress_interval.value())}",
                 f"seed={int(self.orch_train_seed.value())}",
                 f"enable_gpu={str(self.orch_train_enable_gpu.isChecked()).lower()}",
                 f"device_policy={self.orch_train_device_policy.currentText()}",
             ]
         )
+        resume = self.orch_train_resume_checkpoint.text().strip()
+        if resume:
+            overrides.append(f"resume_checkpoint={resume}")
+        fixed = self.orch_train_val_tracking_fixed.text().strip()
+        if fixed:
+            overrides.append(f"val_tracking_fixed_samples={fixed}")
         command = self.orchestrator.train(
             config=self.orch_train_config_edit.text().strip() or None,
             overrides=overrides,
@@ -1078,6 +1161,9 @@ class QtSegmentationMainWindow(QMainWindow):
                 f"split={self.orch_eval_split_combo.currentText()}",
                 f"enable_gpu={str(self.orch_eval_enable_gpu.isChecked()).lower()}",
                 f"device_policy={self.orch_eval_device_policy.currentText()}",
+                f"tracking_samples={int(self.orch_eval_tracking_samples.value())}",
+                f"tracking_seed={int(self.orch_eval_tracking_seed.value())}",
+                f"write_html_report={str(self.orch_eval_write_html_report.isChecked()).lower()}",
             ]
         )
         command = self.orchestrator.evaluate(

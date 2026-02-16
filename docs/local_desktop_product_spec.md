@@ -51,7 +51,7 @@ A local installable desktop application for microstructural segmentation workflo
 - Reproducible outputs
 - Cross-platform packaging target (macOS, Linux, Windows)
 
-## Current Implementation Snapshot (Phase 3)
+## Current Implementation Snapshot (Phase 7)
 
 Implemented now:
 - Registry-backed model selector in GUI
@@ -68,10 +68,16 @@ Implemented now:
 - Workflow hub tab for dataset split packaging
 - Workflow hub orchestration tabs for inference/training/evaluation/packaging jobs
 - Unified `microseg-cli` supporting YAML + `--set` flow
+- UNet training backend with early stopping/checkpoint/resume controls
+- Validation sample tracking controls for training (fixed + random)
+- Training/evaluation JSON + HTML report generation
+- Dynamic model help from frozen checkpoint metadata registry
+- Phase-gate closeout automation for test pass + stocktake + docs synchronization
+- Leakage-aware correction split planner and packaged dataset QA checks
+- Deterministic unsplit source/masks to train/val/test preparation with ID-mapped filenames
 
 Pending:
 - Advanced correction ergonomics (shape libraries, smarter snapping, uncertainty-driven guidance)
-- Full training/evaluation orchestration and job monitoring in GUI
 - Active-learning policy integration over exported corrections
 - Installer-grade packaging and signed release workflows
 

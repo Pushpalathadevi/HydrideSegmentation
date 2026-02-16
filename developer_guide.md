@@ -9,6 +9,8 @@ This guide covers day-to-day development against the current baseline while the 
 - Target architecture: `docs/target_architecture.md`
 - Phase plan: `docs/development_roadmap.md`
 - Working rules: `AGENTS.md`
+- Frozen checkpoint metadata: `docs/frozen_checkpoint_registry.md`
+- Phase closeout workflow: `docs/development_workflow.md`
 
 ## Local Setup
 
@@ -28,8 +30,19 @@ package-corrections-dataset --help
 ```
 
 Qt runtime note:
-- `hydride-gui` defaults to Qt framework and requires `PySide6`.
-- Legacy Tk path remains available via `hydride-gui --framework tk`.
+  - `hydride-gui` defaults to Qt framework and requires `PySide6`.
+  - Legacy Tk path remains available via `hydride-gui --framework tk`.
+
+Model metadata inspection:
+```bash
+microseg-cli models --details
+microseg-cli validate-registry --config configs/registry_validation.default.yml --strict
+```
+
+Phase closeout gate:
+```bash
+microseg-cli phase-gate --phase-label "Phase N" --strict
+```
 
 ## Development Procedure
 
@@ -66,3 +79,22 @@ Correction UX controls implemented:
 - polygon and lasso interactive tools
 - split-view synchronized pan/zoom correction workspace
 - keyboard shortcuts for tool selection and undo/redo
+
+Phase 7 observability additions:
+- UNet training writes `report.json`, `training_report.html`, `epoch_history.jsonl`, and tracked val sample panels.
+- Evaluation writes JSON + HTML reports and tracked sample panels.
+- Long jobs emit progress/ETA logs and preserve partial artifacts on interruption.
+
+Phase 9 model lifecycle + data ops additions:
+- Dataset split planning: `microseg-cli dataset-split --config configs/dataset_split.default.yml`
+- Dataset preparation from unsplit source/masks: `microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml`
+- Dataset QA checks: `microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict`
+- Dataset auto-prepare defaults:
+  - leakage-aware split strategy
+  - global ID suffixes for all prepared samples
+  - optional RGB mask conversion through configurable `mask_colormap`
+- New modules:
+  - `src/microseg/plugins/registry_validation.py`
+  - `src/microseg/dataops/split_planner.py`
+  - `src/microseg/dataops/quality.py`
+  - `src/microseg/dataops/training_dataset.py`

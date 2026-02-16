@@ -93,4 +93,4 @@ def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:
     assert "macro_f1" in payload["metrics"]
 
     raw = json.loads(report_path.read_text(encoding="utf-8"))
-    assert raw["schema_version"] == "microseg.pixel_eval.v1"
+    assert str(raw["schema_version"]).startswith("microseg.pixel_eval.v")

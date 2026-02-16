@@ -23,5 +23,18 @@ Current status:
 - Phase 4 orchestration/training baseline implemented:
   - `training/pixel_classifier.py` CPU baseline training/inference
   - `training/torch_pixel_classifier.py` GPU-compatible torch baseline training/inference with CPU fallback
-  - `evaluation/pixel_model_eval.py` baseline evaluation reports
+  - `training/unet_binary.py` UNet binary training with checkpoints, early stopping, resume, and tracked val sample reporting
+  - `evaluation/pixel_model_eval.py` baseline evaluation with tracked sample panels + HTML summary output
+- Phase 7 observability and model metadata implemented:
+  - `plugins/frozen_checkpoints.py` frozen-checkpoint metadata registry loader
+  - `frozen_checkpoints/model_registry.json` metadata source for model guidance
+  - training/evaluation JSON + HTML report emission with progress/ETA logging
+- Phase 8 quality governance implemented:
+  - `quality/phase_gate.py` phase closeout checks and stocktake report generation
+- Phase 9 model lifecycle + dataops foundation implemented:
+  - `plugins/registry_validation.py` strict frozen checkpoint metadata validator
+  - `dataops/split_planner.py` leakage-aware correction split materialization
+  - `dataops/quality.py` packaged dataset QA checks
+- Phase 10 training data contract implemented:
+  - `dataops/training_dataset.py` split-layout detection + unsplit auto-prepare with ID suffix mapping
 - Existing implementation still remains under `hydride_segmentation/` for backward compatibility.

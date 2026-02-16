@@ -22,6 +22,9 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Desktop GUI and CLI parity for core operations
 - Config-driven execution with YAML and command-line overrides
 - Reproducibility logging and schema-versioned outputs
+- Frozen-checkpoint metadata registry for model selection and guidance
+- Human-readable + machine-readable run reporting (`json` + `html`)
+- Mandatory end-of-phase quality gates (tests + stocktake + gap review + docs sync)
 
 ## Non-Goals (Current Phases)
 
@@ -34,11 +37,15 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 1. Deliver high-quality segmentation inference through a pluggable model registry.
 2. Enable rapid and auditable human correction in GUI.
 3. Export indexed/color correction outputs with provenance metadata.
-4. Provide deterministic dataset packaging and split generation.
+4. Provide deterministic, leakage-aware dataset packaging and split generation with global sample IDs.
 5. Support restartable project sessions with intermediate state persistence.
 6. Keep deployment local, installable, and operationally reliable.
 7. Maintain semantic versioning and release notes for deployed users.
 8. Ensure GPU acceleration is opt-in/configurable and automatically falls back to CPU when unavailable.
+9. Track fixed and random validation exemplars per epoch to support scientific model progression analysis.
+10. Keep user-facing and developer-facing documentation beginner-friendly and synchronized with implementation.
+11. Enforce strict model metadata validation and leakage-aware dataset split/QA checks before training cycles.
+12. Support explicit split datasets and unsplit source/masks datasets through deterministic auto-prepare workflows, including optional RGB-mask colormap conversion.
 
 ## Success Criteria
 
@@ -46,5 +53,7 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Users can delete wrongly segmented features and redraw corrected annotations by class index.
 - Exports include indexed masks, optional colorized masks, and correction metadata.
 - YAML configs and `--set` overrides are consistently applied in CLI and GUI workflows.
+- Training and evaluation runs emit progress/ETA logs, interruption-safe reports, and HTML summaries.
+- Model registry metadata validates cleanly and packaged datasets pass QA gates before training.
 - Saved project sessions can be reopened and resumed without data loss.
 - Hydride workflows remain stable while generalization is implemented.

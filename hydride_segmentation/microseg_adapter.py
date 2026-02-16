@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from src.microseg.domain import SegmentationRequest
 from src.microseg.inference import build_hydride_registry
+from src.microseg.plugins import frozen_checkpoint_map
 from src.microseg.pipelines import SegmentationPipeline
 
 
@@ -23,6 +24,10 @@ def get_gui_model_specs() -> list[dict[str, str]]:
     """Return model metadata for GUI descriptions and selection help."""
 
     specs = build_hydride_registry().specs()
+    try:
+        frozen = frozen_checkpoint_map()
+    except Exception:
+        frozen = {}
     return [
         {
             "model_id": spec.model_id,
@@ -30,6 +35,15 @@ def get_gui_model_specs() -> list[dict[str, str]]:
             "feature_family": spec.feature_family,
             "description": spec.description,
             "details": spec.details,
+            "model_nickname": frozen[spec.model_id].model_nickname if spec.model_id in frozen else "",
+            "model_type": frozen[spec.model_id].model_type if spec.model_id in frozen else "",
+            "framework": frozen[spec.model_id].framework if spec.model_id in frozen else "",
+            "input_size": frozen[spec.model_id].input_size if spec.model_id in frozen else "",
+            "input_dimensions": frozen[spec.model_id].input_dimensions if spec.model_id in frozen else "",
+            "checkpoint_path_hint": frozen[spec.model_id].checkpoint_path_hint if spec.model_id in frozen else "",
+            "application_remarks": frozen[spec.model_id].application_remarks if spec.model_id in frozen else "",
+            "short_description": frozen[spec.model_id].short_description if spec.model_id in frozen else "",
+            "detailed_description": frozen[spec.model_id].detailed_description if spec.model_id in frozen else "",
         }
         for spec in specs
     ]

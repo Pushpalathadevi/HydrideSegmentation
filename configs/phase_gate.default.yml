@@ -1,0 +1,5 @@
+phase_label: "Phase 8"
+output_dir: outputs/phase_gates
+skip_tests: false
+strict: false
+notes: ""

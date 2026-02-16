@@ -12,6 +12,7 @@ HydrideSegmentation/
     target_architecture.md
     development_roadmap.md
     scientific_validation.md
+    training_data_requirements.md
     local_desktop_product_spec.md
     repository_blueprint.md
     adr/
@@ -20,6 +21,7 @@ HydrideSegmentation/
       domain/
       core/
       corrections/
+      dataops/
       inference/
       evaluation/
       training/
@@ -29,6 +31,7 @@ HydrideSegmentation/
       ui/
       app/
       utils/
+      quality/
   apps/
     desktop/
       # Qt app shell and packaging assets
@@ -44,6 +47,8 @@ HydrideSegmentation/
   models/
     registry/
     weights/
+  frozen_checkpoints/
+    model_registry.json
   scripts/
   tests/
     unit/

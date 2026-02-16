@@ -10,6 +10,7 @@
 6. Package datasets for training.
 7. Save session and resume later.
 8. Run full train/infer/evaluate/package jobs from Workflow Hub.
+9. Review model-specific frozen-checkpoint tips before selecting ML models.
 
 ## Correction Workflow
 
@@ -57,3 +58,23 @@ Operational behavior:
 - config path + override support per job
 - per-job GPU controls (`Enable GPU` + `device policy`) with CPU fallback behavior
 - default is CPU execution unless GPU is explicitly enabled
+- training tab includes backend selection (`unet_binary`, `torch_pixel`, `sklearn_pixel`)
+- `unet_binary` supports early stopping and resume checkpoint path
+- training tab supports validation sample tracking:
+  - total tracked sample count per epoch
+  - fixed val file names (`|` separated)
+  - random remainder sampling
+  - progress logging interval configuration
+  - optional HTML report writing
+- evaluation tab supports tracked sample panel count/seed and HTML report toggle
+
+## Model Guidance Panel
+
+The model description area now includes metadata pulled from `frozen_checkpoints/model_registry.json` when available:
+- model nickname and type
+- expected input dimensions
+- checkpoint path hint
+- application suitability remarks
+- short user tips
+
+This helps users select the right model for optical/TEM or other microstructural contexts.

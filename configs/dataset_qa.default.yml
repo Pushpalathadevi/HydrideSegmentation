@@ -1,0 +1,4 @@
+dataset_dir: outputs/packaged_dataset_v2
+output_path: outputs/dataops/dataset_qa_report.json
+imbalance_ratio_warn: 0.98
+strict: false

@@ -82,6 +82,8 @@ include_analysis: false
     parsed = parse_set_overrides(["params.area_threshold=22", "include_analysis=true"])
     merged = merge_dicts({"params": {"area_threshold": 10}}, parsed)
     assert merged["params"]["area_threshold"] == 22
+    parsed_map = parse_set_overrides(['mask_colormap={"0":[0,0,0],"1":[255,0,0]}'])
+    assert parsed_map["mask_colormap"]["1"] == [255, 0, 0]
 
     resolved = resolve_config(cfg_path, ["params.crop=true"])
     assert resolved["model_name"] == "Hydride Conventional"

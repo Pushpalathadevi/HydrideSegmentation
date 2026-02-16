@@ -10,14 +10,14 @@ Enable GPU-compatible training and inference while keeping CPU as the default ru
 ## Implemented
 
 - Central runtime device resolver with automatic CPU fallback:
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/core/device.py`
+  - `src/microseg/core/device.py`
 - Hydride ML inference now supports device controls:
   - `enable_gpu` + `device_policy` (`cpu|auto|cuda|mps`)
   - falls back to CPU if GPU runtime unavailable
 - Torch-based baseline training pipeline:
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/training/torch_pixel_classifier.py`
+  - `src/microseg/training/torch_pixel_classifier.py`
 - Evaluation supports both sklearn and torch baseline artifacts:
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/evaluation/pixel_model_eval.py`
+  - `src/microseg/evaluation/pixel_model_eval.py`
 - Unified CLI GPU switches added:
   - `microseg-cli infer/train/evaluate --enable-gpu --device-policy auto`
 - GUI Workflow Hub now exposes per-job GPU controls for inference/training/evaluation.
@@ -31,5 +31,5 @@ Enable GPU-compatible training and inference while keeping CPU as the default ru
 ## Validation
 
 - Added tests:
-  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/tests/test_phase5_gpu_runtime.py`
+  - `tests/test_phase5_gpu_runtime.py`
 - Full test suite passing on CPU-only environment.

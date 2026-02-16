@@ -1,0 +1,6 @@
+input_dir: data/corrected_exports
+output_dir: outputs/packaged_dataset_v2
+train_ratio: 0.8
+val_ratio: 0.1
+seed: 42
+leakage_group: source_stem

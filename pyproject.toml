@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydride-segmentation"
-version = "0.8.0"
+version = "0.14.0"
 description = "Toolkit for zirconium hydride segmentation and analysis"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,3 +38,4 @@ hydride-service = "hydride_segmentation.service:main"
 hydride-gui-qt = "hydride_segmentation.qt_gui:main"
 package-corrections-dataset = "scripts.package_corrections_dataset:main"
 microseg-cli = "scripts.microseg_cli:main"
+microseg-phase-gate = "scripts.run_phase_gate:main"
