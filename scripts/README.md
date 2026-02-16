@@ -8,3 +8,4 @@ Rules:
 
 Current scripts:
 - `package_corrections_dataset.py` packages exported correction samples into train/val/test layout.
+- `microseg_cli.py` unified CLI for inference and correction-dataset packaging with YAML + `--set` overrides.

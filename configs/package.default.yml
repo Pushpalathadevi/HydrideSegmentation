@@ -1,0 +1,5 @@
+input_dir: outputs/corrections
+output_dir: outputs/packaged_dataset
+train_ratio: 0.8
+val_ratio: 0.1
+seed: 42

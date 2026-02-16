@@ -49,6 +49,11 @@ def build_hydride_registry(registry: ModelRegistry | None = None) -> ModelRegist
             display_name="Hydride Conventional",
             feature_family="hydride",
             description="CLAHE + adaptive threshold + morphology",
+            details=(
+                "Classical CPU-first pipeline for hydride-like contrast patterns. "
+                "Includes CLAHE normalization, adaptive thresholding, and morphology. "
+                "Best for quick baseline runs and environments without ML weights."
+            ),
         ),
         factory=HydrideConventionalPredictor,
     )
@@ -58,6 +63,11 @@ def build_hydride_registry(registry: ModelRegistry | None = None) -> ModelRegist
             display_name="Hydride ML",
             feature_family="hydride",
             description="UNet-based hydride segmentation model",
+            details=(
+                "UNet-like learned predictor for hydride segmentation. "
+                "Requires model weights and is generally more flexible for "
+                "heterogeneous image contrast; validate with correction workflow."
+            ),
         ),
         factory=HydrideMLPredictor,
     )

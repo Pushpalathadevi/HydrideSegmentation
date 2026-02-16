@@ -14,3 +14,4 @@ torch
 segmentation-models-pytorch
 Flask
 pytest
+PyYAML

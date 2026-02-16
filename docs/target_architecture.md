@@ -24,7 +24,8 @@
 - Standardized predictor interface
 
 4. Correction layer
-- Interactive correction objects (paint, erase, polygon, threshold edits)
+- Interactive correction objects (paint, erase, polygon, lasso, connected-component delete/relabel)
+- Class-index and color-map contracts
 - Change logs and reversible history
 - Quality flags and reviewer attribution
 
@@ -35,6 +36,13 @@
 6. Application layer
 - Desktop GUI: upload, model selection, run, inspect, correct, export
 - Headless CLI for automation and batch workflows
+- Project/session persistence for resume workflows
+- Workflow hub for inference/correction/packaging orchestration
+
+7. Configuration layer
+- YAML config loading
+- CLI and GUI override reconciliation (`--set` semantics)
+- Persisted resolved-config artifacts for reproducibility
 
 ## Canonical Interfaces (to implement)
 
@@ -50,3 +58,4 @@
 - Versioned file formats
 - Deterministic debug mode
 - Backward-compatible adapters for current hydride workflows
+- GUI and CLI parity for core local workflows

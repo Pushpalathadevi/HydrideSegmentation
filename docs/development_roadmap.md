@@ -74,6 +74,9 @@ Status:
 - Added deterministic correction dataset packaging CLI
 - Added Qt GUI foundation for correction workflow
 - Added advanced correction UX: polygon/lasso tools, split-view synchronized zoom/pan, layer transparency controls, and keyboard shortcuts
+- Added connected-feature deletion/relabel workflow for correcting wrong segmented objects
+- Added class index/color map editing and class-aware annotation overlays
+- Added export format options: indexed PNG, color PNG, NumPy mask
 
 Exit criteria:
 - corrected outputs export to training-ready folder layout with manifests
@@ -87,6 +90,15 @@ Deliverables:
 - standardized training pipeline
 - experiment tracking metadata
 - retraining guide from correction datasets
+- config-first orchestration (`.yml` + `--set`) across GUI and CLI
+- restartable session persistence for iterative annotation projects
+
+Status:
+- Foundation scaffolding implemented in v0.6.0:
+  - YAML configuration + `--set` merge engine
+  - unified CLI (`microseg-cli`) for inference and dataset packaging
+  - project session save/load schema `microseg.project.v1`
+  - GUI workflow hub for split packaging control
 
 Exit criteria:
 - documented and testable loop: infer -> correct -> export -> train -> deploy

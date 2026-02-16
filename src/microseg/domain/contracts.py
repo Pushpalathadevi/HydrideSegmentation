@@ -56,6 +56,7 @@ class ModelSpec:
     display_name: str
     feature_family: str
     description: str = ""
+    details: str = ""
 
 
 def utc_timestamp() -> str:

@@ -10,7 +10,7 @@ from typing import Any, Literal
 class CorrectionAction:
     """Represents one user correction action applied to a mask."""
 
-    action_type: Literal["brush", "polygon"]
+    action_type: Literal["brush", "polygon", "feature_delete", "feature_relabel"]
     mode: Literal["add", "erase"]
     params: dict[str, Any] = field(default_factory=dict)
     timestamp_utc: str = ""

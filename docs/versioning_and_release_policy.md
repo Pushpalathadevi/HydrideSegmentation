@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- Software version: `0.5.0`
+- Software version: `0.6.0`
 - Version source of truth:
   - `hydride_segmentation/version.py`
   - `pyproject.toml`
@@ -36,8 +36,10 @@ Before release:
 
 4. Reproducibility checks
 - Validate correction schema compatibility (`microseg.correction.v1`)
+- Validate project schema compatibility (`microseg.project.v1`)
 - Validate dataset packaging manifest generation
+- Validate resolved configuration artifacts for CLI workflows
 
 ## Deployment Guidance
 
-Field deployments should pin explicit versions (for example `hydride-segmentation==0.5.0`) and avoid floating upgrades.
+Field deployments should pin explicit versions (for example `hydride-segmentation==0.6.0`) and avoid floating upgrades.

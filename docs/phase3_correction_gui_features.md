@@ -31,7 +31,12 @@ Primary UX goals:
 - Brush erase mode
 - Polygon add/erase mode (left-click points, right-click finalize)
 - Lasso add/erase mode (freehand path, release to apply)
+- Feature-select tool:
+  - erase mode deletes clicked connected component
+  - add mode relabels clicked connected component to active class
 - Adjustable brush radius
+- Active class index selector for multi-class correction
+- Editable class map (`index,name,#RRGGBB[,description]`)
 - Correction reset to initial prediction
 - Undo / redo
 
@@ -40,6 +45,7 @@ Primary UX goals:
   - `B` brush tool
   - `P` polygon tool
   - `L` lasso tool
+  - `F` feature-select tool
   - `A` add mode
   - `R` erase mode
   - `Ctrl+Z` undo
@@ -55,7 +61,10 @@ Primary UX goals:
 - Works with run history and batch outputs
 - Split-view correction workspace with synchronized pan and zoom
 - Exports corrected sample with versioned schema metadata
+  - format options: indexed PNG, color PNG, NumPy
+- Session save/load for restartable projects
 - Compatible with correction dataset packaging CLI
+- Embedded workflow hub for deterministic dataset split packaging
 
 ### 6. Operational Robustness
 - Structured GUI logging for major user actions and failures
@@ -78,3 +87,4 @@ Primary UX goals:
 - optional edge-snapping assistance
 - configurable color themes for color-vision accessibility
 - side-by-side multi-mask comparison for reviewer QA
+- deeper training/evaluation orchestration panes and job monitoring

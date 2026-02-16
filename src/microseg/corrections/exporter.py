@@ -13,6 +13,12 @@ import numpy as np
 from PIL import Image
 
 from src.microseg.app.desktop_workflow import DesktopRunRecord
+from src.microseg.corrections.classes import (
+    DEFAULT_CLASS_MAP,
+    SegmentationClassMap,
+    colorize_index_mask,
+    to_index_mask,
+)
 from src.microseg.domain.corrections import CorrectionExportRecord
 from src.microseg.utils import mask_overlay, to_rgb
 
@@ -35,27 +41,60 @@ class CorrectionExporter:
         *,
         annotator: str = "unknown",
         notes: str = "",
+        class_map: SegmentationClassMap | None = None,
+        formats: set[str] | None = None,
     ) -> Path:
-        """Export corrected sample artifacts and metadata."""
+        """Export corrected sample artifacts and metadata.
+
+        Supported formats:
+        - ``indexed_png``: indexed masks in PNG format
+        - ``color_png``: colorized masks using class map colors
+        - ``numpy_npy``: corrected indexed mask in NPY format
+        """
 
         root = Path(output_dir)
         sample_id = f"{Path(run.image_name).stem}_{run.run_id}"
         sample_dir = root / sample_id
         sample_dir.mkdir(parents=True, exist_ok=True)
 
+        class_map = class_map or DEFAULT_CLASS_MAP
+        formats = formats or {"indexed_png", "color_png"}
+
         input_path = sample_dir / "input.png"
-        predicted_mask_path = sample_dir / "predicted_mask.png"
-        corrected_mask_path = sample_dir / "corrected_mask.png"
+        predicted_mask_path = sample_dir / "predicted_mask_indexed.png"
+        corrected_mask_path = sample_dir / "corrected_mask_indexed.png"
         corrected_overlay_path = sample_dir / "corrected_overlay.png"
+        predicted_color_path = sample_dir / "predicted_mask_color.png"
+        corrected_color_path = sample_dir / "corrected_mask_color.png"
+        corrected_npy_path = sample_dir / "corrected_mask.npy"
 
         run.input_image.save(input_path)
-        run.mask_image.save(predicted_mask_path)
+        pred_idx = to_index_mask(np.array(run.mask_image))
+        corr_idx = to_index_mask(corrected_mask)
 
-        cmask = (corrected_mask > 0).astype(np.uint8) * 255
-        Image.fromarray(cmask).save(corrected_mask_path)
+        files_payload: dict[str, str] = {"input": input_path.name}
 
-        overlay = mask_overlay(np.array(run.input_image), cmask)
+        if "indexed_png" in formats:
+            Image.fromarray(pred_idx).save(predicted_mask_path)
+            Image.fromarray(corr_idx).save(corrected_mask_path)
+            files_payload["predicted_mask_indexed"] = predicted_mask_path.name
+            files_payload["corrected_mask_indexed"] = corrected_mask_path.name
+            files_payload["predicted_mask"] = predicted_mask_path.name
+            files_payload["corrected_mask"] = corrected_mask_path.name
+
+        if "color_png" in formats:
+            Image.fromarray(colorize_index_mask(pred_idx, class_map)).save(predicted_color_path)
+            Image.fromarray(colorize_index_mask(corr_idx, class_map)).save(corrected_color_path)
+            files_payload["predicted_mask_color"] = predicted_color_path.name
+            files_payload["corrected_mask_color"] = corrected_color_path.name
+
+        if "numpy_npy" in formats:
+            np.save(corrected_npy_path, corr_idx)
+            files_payload["corrected_mask_numpy"] = corrected_npy_path.name
+
+        overlay = mask_overlay(np.array(run.input_image), (corr_idx > 0).astype(np.uint8) * 255)
         Image.fromarray(overlay).save(corrected_overlay_path)
+        files_payload["corrected_overlay"] = corrected_overlay_path.name
 
         record = CorrectionExportRecord(
             schema_version=SCHEMA_VERSION,
@@ -67,18 +106,15 @@ class CorrectionExporter:
             created_utc=_utc_now(),
             annotator=annotator,
             notes=notes,
-            files={
-                "input": input_path.name,
-                "predicted_mask": predicted_mask_path.name,
-                "corrected_mask": corrected_mask_path.name,
-                "corrected_overlay": corrected_overlay_path.name,
-            },
+            files=files_payload,
             metrics=run.metrics,
         )
 
         metadata = asdict(record)
-        metadata["correction_foreground_pixels"] = int(np.count_nonzero(cmask))
-        metadata["predicted_foreground_pixels"] = int(np.count_nonzero(np.array(run.mask_image)))
+        metadata["class_map"] = class_map.as_dict()
+        metadata["export_formats"] = sorted(list(formats))
+        metadata["correction_foreground_pixels"] = int(np.count_nonzero(corr_idx > 0))
+        metadata["predicted_foreground_pixels"] = int(np.count_nonzero(pred_idx > 0))
 
         (sample_dir / "correction_record.json").write_text(
             json.dumps(metadata, indent=2),
@@ -138,7 +174,10 @@ class CorrectionDatasetPackager:
                 rec = json.loads((sample_dir / "correction_record.json").read_text(encoding="utf-8"))
                 sid = rec["sample_id"]
                 shutil.copy2(sample_dir / rec["files"]["input"], img_dir / f"{sid}.png")
-                shutil.copy2(sample_dir / rec["files"]["corrected_mask"], msk_dir / f"{sid}.png")
+                key = "corrected_mask_indexed" if "corrected_mask_indexed" in rec["files"] else "corrected_mask"
+                if key not in rec["files"]:
+                    raise KeyError("missing corrected mask entry in correction export record")
+                shutil.copy2(sample_dir / rec["files"][key], msk_dir / f"{sid}.png")
                 shutil.copy2(sample_dir / "correction_record.json", meta_dir / f"{sid}.json")
 
         manifest = {

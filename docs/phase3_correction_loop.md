@@ -6,7 +6,8 @@ Branch: `codex/microstructure-foundation-scaffold`
 ## Scope Delivered
 
 1. Correction session model
-- Added `CorrectionSession` with brush/polygon actions and undo/redo.
+- Added `CorrectionSession` with class-index aware brush/polygon actions and undo/redo.
+- Added connected-feature operations: delete and relabel.
 - Module: `src/microseg/corrections/session.py`
 
 2. Versioned correction export schema
@@ -25,18 +26,25 @@ Branch: `codex/microstructure-foundation-scaffold`
   - model selection from registry-backed workflow manager
   - segmentation run (single + batch)
   - brush, polygon, and lasso correction tools
+  - feature-select correction tool for connected component delete/relabel
+  - class map editing and active class selection
   - zoom controls + Ctrl-wheel zoom
   - layer visibility/transparency controls (predicted/corrected/diff)
   - split-view synchronized pan/zoom workspace
   - undo/redo correction
-  - corrected sample export through versioned schema
+  - corrected sample export through versioned schema with selectable formats
+  - project session save/load for restartable annotation work
+  - workflow hub for deterministic dataset split packaging
 
 ## Exported Corrected Sample Layout
 
 Each correction sample folder contains:
 - `input.png`
-- `predicted_mask.png`
-- `corrected_mask.png`
+- `predicted_mask_indexed.png`
+- `corrected_mask_indexed.png`
+- `predicted_mask_color.png` (optional)
+- `corrected_mask_color.png` (optional)
+- `corrected_mask.npy` (optional)
 - `corrected_overlay.png`
 - `correction_record.json`
 
@@ -45,6 +53,8 @@ Each correction sample folder contains:
 - source/run/model provenance
 - annotator and notes
 - metrics snapshot
+- class map used for annotation
+- export format manifest
 - corrected/predicted foreground counts
 
 ## Dataset Packaging Output Layout
@@ -76,4 +86,4 @@ Each correction sample folder contains:
 
 - Qt GUI requires `PySide6` at runtime.
 - Correction tools currently use raster overlays without edge-snapping assistance.
-- Active-learning policy and correction quality gates are planned for Phase 4.
+- End-to-end model training orchestration remains a Phase 4+ objective.

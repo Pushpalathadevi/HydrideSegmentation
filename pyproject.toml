@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydride-segmentation"
-version = "0.5.0"
+version = "0.6.0"
 description = "Toolkit for zirconium hydride segmentation and analysis"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,7 @@ dependencies = [
     "segmentation-models-pytorch",
     "flask",
     "pydantic",
+    "PyYAML",
 ]
 
 [project.optional-dependencies]
@@ -36,3 +37,4 @@ segmentation-eval = "hydride_segmentation.segmentation_evaluator:main"
 hydride-service = "hydride_segmentation.service:main"
 hydride-gui-qt = "hydride_segmentation.qt_gui:main"
 package-corrections-dataset = "scripts.package_corrections_dataset:main"
+microseg-cli = "scripts.microseg_cli:main"

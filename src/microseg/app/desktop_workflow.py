@@ -13,6 +13,7 @@ from PIL import Image
 
 from hydride_segmentation.microseg_adapter import (
     get_gui_model_options,
+    get_gui_model_specs,
     resolve_gui_model_id,
     run_pipeline_from_gui,
 )
@@ -56,6 +57,9 @@ class DesktopWorkflowManager:
     def model_options(self) -> list[str]:
         return get_gui_model_options()
 
+    def model_specs(self) -> list[dict[str, str]]:
+        return get_gui_model_specs()
+
     def history(self) -> list[DesktopRunRecord]:
         return list(self._history)
 
@@ -67,6 +71,13 @@ class DesktopWorkflowManager:
 
     def clear(self) -> None:
         self._history.clear()
+
+    def append_history(self, record: DesktopRunRecord) -> None:
+        """Append externally loaded run record into in-memory history."""
+
+        self._history.append(record)
+        if len(self._history) > self.max_history:
+            self._history.pop(0)
 
     def run_single(
         self,

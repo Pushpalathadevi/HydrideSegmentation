@@ -9,6 +9,8 @@
 5. Add regression tests for preserved behavior.
 6. Update docs in the same change.
 7. Validate CPU-only local run path.
+8. Verify YAML + `--set` configuration paths for changed workflows.
+9. Verify project/session persistence if correction UI behavior changed.
 
 ## Pull Request Checklist
 
@@ -17,6 +19,7 @@
 - Backward compatibility addressed
 - Documentation synchronized
 - Reproducibility metadata preserved
+- Config schema or defaults updated (if behavior changed)
 
 ## Release Readiness Checklist
 

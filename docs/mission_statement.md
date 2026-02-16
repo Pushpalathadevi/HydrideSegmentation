@@ -4,40 +4,45 @@
 
 Build a scientifically robust, extensible, and deployable platform for microstructural image segmentation and quantitative analysis.
 
-Hydride segmentation is the initial validated use case. The architecture must support additional segmentation targets without rewriting core infrastructure.
+Hydride segmentation is the first validated workflow. The architecture must support additional targets without rewriting core infrastructure.
 
-## Problem Context
+## Vision
 
-Microstructural analysis workflows often combine:
-- Image segmentation
-- Morphological and orientation analysis
-- Human review and correction
-- Iterative model improvement
+Deliver a field-ready local desktop product and backend toolkit that can:
+- run inference from registered models
+- support human correction with efficient annotation tools
+- export corrections into training-ready datasets
+- run reproducible experiments and evaluations
+- continuously improve model quality through data curation loops
 
-Most pipelines are fragmented across scripts, manual tools, and model-specific code.
-This project consolidates those workflows into one local application and backend toolkit.
+## Strategic Scope (Current)
+
+- CPU-first local workflows
+- Desktop GUI and CLI parity for core operations
+- Config-driven execution with YAML and command-line overrides
+- Reproducibility logging and schema-versioned outputs
+
+## Non-Goals (Current Phases)
+
+- Web-first deployment as primary interface
+- Cloud dependence for mandatory workflows
+- GPU-only assumptions for baseline usage
 
 ## Core Objectives
 
-1. Deliver high-quality segmentation inference using pluggable models.
-2. Support manual inspection and correction in a desktop GUI.
-3. Export corrected annotations as retraining-ready datasets.
-4. Support reproducible training and evaluation workflows.
-5. Keep deployment local, CPU-first, and installable on standard user systems.
-6. Provide professional field-ready UX, operational logging, and robust failure handling.
-7. Maintain semantic versioning and release notes so deployed users can track behavior changes safely.
-
-## Non-Goals (Current Phase)
-
-- Web-first product development
-- Cloud-dependent inference as a requirement
-- GPU-only assumptions for core functionality
+1. Deliver high-quality segmentation inference through a pluggable model registry.
+2. Enable rapid and auditable human correction in GUI.
+3. Export indexed/color correction outputs with provenance metadata.
+4. Provide deterministic dataset packaging and split generation.
+5. Support restartable project sessions with intermediate state persistence.
+6. Keep deployment local, installable, and operationally reliable.
+7. Maintain semantic versioning and release notes for deployed users.
 
 ## Success Criteria
 
-- Any supported microstructural model can be registered and run from one app.
-- All inference runs produce reproducible metadata and quality summaries.
-- User corrections can be exported with versioned schema for future training loops.
-- Hydride workflows remain available while generalization is implemented.
-- GUI correction workflows support efficient large-image navigation (zoom, layered overlays, synchronized views).
-- Releases are semantically versioned and accompanied by user-facing change documentation.
+- Any supported model can be registered and selected with short + detailed descriptions.
+- Users can delete wrongly segmented features and redraw corrected annotations by class index.
+- Exports include indexed masks, optional colorized masks, and correction metadata.
+- YAML configs and `--set` overrides are consistently applied in CLI and GUI workflows.
+- Saved project sessions can be reopened and resumed without data loss.
+- Hydride workflows remain stable while generalization is implemented.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +14,11 @@ from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,18 +27,30 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QTabWidget,
+    QTextEdit,
     QScrollArea,
     QSlider,
     QSpinBox,
     QSplitter,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from hydride_segmentation.version import __version__
+from src.microseg.app import ProjectSaveRequest, ProjectStateStore
 from src.microseg.app.desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
-from src.microseg.corrections import CorrectionExporter, CorrectionSession
+from src.microseg.corrections import (
+    DEFAULT_CLASS_MAP,
+    CorrectionDatasetPackager,
+    CorrectionExporter,
+    CorrectionSession,
+    SegmentationClass,
+    SegmentationClassMap,
+    colorize_index_mask,
+    to_index_mask,
+)
+from src.microseg.io import resolve_config
 from src.microseg.ui import AnnotationLayerSettings, compose_annotation_view
 from src.microseg.utils import to_rgb
 
@@ -44,6 +60,7 @@ class _UiState:
     image_path: str | None = None
     current_run: DesktopRunRecord | None = None
     correction_session: CorrectionSession | None = None
+    class_map: SegmentationClassMap = field(default_factory=lambda: DEFAULT_CLASS_MAP)
 
 
 def _rgb_to_pixmap(arr: np.ndarray) -> QPixmap:
@@ -61,9 +78,8 @@ def _scale_pixmap(pix: QPixmap, zoom: float) -> QPixmap:
     return pix.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
 
 
-def _mask_to_pixmap(mask: np.ndarray) -> QPixmap:
-    m = (mask > 0).astype(np.uint8) * 255
-    return _rgb_to_pixmap(np.stack([m] * 3, axis=-1))
+def _mask_to_pixmap(mask: np.ndarray, class_map: SegmentationClassMap) -> QPixmap:
+    return _rgb_to_pixmap(colorize_index_mask(to_index_mask(mask), class_map))
 
 
 class _UiLogHandler(logging.Handler):
@@ -94,6 +110,8 @@ class CorrectedMaskCanvas(QLabel):
         self._predicted_mask: np.ndarray | None = None
         self._session: CorrectionSession | None = None
         self._settings = AnnotationLayerSettings()
+        self._class_map = DEFAULT_CLASS_MAP
+        self._class_index = 1
 
         self._tool = "brush"
         self._mode = "add"
@@ -114,6 +132,13 @@ class CorrectedMaskCanvas(QLabel):
 
     def set_mode(self, mode: str) -> None:
         self._mode = mode
+
+    def set_class_index(self, class_index: int) -> None:
+        self._class_index = max(0, int(class_index))
+
+    def set_class_map(self, class_map: SegmentationClassMap) -> None:
+        self._class_map = class_map
+        self._refresh()
 
     def set_radius(self, radius: int) -> None:
         self._radius = max(1, int(radius))
@@ -139,10 +164,17 @@ class CorrectedMaskCanvas(QLabel):
         self._settings = settings
         self._refresh()
 
-    def bind(self, base_image: np.ndarray, predicted_mask: np.ndarray, session: CorrectionSession) -> None:
+    def bind(
+        self,
+        base_image: np.ndarray,
+        predicted_mask: np.ndarray,
+        session: CorrectionSession,
+        class_map: SegmentationClassMap,
+    ) -> None:
         self._base_image = base_image
-        self._predicted_mask = (predicted_mask > 0).astype(np.uint8) * 255
+        self._predicted_mask = to_index_mask(predicted_mask)
         self._session = session
+        self._class_map = class_map
         self._painting = False
         self._poly_points = []
         self._lasso_points = []
@@ -164,6 +196,7 @@ class CorrectedMaskCanvas(QLabel):
             self._predicted_mask,
             self._session.current_mask,
             self._settings,
+            class_map=self._class_map,
         )
 
     @staticmethod
@@ -218,6 +251,7 @@ class CorrectedMaskCanvas(QLabel):
             y=y,
             radius=self._radius,
             mode=self._mode,
+            class_index=self._class_index,
             push_undo=push_undo,
             record_action=record_action,
         )
@@ -228,7 +262,7 @@ class CorrectedMaskCanvas(QLabel):
         if self._session is None:
             return
         if len(self._poly_points) >= 3:
-            self._session.apply_polygon(self._poly_points, mode=self._mode)
+            self._session.apply_polygon(self._poly_points, mode=self._mode, class_index=self._class_index)
             self.correction_changed.emit()
         self._poly_points = []
         self._refresh()
@@ -237,7 +271,7 @@ class CorrectedMaskCanvas(QLabel):
         if self._session is None:
             return
         if len(self._lasso_points) >= 3:
-            self._session.apply_polygon(self._lasso_points, mode=self._mode)
+            self._session.apply_polygon(self._lasso_points, mode=self._mode, class_index=self._class_index)
             self.correction_changed.emit()
         self._lasso_points = []
         self._lasso_active = False
@@ -281,6 +315,17 @@ class CorrectedMaskCanvas(QLabel):
             self._lasso_active = True
             self._lasso_points = [(x, y)] if self._in_bounds(x, y) else []
             self._refresh()
+            return
+
+        if self._tool == "feature_select" and event.button() == Qt.LeftButton and self._session is not None:
+            changed = False
+            if self._mode == "erase":
+                changed = self._session.delete_feature(x, y)
+            else:
+                changed = self._session.relabel_feature(x, y, class_index=self._class_index)
+            if changed:
+                self._refresh()
+                self.correction_changed.emit()
 
     def mouseMoveEvent(self, event):  # noqa: N802
         p = event.position().toPoint()
@@ -313,7 +358,10 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.workflow = DesktopWorkflowManager(max_history=400)
         self.exporter = CorrectionExporter()
+        self.packager = CorrectionDatasetPackager(seed=42)
+        self.project_store = ProjectStateStore()
         self.state = _UiState()
+        self._model_specs = {spec["display_name"]: spec for spec in self.workflow.model_specs()}
 
         self._sync_scroll_guard = False
         self.logger = logging.getLogger("MicroSegQtGUI")
@@ -360,6 +408,14 @@ class QtSegmentationMainWindow(QMainWindow):
         act_export.triggered.connect(self.on_export_correction)
         file_menu.addAction(act_export)
 
+        act_save_project = QAction("Save Project Session", self)
+        act_save_project.triggered.connect(self.on_save_project)
+        file_menu.addAction(act_save_project)
+
+        act_load_project = QAction("Load Project Session", self)
+        act_load_project.triggered.connect(self.on_load_project)
+        file_menu.addAction(act_load_project)
+
         file_menu.addSeparator()
         act_exit = QAction("Exit", self)
         act_exit.triggered.connect(self.close)
@@ -398,6 +454,7 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.model_combo = QComboBox()
         self.model_combo.addItems(self.workflow.model_options())
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
         controls.addWidget(self.model_combo)
 
         self.btn_run = QPushButton("Run Segmentation")
@@ -407,6 +464,23 @@ class QtSegmentationMainWindow(QMainWindow):
         self.btn_batch = QPushButton("Run Batch")
         self.btn_batch.clicked.connect(self.on_run_batch)
         controls.addWidget(self.btn_batch)
+
+        self.model_desc = QLabel("")
+        self.model_desc.setWordWrap(True)
+        layout.addWidget(self.model_desc)
+        self._on_model_changed(self.model_combo.currentText())
+
+        config_row = QHBoxLayout()
+        layout.addLayout(config_row)
+        self.config_path_edit = QLineEdit()
+        self.config_path_edit.setPlaceholderText("Optional YAML config path")
+        config_row.addWidget(self.config_path_edit, stretch=4)
+        self.btn_config_browse = QPushButton("Config...")
+        self.btn_config_browse.clicked.connect(self.on_pick_config)
+        config_row.addWidget(self.btn_config_browse)
+        self.config_overrides_edit = QLineEdit()
+        self.config_overrides_edit.setPlaceholderText("Overrides: key=value,key2=value2")
+        config_row.addWidget(self.config_overrides_edit, stretch=3)
 
         self.corrected_canvas = CorrectedMaskCanvas()
         self.corrected_canvas.zoom_changed.connect(self._on_zoom_changed)
@@ -418,7 +492,7 @@ class QtSegmentationMainWindow(QMainWindow):
 
         tool_row.addWidget(QLabel("Tool"))
         self.tool_combo = QComboBox()
-        self.tool_combo.addItems(["brush", "polygon", "lasso"])
+        self.tool_combo.addItems(["brush", "polygon", "lasso", "feature_select"])
         self.tool_combo.currentTextChanged.connect(self._on_tool_changed)
         tool_row.addWidget(self.tool_combo)
 
@@ -427,6 +501,15 @@ class QtSegmentationMainWindow(QMainWindow):
         self.mode_combo.addItems(["add", "erase"])
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
         tool_row.addWidget(self.mode_combo)
+
+        tool_row.addWidget(QLabel("Class"))
+        self.class_combo = QComboBox()
+        self.class_combo.currentTextChanged.connect(self._on_class_changed)
+        tool_row.addWidget(self.class_combo)
+
+        self.btn_classes = QPushButton("Edit Classes")
+        self.btn_classes.clicked.connect(self.on_edit_classes)
+        tool_row.addWidget(self.btn_classes)
 
         tool_row.addWidget(QLabel("Brush"))
         self.radius_spin = QSpinBox()
@@ -507,9 +590,29 @@ class QtSegmentationMainWindow(QMainWindow):
         self.notes_edit.setPlaceholderText("Correction notes")
         layer_row.addWidget(self.notes_edit, stretch=2)
 
+        self.chk_fmt_indexed = QCheckBox("indexed")
+        self.chk_fmt_indexed.setChecked(True)
+        layer_row.addWidget(self.chk_fmt_indexed)
+
+        self.chk_fmt_color = QCheckBox("color")
+        self.chk_fmt_color.setChecked(True)
+        layer_row.addWidget(self.chk_fmt_color)
+
+        self.chk_fmt_npy = QCheckBox("npy")
+        self.chk_fmt_npy.setChecked(False)
+        layer_row.addWidget(self.chk_fmt_npy)
+
         self.btn_export = QPushButton("Export Corrected Sample")
         self.btn_export.clicked.connect(self.on_export_correction)
         layer_row.addWidget(self.btn_export)
+
+        self.btn_save_project = QPushButton("Save Session")
+        self.btn_save_project.clicked.connect(self.on_save_project)
+        layer_row.addWidget(self.btn_save_project)
+
+        self.btn_load_project = QPushButton("Load Session")
+        self.btn_load_project.clicked.connect(self.on_load_project)
+        layer_row.addWidget(self.btn_load_project)
 
         body = QHBoxLayout()
         layout.addLayout(body, stretch=1)
@@ -547,7 +650,45 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.tabs.addTab(self.split_widget, "Correction Split View")
 
+        self.workflow_widget = QWidget()
+        wf = QFormLayout(self.workflow_widget)
+        self.dataset_input_edit = QLineEdit()
+        self.dataset_input_edit.setPlaceholderText("Correction exports directory")
+        self.dataset_output_edit = QLineEdit()
+        self.dataset_output_edit.setPlaceholderText("Packaged dataset output directory")
+        self.train_ratio_spin = QDoubleSpinBox()
+        self.train_ratio_spin.setRange(0.1, 0.95)
+        self.train_ratio_spin.setDecimals(2)
+        self.train_ratio_spin.setValue(0.8)
+        self.val_ratio_spin = QDoubleSpinBox()
+        self.val_ratio_spin.setRange(0.0, 0.8)
+        self.val_ratio_spin.setDecimals(2)
+        self.val_ratio_spin.setValue(0.1)
+        self.seed_spin = QSpinBox()
+        self.seed_spin.setRange(0, 100000)
+        self.seed_spin.setValue(42)
+        self.btn_package = QPushButton("Package Dataset")
+        self.btn_package.clicked.connect(self.on_package_dataset)
+        self.workflow_notes = QTextEdit()
+        self.workflow_notes.setReadOnly(True)
+        self.workflow_notes.setPlainText(
+            "Pipeline Hub\\n"
+            "- Inference and correction: main controls\\n"
+            "- Dataset packaging: form above\\n"
+            "- Training/evaluation/augmentation use YAML + microseg-cli."
+        )
+        wf.addRow("Corrections Dir", self.dataset_input_edit)
+        wf.addRow("Output Dir", self.dataset_output_edit)
+        wf.addRow("Train Ratio", self.train_ratio_spin)
+        wf.addRow("Val Ratio", self.val_ratio_spin)
+        wf.addRow("Seed", self.seed_spin)
+        wf.addRow(self.btn_package)
+        wf.addRow(self.workflow_notes)
+
+        self.tabs.addTab(self.workflow_widget, "Workflow Hub")
+
         self._connect_scroll_sync()
+        self._reload_class_combo()
 
         status = QHBoxLayout()
         layout.addLayout(status)
@@ -599,6 +740,7 @@ class QtSegmentationMainWindow(QMainWindow):
         QShortcut(QKeySequence("B"), self, activated=lambda: self.tool_combo.setCurrentText("brush"))
         QShortcut(QKeySequence("P"), self, activated=lambda: self.tool_combo.setCurrentText("polygon"))
         QShortcut(QKeySequence("L"), self, activated=lambda: self.tool_combo.setCurrentText("lasso"))
+        QShortcut(QKeySequence("F"), self, activated=lambda: self.tool_combo.setCurrentText("feature_select"))
 
         QShortcut(QKeySequence("A"), self, activated=lambda: self.mode_combo.setCurrentText("add"))
         QShortcut(QKeySequence("R"), self, activated=lambda: self.mode_combo.setCurrentText("erase"))
@@ -633,6 +775,132 @@ class QtSegmentationMainWindow(QMainWindow):
     def _update_layer_settings(self) -> None:
         self.corrected_canvas.update_layer_settings(self._layer_settings())
 
+    def _reload_class_combo(self) -> None:
+        prev = self.class_combo.currentText()
+        self.class_combo.blockSignals(True)
+        self.class_combo.clear()
+        for cls in sorted(self.state.class_map.classes, key=lambda c: c.index):
+            self.class_combo.addItem(f"{cls.index}:{cls.name}")
+        self.class_combo.blockSignals(False)
+        if prev:
+            idx = self.class_combo.findText(prev)
+            if idx >= 0:
+                self.class_combo.setCurrentIndex(idx)
+            elif self.class_combo.count() > 0:
+                self.class_combo.setCurrentIndex(min(1, self.class_combo.count() - 1))
+        elif self.class_combo.count() > 0:
+            self.class_combo.setCurrentIndex(min(1, self.class_combo.count() - 1))
+        self._on_class_changed(self.class_combo.currentText())
+
+    @staticmethod
+    def _parse_class_line(line: str) -> SegmentationClass:
+        parts = [p.strip() for p in line.split(",", 3)]
+        if len(parts) < 3:
+            raise ValueError("expected: index,name,#RRGGBB[,description]")
+        idx = int(parts[0])
+        name = parts[1]
+        color_hex = parts[2].lstrip("#")
+        if len(color_hex) != 6:
+            raise ValueError(f"invalid color hex '{parts[2]}'")
+        color = tuple(int(color_hex[i:i + 2], 16) for i in (0, 2, 4))
+        desc = parts[3] if len(parts) > 3 else ""
+        return SegmentationClass(index=idx, name=name, color_rgb=(color[0], color[1], color[2]), description=desc)
+
+    @staticmethod
+    def _class_map_to_text(class_map: SegmentationClassMap) -> str:
+        lines = []
+        for cls in sorted(class_map.classes, key=lambda c: c.index):
+            color_hex = "#{:02X}{:02X}{:02X}".format(*cls.color_rgb)
+            line = f"{cls.index},{cls.name},{color_hex}"
+            if cls.description:
+                line += f",{cls.description}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _class_map_from_text(text: str) -> SegmentationClassMap:
+        classes: list[SegmentationClass] = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            classes.append(QtSegmentationMainWindow._parse_class_line(line))
+        return SegmentationClassMap(tuple(classes))
+
+    def _selected_class_index(self) -> int:
+        label = self.class_combo.currentText().strip()
+        if not label:
+            return 1
+        try:
+            return int(label.split(":", 1)[0])
+        except Exception:
+            return 1
+
+    def _selected_export_formats(self) -> set[str]:
+        fmts: set[str] = set()
+        if self.chk_fmt_indexed.isChecked():
+            fmts.add("indexed_png")
+        if self.chk_fmt_color.isChecked():
+            fmts.add("color_png")
+        if self.chk_fmt_npy.isChecked():
+            fmts.add("numpy_npy")
+        return fmts or {"indexed_png"}
+
+    def _on_model_changed(self, model_name: str) -> None:
+        spec = self._model_specs.get(model_name)
+        if not spec:
+            self.model_desc.setText("")
+            return
+        self.model_desc.setText(
+            f"<b>{spec['display_name']}</b> | {spec.get('description', '')}<br>{spec.get('details', '')}"
+        )
+
+    def _on_class_changed(self, class_label: str) -> None:
+        class_index = self._selected_class_index()
+        self.corrected_canvas.set_class_index(class_index)
+        self.logger.info("Active class index: %s (%s)", class_index, class_label)
+
+    def on_pick_config(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Select YAML config", "", "YAML (*.yml *.yaml)")
+        if path:
+            self.config_path_edit.setText(path)
+
+    def _config_overrides(self) -> list[str]:
+        raw = self.config_overrides_edit.text().strip()
+        if not raw:
+            return []
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
+    def _resolve_run_config(self) -> dict:
+        cfg_path = self.config_path_edit.text().strip() or None
+        return resolve_config(cfg_path, self._config_overrides())
+
+    def on_edit_classes(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Class Map")
+        dlg.resize(700, 480)
+        v = QVBoxLayout(dlg)
+        help_label = QLabel("One class per line: index,name,#RRGGBB[,description]")
+        v.addWidget(help_label)
+        text = QTextEdit()
+        text.setPlainText(self._class_map_to_text(self.state.class_map))
+        v.addWidget(text)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        v.addWidget(buttons)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+        try:
+            cmap = self._class_map_from_text(text.toPlainText())
+            self.state.class_map = cmap
+            self.corrected_canvas.set_class_map(cmap)
+            self._reload_class_combo()
+            self.logger.info("Updated class map with %d classes", len(cmap.classes))
+        except Exception as exc:
+            QMessageBox.critical(self, "Class Map Error", str(exc))
+
     def _update_split_input_view(self) -> None:
         run = self.state.current_run
         if run is None:
@@ -659,6 +927,7 @@ class QtSegmentationMainWindow(QMainWindow):
 
     def _on_tool_changed(self, tool: str) -> None:
         self.corrected_canvas.set_tool(tool)
+        self.radius_spin.setEnabled(tool == "brush")
         self.tool_label.setText(f"Tool: {tool}/{self.mode_combo.currentText()}")
         self.logger.info("Tool changed to %s", tool)
 
@@ -674,6 +943,7 @@ class QtSegmentationMainWindow(QMainWindow):
             "B: Brush tool\n"
             "P: Polygon tool\n"
             "L: Lasso tool\n"
+            "F: Feature-select tool (delete/relabel connected feature)\n"
             "A: Add mode\n"
             "R: Erase mode\n"
             "Ctrl+Z/Ctrl+Y: Undo/Redo\n"
@@ -687,9 +957,10 @@ class QtSegmentationMainWindow(QMainWindow):
             "Correction Guide",
             "1. Run segmentation.\n"
             "2. Open 'Correction Split View'.\n"
-            "3. Select tool/mode and adjust brush size.\n"
-            "4. Tune layer transparency to inspect differences.\n"
-            "5. Export corrected sample with annotator and notes.",
+            "3. Pick class index/color map and select tool/mode.\n"
+            "4. For wrong objects: feature-select + erase to delete component.\n"
+            "5. Redraw with brush/polygon/lasso in add mode.\n"
+            "6. Tune layer transparency and export indexed/color/npy masks.",
         )
 
     def on_show_about(self) -> None:
@@ -719,15 +990,19 @@ class QtSegmentationMainWindow(QMainWindow):
         if not path:
             QMessageBox.warning(self, "Missing image", "Select an image first")
             return
-        model_name = self.model_combo.currentText()
 
         try:
+            cfg = self._resolve_run_config()
+            model_name = cfg.get("model_name", self.model_combo.currentText())
+            include_analysis = bool(cfg.get("include_analysis", True))
+            params = dict(cfg.get("params", {}))
+            params["image_path"] = path
             self.logger.info("Running segmentation on %s with %s", path, model_name)
             record = self.workflow.run_single(
                 path,
                 model_name=model_name,
-                params={"image_path": path},
-                include_analysis=True,
+                params=params,
+                include_analysis=include_analysis,
             )
             self._add_record(record)
             self._show_record(record)
@@ -744,14 +1019,18 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         if not paths:
             return
-        model_name = self.model_combo.currentText()
         try:
+            cfg = self._resolve_run_config()
+            model_name = cfg.get("model_name", self.model_combo.currentText())
+            include_analysis = bool(cfg.get("include_analysis", False))
+            params = dict(cfg.get("params", {}))
+            params.setdefault("image_path", paths[0])
             self.logger.info("Running batch of %d images with %s", len(paths), model_name)
             records = self.workflow.run_batch(
                 list(paths),
                 model_name=model_name,
-                params={"image_path": paths[0]},
-                include_analysis=False,
+                params=params,
+                include_analysis=include_analysis,
             )
             for rec in records:
                 self._add_record(rec)
@@ -765,17 +1044,22 @@ class QtSegmentationMainWindow(QMainWindow):
     def _add_record(self, record: DesktopRunRecord) -> None:
         self.history_list.addItem(record.history_label)
 
-    def _show_record(self, record: DesktopRunRecord) -> None:
+    def _show_record(self, record: DesktopRunRecord, corrected_mask: np.ndarray | None = None) -> None:
         self.state.current_run = record
+        self.path_edit.setText(record.image_path)
+        if self.model_combo.findText(record.model_name) >= 0:
+            self.model_combo.setCurrentText(record.model_name)
         base = np.array(record.input_image)
-        pred_mask = np.array(record.mask_image)
+        pred_mask = to_index_mask(np.array(record.mask_image))
         self.state.correction_session = CorrectionSession(pred_mask)
+        if corrected_mask is not None:
+            self.state.correction_session.current_mask = to_index_mask(corrected_mask)
 
         self._set_image_preview(self.input_label, base)
-        self._set_image_preview(self.mask_label, _mask_to_pixmap(pred_mask))
+        self._set_image_preview(self.mask_label, _mask_to_pixmap(pred_mask, self.state.class_map))
         self._set_image_preview(self.overlay_label, np.array(record.overlay_image))
 
-        self.corrected_canvas.bind(base, pred_mask, self.state.correction_session)
+        self.corrected_canvas.bind(base, pred_mask, self.state.correction_session, self.state.class_map)
         self.corrected_canvas.update_layer_settings(self._layer_settings())
         self._update_split_input_view()
         self._update_action_label()
@@ -840,9 +1124,113 @@ class QtSegmentationMainWindow(QMainWindow):
                 out_dir,
                 annotator=self.annotator_edit.text().strip() or "unknown",
                 notes=self.notes_edit.text().strip(),
+                class_map=self.state.class_map,
+                formats=self._selected_export_formats(),
             )
             self.logger.info("Exported corrected sample: %s", sample_dir)
             QMessageBox.information(self, "Export complete", f"Saved to:\n{sample_dir}")
         except Exception as exc:
             self.logger.exception("Correction export failed")
             QMessageBox.critical(self, "Export Error", str(exc))
+
+    def on_save_project(self) -> None:
+        run = self.state.current_run
+        sess = self.state.correction_session
+        if run is None or sess is None:
+            QMessageBox.warning(self, "No run", "Run segmentation first")
+            return
+        out_dir = QFileDialog.getExistingDirectory(self, "Select project save directory")
+        if not out_dir:
+            return
+        try:
+            req = ProjectSaveRequest(
+                record=run,
+                corrected_mask=sess.current_mask,
+                class_map=self.state.class_map,
+                annotator=self.annotator_edit.text().strip(),
+                notes=self.notes_edit.text().strip(),
+                ui_state={
+                    "tool": self.tool_combo.currentText(),
+                    "mode": self.mode_combo.currentText(),
+                    "class_index": self._selected_class_index(),
+                    "radius": self.radius_spin.value(),
+                    "show_pred": self.chk_pred.isChecked(),
+                    "show_corr": self.chk_corr.isChecked(),
+                    "show_diff": self.chk_diff.isChecked(),
+                    "pred_alpha": self.slider_pred.value(),
+                    "corr_alpha": self.slider_corr.value(),
+                    "diff_alpha": self.slider_diff.value(),
+                    "config_path": self.config_path_edit.text().strip(),
+                    "config_overrides": self.config_overrides_edit.text().strip(),
+                },
+            )
+            out = self.project_store.save(req, out_dir)
+            self.logger.info("Project session saved: %s", out)
+            QMessageBox.information(self, "Session Saved", f"Saved project state in:\n{out}")
+        except Exception as exc:
+            self.logger.exception("Project save failed")
+            QMessageBox.critical(self, "Save Error", str(exc))
+
+    def on_load_project(self) -> None:
+        project_dir = QFileDialog.getExistingDirectory(self, "Select project directory")
+        if not project_dir:
+            return
+        try:
+            loaded = self.project_store.load(project_dir)
+            self.state.class_map = loaded.class_map
+            self._reload_class_combo()
+            self.annotator_edit.setText(loaded.annotator)
+            self.notes_edit.setText(loaded.notes)
+            self.config_path_edit.setText(str(loaded.ui_state.get("config_path", "")))
+            self.config_overrides_edit.setText(str(loaded.ui_state.get("config_overrides", "")))
+
+            self.workflow.append_history(loaded.record)
+            self._add_record(loaded.record)
+            self._show_record(loaded.record, corrected_mask=loaded.corrected_mask)
+            self.history_list.setCurrentRow(self.history_list.count() - 1)
+
+            self.tool_combo.setCurrentText(str(loaded.ui_state.get("tool", "brush")))
+            self.mode_combo.setCurrentText(str(loaded.ui_state.get("mode", "add")))
+            self.radius_spin.setValue(int(loaded.ui_state.get("radius", 6)))
+            self.chk_pred.setChecked(bool(loaded.ui_state.get("show_pred", True)))
+            self.chk_corr.setChecked(bool(loaded.ui_state.get("show_corr", True)))
+            self.chk_diff.setChecked(bool(loaded.ui_state.get("show_diff", True)))
+            self.slider_pred.setValue(int(loaded.ui_state.get("pred_alpha", 35)))
+            self.slider_corr.setValue(int(loaded.ui_state.get("corr_alpha", 45)))
+            self.slider_diff.setValue(int(loaded.ui_state.get("diff_alpha", 70)))
+
+            wanted_cls = int(loaded.ui_state.get("class_index", 1))
+            for i in range(self.class_combo.count()):
+                if self.class_combo.itemText(i).startswith(f"{wanted_cls}:"):
+                    self.class_combo.setCurrentIndex(i)
+                    break
+            self._update_layer_settings()
+
+            self.logger.info("Loaded project session from %s", loaded.root_dir)
+            QMessageBox.information(self, "Session Loaded", f"Loaded project:\n{loaded.root_dir}")
+        except Exception as exc:
+            self.logger.exception("Project load failed")
+            QMessageBox.critical(self, "Load Error", str(exc))
+
+    def on_package_dataset(self) -> None:
+        input_dir = self.dataset_input_edit.text().strip()
+        output_dir = self.dataset_output_edit.text().strip()
+        if not input_dir or not output_dir:
+            QMessageBox.warning(self, "Missing paths", "Set corrections input and dataset output directories")
+            return
+        try:
+            sample_dirs = [p for p in sorted(Path(input_dir).iterdir()) if p.is_dir()]
+            if not sample_dirs:
+                raise ValueError("no correction sample directories found")
+            packager = CorrectionDatasetPackager(seed=int(self.seed_spin.value()))
+            out = packager.package(
+                sample_dirs,
+                output_dir,
+                train_ratio=float(self.train_ratio_spin.value()),
+                val_ratio=float(self.val_ratio_spin.value()),
+            )
+            self.logger.info("Packaged dataset written to %s", out)
+            QMessageBox.information(self, "Packaging Complete", f"Dataset package:\n{out}")
+        except Exception as exc:
+            self.logger.exception("Dataset packaging failed")
+            QMessageBox.critical(self, "Packaging Error", str(exc))

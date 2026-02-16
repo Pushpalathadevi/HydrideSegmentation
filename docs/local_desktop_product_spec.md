@@ -28,12 +28,20 @@ A local installable desktop application for microstructural segmentation workflo
 - Pluggable analysis modules by feature type
 
 4. Correction UI
-- Brush/eraser, contour edits, undo/redo
+- Brush/eraser, polygon, lasso, connected-feature delete/relabel
+- Class index/color map editing
+- Session save/load and intermediate state recovery
 - Overlay controls and comparison view (raw, predicted, corrected)
 
 5. Export
 - Results export (images, masks, metrics, reports)
 - Correction export for retraining (image + corrected mask + provenance)
+- Multi-format mask outputs (indexed PNG, color PNG, NumPy)
+
+6. Configuration and Orchestration
+- YAML parameter files for inference/packaging pipelines
+- `--set` runtime overrides for reproducible command-line runs
+- GUI config entries mapping to same config semantics
 
 ## Non-Functional Requirements
 
@@ -50,12 +58,18 @@ Implemented now:
 - Run history list for result browsing
 - Structured result export package with manifest + metrics
 - Correction UI with brush, polygon, and lasso workflows
+- Feature-select correction tool for delete/relabel of wrong connected objects
+- Class index selector and class map editor (index/name/color)
 - Split-view correction workspace with synchronized pan/zoom
 - Layer toggles and transparency controls (predicted/corrected/diff)
 - Keyboard shortcut set for high-throughput annotation
+- Session save/load for restartable projects
+- Workflow hub tab for dataset split packaging
+- Unified `microseg-cli` supporting YAML + `--set` flow
 
 Pending:
 - Advanced correction ergonomics (shape libraries, smarter snapping, uncertainty-driven guidance)
+- Full training/evaluation orchestration and job monitoring in GUI
 - Active-learning policy integration over exported corrections
 - Installer-grade packaging and signed release workflows
 

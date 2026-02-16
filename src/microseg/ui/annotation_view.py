@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from src.microseg.corrections.classes import DEFAULT_CLASS_MAP, SegmentationClassMap, to_index_mask
 from src.microseg.utils import to_rgb
 
 
@@ -39,23 +40,30 @@ def compose_annotation_view(
     predicted_mask: np.ndarray,
     corrected_mask: np.ndarray,
     settings: AnnotationLayerSettings,
+    class_map: SegmentationClassMap = DEFAULT_CLASS_MAP,
 ) -> np.ndarray:
     """Compose base image and annotation layers into one RGB view."""
 
     base = to_rgb(base_image).astype(np.float32)
-    pred = (predicted_mask > 0).astype(np.uint8)
-    corr = (corrected_mask > 0).astype(np.uint8)
+    pred = to_index_mask(predicted_mask)
+    corr = to_index_mask(corrected_mask)
 
     out = base
     if settings.show_predicted:
-        out = _blend_color(out, pred, color=(255, 180, 0), alpha=settings.predicted_alpha)
+        for cls in class_map.classes:
+            if cls.index == 0:
+                continue
+            out = _blend_color(out, pred == cls.index, color=cls.color_rgb, alpha=settings.predicted_alpha)
 
     if settings.show_corrected:
-        out = _blend_color(out, corr, color=(255, 0, 0), alpha=settings.corrected_alpha)
+        for cls in class_map.classes:
+            if cls.index == 0:
+                continue
+            out = _blend_color(out, corr == cls.index, color=cls.color_rgb, alpha=settings.corrected_alpha)
 
     if settings.show_difference:
-        added = (corr == 1) & (pred == 0)
-        removed = (pred == 1) & (corr == 0)
+        added = (corr > 0) & (corr != pred)
+        removed = (pred > 0) & (corr == 0)
         out = _blend_color(out, added, color=(0, 255, 60), alpha=settings.difference_alpha)
         out = _blend_color(out, removed, color=(180, 0, 255), alpha=settings.difference_alpha)
 

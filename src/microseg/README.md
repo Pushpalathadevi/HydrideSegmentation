@@ -14,5 +14,9 @@ Current status:
   - `app/desktop_workflow.py` for single/batch execution, history, and export packages
 - Phase 3 correction and export loop implemented:
   - `corrections/session.py` for mask editing session + undo/redo
+  - `corrections/classes.py` for class index/color map contracts
   - `corrections/exporter.py` for schema-based corrected sample export and dataset packaging
+- Phase 4 foundation scaffolding implemented:
+  - `app/project_state.py` for project/session persistence
+  - `io/configuration.py` for YAML + `--set` override resolution
 - Existing implementation still remains under `hydride_segmentation/` for backward compatibility.

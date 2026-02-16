@@ -19,6 +19,22 @@ def get_gui_model_options() -> list[str]:
     return [spec.display_name for spec in specs]
 
 
+def get_gui_model_specs() -> list[dict[str, str]]:
+    """Return model metadata for GUI descriptions and selection help."""
+
+    specs = build_hydride_registry().specs()
+    return [
+        {
+            "model_id": spec.model_id,
+            "display_name": spec.display_name,
+            "feature_family": spec.feature_family,
+            "description": spec.description,
+            "details": spec.details,
+        }
+        for spec in specs
+    ]
+
+
 def resolve_gui_model_id(model_name: str) -> str:
     """Resolve a GUI model label (new or legacy) to a model identifier."""
     specs = build_hydride_registry().specs()

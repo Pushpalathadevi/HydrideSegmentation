@@ -5,12 +5,12 @@ with open('requirements.txt') as f:
 
 setup(
     name='hydride-segmentation',
-    version='0.5.0',
+    version='0.6.0',
     description='Toolkit for zirconium hydride segmentation and analysis',
     packages=find_packages(),
     include_package_data=True,
     install_requires=requirements,
-    python_requires='>=3.8',
+    python_requires='>=3.10',
     entry_points={
         'console_scripts': [
             'hydride-gui=hydride_segmentation.gui:main',
@@ -18,6 +18,7 @@ setup(
             'hydride-orientation=hydride_segmentation.hydride_orientation_analyzer:main',
             'segmentation-eval=hydride_segmentation.segmentation_evaluator:main',
             'package-corrections-dataset=scripts.package_corrections_dataset:main',
+            'microseg-cli=scripts.microseg_cli:main',
         ]
     },
 )

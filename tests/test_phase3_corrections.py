@@ -9,7 +9,12 @@ import numpy as np
 from PIL import Image
 
 from src.microseg.app.desktop_workflow import DesktopWorkflowManager
-from src.microseg.corrections import CorrectionDatasetPackager, CorrectionExporter, CorrectionSession
+from src.microseg.corrections import (
+    DEFAULT_CLASS_MAP,
+    CorrectionDatasetPackager,
+    CorrectionExporter,
+    CorrectionSession,
+)
 from hydride_segmentation.microseg_adapter import resolve_gui_model_id
 
 
@@ -75,11 +80,22 @@ def test_phase3_export_sample_writes_schema_record(tmp_path: Path) -> None:
     session.apply_brush(x=10, y=10, radius=4, mode="add")
 
     exporter = CorrectionExporter()
-    sample_dir = exporter.export_sample(record, session.current_mask, tmp_path / "exports", annotator="tester", notes="phase3")
+    sample_dir = exporter.export_sample(
+        record,
+        session.current_mask,
+        tmp_path / "exports",
+        annotator="tester",
+        notes="phase3",
+        class_map=DEFAULT_CLASS_MAP,
+        formats={"indexed_png", "color_png", "numpy_npy"},
+    )
 
     assert (sample_dir / "input.png").exists()
-    assert (sample_dir / "predicted_mask.png").exists()
-    assert (sample_dir / "corrected_mask.png").exists()
+    assert (sample_dir / "predicted_mask_indexed.png").exists()
+    assert (sample_dir / "corrected_mask_indexed.png").exists()
+    assert (sample_dir / "predicted_mask_color.png").exists()
+    assert (sample_dir / "corrected_mask_color.png").exists()
+    assert (sample_dir / "corrected_mask.npy").exists()
     assert (sample_dir / "corrected_overlay.png").exists()
     record_json = sample_dir / "correction_record.json"
     assert record_json.exists()
