@@ -9,6 +9,7 @@ tqdm
 
 scipy
 tkinterdnd2
+PySide6
 torch
 segmentation-models-pytorch
 Flask

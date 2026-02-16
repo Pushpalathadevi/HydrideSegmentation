@@ -45,7 +45,6 @@ def process_request(file_storage, params: SegmentParams) -> Dict:
 
     data = _validate_and_read_file(file_storage)
     image = load_image_from_bytes(data)
-
     conv_params = ConventionalParams(
         clahe_clip_limit=params.clahe_clip_limit,
         clahe_tile_grid=params.clahe_tile_grid,

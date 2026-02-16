@@ -1,0 +1,24 @@
+{
+  "core_conventional": {
+    "mask_area_fraction": 0.1821,
+    "hydride_count": 2,
+    "foreground_pixels": 1821,
+    "mask_sum": 464355
+  },
+  "api_segment_conventional": {
+    "model": "conventional",
+    "ok": true,
+    "metrics": {
+      "mask_area_fraction": 0.1821,
+      "hydride_count": 2
+    },
+    "image_keys": [
+      "angle_histogram_png_b64",
+      "input_png_b64",
+      "mask_png_b64",
+      "orientation_map_png_b64",
+      "overlay_png_b64",
+      "size_histogram_png_b64"
+    ]
+  }
+}

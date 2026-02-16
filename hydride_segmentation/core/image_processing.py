@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
-import importlib
 from typing import Tuple
 
-import numpy as np
 from PIL import Image
 
-# Map human readable names to backend modules
-MODEL_BACKENDS = {
-    "Conventional Model": "segmentation_mask_creation",
-    "ML Model": "inference",
-}
+from hydride_segmentation.microseg_adapter import (
+    get_gui_model_options,
+    is_conventional_model,
+    run_pipeline_from_gui,
+)
+
+MODEL_OPTIONS = get_gui_model_options()
 
 
-def run_segmentation(params: dict, model_name: str) -> Tuple[Image.Image, Image.Image, Image.Image]:
+def model_uses_manual_params(model_name: str) -> bool:
+    """Return whether selected model should expose conventional parameters."""
+    return is_conventional_model(model_name)
+
+
+def run_segmentation_with_result(
+    params: dict, model_name: str, include_analysis: bool = False
+) -> Tuple[Image.Image, Image.Image, Image.Image, object]:
     """Run segmentation via the chosen backend and return PIL images.
 
     Parameters
@@ -23,20 +30,26 @@ def run_segmentation(params: dict, model_name: str) -> Tuple[Image.Image, Image.
     params: dict
         Parameters dictionary produced by the GUI.
     model_name: str
-        Key from ``MODEL_BACKENDS`` specifying which backend to use.
+        Registry-backed display name selected in the GUI.
     """
-    module_name = MODEL_BACKENDS.get(model_name, "inference")
-    backend = importlib.import_module(f"hydride_segmentation.{module_name}")
-    image, mask = backend.run_model(params["image_path"], params)
+    result = run_pipeline_from_gui(
+        image_path=params["image_path"],
+        model_name=model_name,
+        params=params,
+        include_analysis=include_analysis,
+    )
+    input_img = Image.fromarray(result.image if result.image.ndim != 2 else result.image)
+    mask_img = Image.fromarray(result.mask)
+    from src.microseg.utils import mask_overlay
+    overlay_img = Image.fromarray(mask_overlay(result.image, result.mask))
+    return input_img, mask_img, overlay_img, result
 
-    if image.ndim == 2:
-        rgb = np.stack([image] * 3, axis=-1)
-    else:
-        rgb = image
 
-    input_img = Image.fromarray(rgb)
-    mask_img = Image.fromarray(mask)
-    overlay_np = rgb.copy()
-    overlay_np[mask > 0] = [255, 0, 0]
-    overlay_img = Image.fromarray(overlay_np)
+def run_segmentation(params: dict, model_name: str) -> Tuple[Image.Image, Image.Image, Image.Image]:
+    """Compatibility wrapper returning the historical three-image tuple."""
+    input_img, mask_img, overlay_img, _ = run_segmentation_with_result(
+        params=params,
+        model_name=model_name,
+        include_analysis=False,
+    )
     return input_img, mask_img, overlay_img

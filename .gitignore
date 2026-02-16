@@ -59,6 +59,8 @@ log/
 *.ckpt
 *.pt
 *.pth
+models/weights/*
+!models/weights/.gitkeep
 
 # Local development
 .env.local
