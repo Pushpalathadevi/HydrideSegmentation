@@ -666,6 +666,11 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_infer_model_edit = QLineEdit()
         self.orch_infer_model_edit.setPlaceholderText("Model name (optional, defaults selected GUI model)")
         self.orch_infer_output_edit = QLineEdit("outputs/inference")
+        self.orch_infer_enable_gpu = QCheckBox("Enable GPU")
+        self.orch_infer_enable_gpu.setChecked(False)
+        self.orch_infer_device_policy = QComboBox()
+        self.orch_infer_device_policy.addItems(["cpu", "auto", "cuda", "mps"])
+        self.orch_infer_device_policy.setCurrentText("cpu")
         self.btn_orch_infer = QPushButton("Run Inference Job")
         self.btn_orch_infer.clicked.connect(self.on_orchestrate_inference)
         infer_form.addRow("Config", self.orch_infer_config_edit)
@@ -673,6 +678,7 @@ class QtSegmentationMainWindow(QMainWindow):
         infer_form.addRow("Image", self.orch_infer_image_edit)
         infer_form.addRow("Model", self.orch_infer_model_edit)
         infer_form.addRow("Output Dir", self.orch_infer_output_edit)
+        infer_form.addRow(self.orch_infer_enable_gpu, self.orch_infer_device_policy)
         infer_form.addRow(self.btn_orch_infer)
         self.workflow_tabs.addTab(infer_tab, "Inference")
 
@@ -683,12 +689,23 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_train_set_edit.setPlaceholderText("key=value,key2=value2")
         self.orch_train_dataset_edit = QLineEdit("outputs/packaged_dataset")
         self.orch_train_output_edit = QLineEdit("outputs/training")
+        self.orch_train_backend = QComboBox()
+        self.orch_train_backend.addItems(["torch_pixel", "sklearn_pixel"])
+        self.orch_train_backend.setCurrentText("torch_pixel")
+        self.orch_train_enable_gpu = QCheckBox("Enable GPU")
+        self.orch_train_enable_gpu.setChecked(False)
+        self.orch_train_device_policy = QComboBox()
+        self.orch_train_device_policy.addItems(["cpu", "auto", "cuda", "mps"])
+        self.orch_train_device_policy.setCurrentText("cpu")
         self.orch_train_max_samples = QSpinBox()
         self.orch_train_max_samples.setRange(1000, 2000000)
         self.orch_train_max_samples.setValue(250000)
-        self.orch_train_max_iter = QSpinBox()
-        self.orch_train_max_iter.setRange(10, 5000)
-        self.orch_train_max_iter.setValue(500)
+        self.orch_train_epochs = QSpinBox()
+        self.orch_train_epochs.setRange(1, 1000)
+        self.orch_train_epochs.setValue(8)
+        self.orch_train_batch_size = QSpinBox()
+        self.orch_train_batch_size.setRange(128, 131072)
+        self.orch_train_batch_size.setValue(4096)
         self.orch_train_seed = QSpinBox()
         self.orch_train_seed.setRange(0, 100000)
         self.orch_train_seed.setValue(42)
@@ -696,10 +713,13 @@ class QtSegmentationMainWindow(QMainWindow):
         self.btn_orch_train.clicked.connect(self.on_orchestrate_training)
         train_form.addRow("Config", self.orch_train_config_edit)
         train_form.addRow("Overrides", self.orch_train_set_edit)
+        train_form.addRow("Backend", self.orch_train_backend)
         train_form.addRow("Dataset Dir", self.orch_train_dataset_edit)
         train_form.addRow("Output Dir", self.orch_train_output_edit)
+        train_form.addRow(self.orch_train_enable_gpu, self.orch_train_device_policy)
         train_form.addRow("Max Samples", self.orch_train_max_samples)
-        train_form.addRow("Max Iter", self.orch_train_max_iter)
+        train_form.addRow("Epochs", self.orch_train_epochs)
+        train_form.addRow("Batch Size", self.orch_train_batch_size)
         train_form.addRow("Seed", self.orch_train_seed)
         train_form.addRow(self.btn_orch_train)
         self.workflow_tabs.addTab(train_tab, "Training")
@@ -710,7 +730,12 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_eval_set_edit = QLineEdit()
         self.orch_eval_set_edit.setPlaceholderText("key=value,key2=value2")
         self.orch_eval_dataset_edit = QLineEdit("outputs/packaged_dataset")
-        self.orch_eval_model_edit = QLineEdit("outputs/training/pixel_classifier.joblib")
+        self.orch_eval_model_edit = QLineEdit("outputs/training/torch_pixel_classifier.pt")
+        self.orch_eval_enable_gpu = QCheckBox("Enable GPU")
+        self.orch_eval_enable_gpu.setChecked(False)
+        self.orch_eval_device_policy = QComboBox()
+        self.orch_eval_device_policy.addItems(["cpu", "auto", "cuda", "mps"])
+        self.orch_eval_device_policy.setCurrentText("cpu")
         self.orch_eval_split_combo = QComboBox()
         self.orch_eval_split_combo.addItems(["val", "test", "train"])
         self.orch_eval_output_edit = QLineEdit("outputs/evaluation/pixel_eval_report.json")
@@ -720,6 +745,7 @@ class QtSegmentationMainWindow(QMainWindow):
         eval_form.addRow("Overrides", self.orch_eval_set_edit)
         eval_form.addRow("Dataset Dir", self.orch_eval_dataset_edit)
         eval_form.addRow("Model Path", self.orch_eval_model_edit)
+        eval_form.addRow(self.orch_eval_enable_gpu, self.orch_eval_device_policy)
         eval_form.addRow("Split", self.orch_eval_split_combo)
         eval_form.addRow("Output Path", self.orch_eval_output_edit)
         eval_form.addRow(self.btn_orch_eval)
@@ -758,7 +784,8 @@ class QtSegmentationMainWindow(QMainWindow):
             "Orchestration Log\\n"
             "- One active job at a time\\n"
             "- Commands run through scripts/microseg_cli.py\\n"
-            "- Use YAML config + overrides for reproducibility."
+            "- Use YAML config + overrides for reproducibility.\\n"
+            "- GPU is opt-in; fallback to CPU is automatic if unavailable."
         )
         wf_root.addWidget(self.workflow_notes)
 
@@ -1007,9 +1034,16 @@ class QtSegmentationMainWindow(QMainWindow):
         self._job_process = None
 
     def on_orchestrate_inference(self) -> None:
+        overrides = self._parse_override_text(self.orch_infer_set_edit.text())
+        overrides.extend(
+            [
+                f"enable_gpu={str(self.orch_infer_enable_gpu.isChecked()).lower()}",
+                f"device_policy={self.orch_infer_device_policy.currentText()}",
+            ]
+        )
         command = self.orchestrator.infer(
             config=self.orch_infer_config_edit.text().strip() or None,
-            overrides=self._parse_override_text(self.orch_infer_set_edit.text()),
+            overrides=overrides,
             image=self.orch_infer_image_edit.text().strip() or None,
             model_name=self.orch_infer_model_edit.text().strip() or self.model_combo.currentText(),
             output_dir=self.orch_infer_output_edit.text().strip() or None,
@@ -1020,9 +1054,13 @@ class QtSegmentationMainWindow(QMainWindow):
         overrides = self._parse_override_text(self.orch_train_set_edit.text())
         overrides.extend(
             [
+                f"backend={self.orch_train_backend.currentText()}",
                 f"max_samples={int(self.orch_train_max_samples.value())}",
-                f"max_iter={int(self.orch_train_max_iter.value())}",
+                f"epochs={int(self.orch_train_epochs.value())}",
+                f"batch_size={int(self.orch_train_batch_size.value())}",
                 f"seed={int(self.orch_train_seed.value())}",
+                f"enable_gpu={str(self.orch_train_enable_gpu.isChecked()).lower()}",
+                f"device_policy={self.orch_train_device_policy.currentText()}",
             ]
         )
         command = self.orchestrator.train(
@@ -1035,7 +1073,13 @@ class QtSegmentationMainWindow(QMainWindow):
 
     def on_orchestrate_evaluation(self) -> None:
         overrides = self._parse_override_text(self.orch_eval_set_edit.text())
-        overrides.append(f"split={self.orch_eval_split_combo.currentText()}")
+        overrides.extend(
+            [
+                f"split={self.orch_eval_split_combo.currentText()}",
+                f"enable_gpu={str(self.orch_eval_enable_gpu.isChecked()).lower()}",
+                f"device_policy={self.orch_eval_device_policy.currentText()}",
+            ]
+        )
         command = self.orchestrator.evaluate(
             config=self.orch_eval_config_edit.text().strip() or None,
             overrides=overrides,

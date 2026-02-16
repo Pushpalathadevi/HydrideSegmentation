@@ -14,7 +14,12 @@ if str(ROOT) not in sys.path:
 from src.microseg.app.desktop_workflow import DesktopWorkflowManager
 from src.microseg.corrections import CorrectionDatasetPackager
 from src.microseg.io import resolve_config
-from src.microseg.training import PixelClassifierTrainer, PixelTrainingConfig
+from src.microseg.training import (
+    PixelClassifierTrainer,
+    PixelTrainingConfig,
+    TorchPixelClassifierTrainer,
+    TorchPixelTrainingConfig,
+)
 from src.microseg.evaluation.pixel_model_eval import PixelEvaluationConfig, PixelModelEvaluator
 
 
@@ -31,6 +36,8 @@ def _infer(args: argparse.Namespace) -> int:
     out_dir = Path(args.output_dir or cfg.get("output_dir") or "outputs/inference")
     include_analysis = bool(cfg.get("include_analysis", True))
     params = dict(cfg.get("params", {}))
+    params["enable_gpu"] = bool(cfg.get("enable_gpu", args.enable_gpu))
+    params["device_policy"] = str(cfg.get("device_policy", args.device_policy))
 
     mgr = DesktopWorkflowManager()
     record = mgr.run_single(
@@ -51,18 +58,39 @@ def _train(args: argparse.Namespace) -> int:
     if not dataset_dir:
         raise ValueError("dataset directory is required (--dataset-dir or config:dataset_dir)")
     output_dir = args.output_dir or cfg.get("output_dir") or "outputs/training"
+    backend = str(cfg.get("backend", args.backend))
+    enable_gpu = bool(cfg.get("enable_gpu", args.enable_gpu))
+    device_policy = str(cfg.get("device_policy", args.device_policy))
+    seed = int(cfg.get("seed", args.seed))
 
-    trainer = PixelClassifierTrainer()
-    result = trainer.train(
-        PixelTrainingConfig(
-            dataset_dir=str(dataset_dir),
-            output_dir=str(output_dir),
-            train_split=str(cfg.get("train_split", "train")),
-            max_samples=int(cfg.get("max_samples", args.max_samples)),
-            max_iter=int(cfg.get("max_iter", args.max_iter)),
-            seed=int(cfg.get("seed", args.seed)),
+    if backend == "torch_pixel":
+        trainer = TorchPixelClassifierTrainer()
+        result = trainer.train(
+            TorchPixelTrainingConfig(
+                dataset_dir=str(dataset_dir),
+                output_dir=str(output_dir),
+                train_split=str(cfg.get("train_split", "train")),
+                max_samples=int(cfg.get("max_samples", args.max_samples)),
+                epochs=int(cfg.get("epochs", args.epochs)),
+                batch_size=int(cfg.get("batch_size", args.batch_size)),
+                learning_rate=float(cfg.get("learning_rate", args.learning_rate)),
+                seed=seed,
+                enable_gpu=enable_gpu,
+                device_policy=device_policy,
+            )
         )
-    )
+    else:
+        trainer = PixelClassifierTrainer()
+        result = trainer.train(
+            PixelTrainingConfig(
+                dataset_dir=str(dataset_dir),
+                output_dir=str(output_dir),
+                train_split=str(cfg.get("train_split", "train")),
+                max_samples=int(cfg.get("max_samples", args.max_samples)),
+                max_iter=int(cfg.get("max_iter", args.max_iter)),
+                seed=seed,
+            )
+        )
 
     out_root = Path(output_dir)
     (out_root / "resolved_config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
@@ -82,6 +110,8 @@ def _evaluate(args: argparse.Namespace) -> int:
 
     output_path = args.output_path or cfg.get("output_path") or "outputs/evaluation/pixel_eval_report.json"
     split = args.split or cfg.get("split") or "val"
+    enable_gpu = bool(cfg.get("enable_gpu", args.enable_gpu))
+    device_policy = str(cfg.get("device_policy", args.device_policy))
 
     evaluator = PixelModelEvaluator()
     payload = evaluator.evaluate(
@@ -90,6 +120,8 @@ def _evaluate(args: argparse.Namespace) -> int:
             model_path=str(model_path),
             split=str(split),
             output_path=str(output_path),
+            enable_gpu=enable_gpu,
+            device_policy=device_policy,
         )
     )
     Path(output_path).with_name("resolved_config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
@@ -131,6 +163,8 @@ def _build_parser() -> argparse.ArgumentParser:
     infer.add_argument("--image", type=str, help="Input image path")
     infer.add_argument("--model-name", type=str, help="Model display name from registry")
     infer.add_argument("--output-dir", type=str, help="Export output directory")
+    infer.add_argument("--enable-gpu", action="store_true", help="Enable GPU auto-selection for ML inference")
+    infer.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
     infer.set_defaults(handler=_infer)
 
     train = sub.add_parser("train", help="Train baseline pixel classifier")
@@ -138,9 +172,15 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--set", action="append", default=[], help="Override key=value (supports dotted keys)")
     train.add_argument("--dataset-dir", type=str, help="Dataset directory containing train/images + train/masks")
     train.add_argument("--output-dir", type=str, help="Training output directory")
+    train.add_argument("--backend", choices=["torch_pixel", "sklearn_pixel"], default="torch_pixel")
     train.add_argument("--max-samples", type=int, default=250000)
+    train.add_argument("--epochs", type=int, default=8)
+    train.add_argument("--batch-size", type=int, default=4096)
+    train.add_argument("--learning-rate", type=float, default=1e-2)
     train.add_argument("--max-iter", type=int, default=500)
     train.add_argument("--seed", type=int, default=42)
+    train.add_argument("--enable-gpu", action="store_true", help="Enable GPU auto-selection for torch backend")
+    train.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
     train.set_defaults(handler=_train)
 
     ev = sub.add_parser("evaluate", help="Evaluate trained baseline model on dataset split")
@@ -150,6 +190,8 @@ def _build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--model-path", type=str, help="Path to trained model artifact")
     ev.add_argument("--split", type=str, default="val", help="Split name to evaluate")
     ev.add_argument("--output-path", type=str, help="Report output path")
+    ev.add_argument("--enable-gpu", action="store_true", help="Enable GPU auto-selection for torch model eval")
+    ev.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
     ev.set_defaults(handler=_evaluate)
 
     pack = sub.add_parser("package", help="Package correction exports into dataset splits")

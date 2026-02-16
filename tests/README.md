@@ -15,3 +15,4 @@ Current phase coverage includes:
 - `test_phase3_annotation_view.py` layered correction visualization composition
 - `test_phase4_foundation_features.py` class maps, feature delete/relabel, config overrides, project save/load
 - `test_phase4_orchestration.py` command builder + baseline training/evaluation orchestration
+- `test_phase5_gpu_runtime.py` GPU-compatible training/evaluation with CPU fallback behavior

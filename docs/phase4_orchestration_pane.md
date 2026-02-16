@@ -11,6 +11,11 @@ Implemented a centralized orchestration pane for:
 - evaluation jobs
 - dataset packaging jobs
 
+GPU runtime policy:
+- default execution is CPU
+- GPU usage is opt-in
+- if GPU runtime is unavailable, jobs automatically fall back to CPU
+
 All jobs execute through `scripts/microseg_cli.py` using YAML configs plus `--set` overrides.
 
 ## Backend Additions
@@ -18,7 +23,9 @@ All jobs execute through `scripts/microseg_cli.py` using YAML configs plus `--se
 - Command builder for reproducible orchestration commands:
   - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/app/orchestration.py`
 - Baseline CPU training pipeline:
+- Baseline torch training pipeline (GPU-compatible):
   - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/training/pixel_classifier.py`
+  - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/training/torch_pixel_classifier.py`
 - Baseline evaluation pipeline:
   - `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/src/microseg/evaluation/pixel_model_eval.py`
 - Unified CLI expanded with `train` and `evaluate`:

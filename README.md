@@ -1,6 +1,6 @@
 # HydrideSegmentation -> Microstructural Segmentation Platform (Transition)
 
-Current release version: `0.7.0`
+Current release version: `0.8.0`
 
 This repository is transitioning from a hydride-specific toolkit into a general-purpose microstructural segmentation platform.
 Hydride segmentation remains the baseline implemented workflow.
@@ -27,6 +27,7 @@ See `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/missi
   - split-view synchronized zoom/pan and layer transparency
 - Correction export schema `microseg.correction.v1`
 - Orchestration pane for train/infer/evaluate/package jobs
+- GPU-compatible training/inference with CPU default and automatic fallback
 - Export mask formats: indexed PNG, color PNG, NumPy
 - Session persistence schema `microseg.project.v1`
 - Deterministic correction dataset packaging
@@ -64,6 +65,11 @@ Unified CLI inference (YAML + overrides):
 microseg-cli infer --config configs/inference.default.yml --set params.area_threshold=120
 ```
 
+GPU-enabled inference (auto device selection):
+```bash
+microseg-cli infer --config configs/inference.default.yml --enable-gpu --device-policy auto
+```
+
 Unified CLI dataset packaging:
 ```bash
 microseg-cli package --config configs/package.default.yml --set train_ratio=0.75
@@ -72,6 +78,11 @@ microseg-cli package --config configs/package.default.yml --set train_ratio=0.75
 Unified CLI training:
 ```bash
 microseg-cli train --config configs/train.default.yml --set max_samples=300000
+```
+
+GPU-enabled torch training:
+```bash
+microseg-cli train --config configs/train.default.yml --enable-gpu --device-policy auto
 ```
 
 Unified CLI evaluation:

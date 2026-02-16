@@ -9,3 +9,4 @@ Rules:
 Current scripts:
 - `package_corrections_dataset.py` packages exported correction samples into train/val/test layout.
 - `microseg_cli.py` unified CLI for inference, training, evaluation, and correction-dataset packaging with YAML + `--set` overrides.
+  - supports optional GPU runtime selection for inference/training/evaluation with CPU fallback.

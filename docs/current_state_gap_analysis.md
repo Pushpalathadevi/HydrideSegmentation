@@ -1,4 +1,4 @@
-# Current State Gap Analysis (v0.7.0)
+# Current State Gap Analysis (v0.8.0)
 
 ## Baseline Status
 
@@ -13,6 +13,7 @@ Implemented:
 - YAML config loading + `--set` override support
 - GUI orchestration pane for inference/training/evaluation/packaging
 - Baseline CPU training and evaluation pipelines (pixel classifier)
+- Torch-based baseline training/evaluation with opt-in GPU runtime and CPU fallback
 
 ## Remaining Gaps To World-Class Target
 

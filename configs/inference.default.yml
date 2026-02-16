@@ -2,6 +2,8 @@ image_path: test_data/3PB_SRT_data_generation_1817_OD_side1_8.png
 model_name: Hydride Conventional
 output_dir: outputs/inference
 include_analysis: true
+enable_gpu: false
+device_policy: cpu
 params:
   clahe:
     clip_limit: 2.0

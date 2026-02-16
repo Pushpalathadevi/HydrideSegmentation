@@ -36,7 +36,7 @@ def _segment(
     image_path: str, model: str, params: dict
 ) -> Tuple[np.ndarray, np.ndarray]:
     if model == "ml":
-        return run_ml_model(image_path, params)
+        return run_ml_model(image_path, params=params)
     return run_conv_model(image_path, params)
 
 
@@ -59,6 +59,7 @@ def infer():
     analysis = request.form.get("analysis", "false").lower() == "true"
 
     params = DEFAULT_PARAMS.copy()
+    ml_params: dict = {}
     if model != "ml":
         for key in params:
             if key in request.form:
@@ -66,10 +67,15 @@ def infer():
                     params[key] = ast.literal_eval(request.form[key])
                 except Exception:
                     pass
+    else:
+        if "enable_gpu" in request.form:
+            ml_params["enable_gpu"] = request.form.get("enable_gpu", "false").lower() == "true"
+        if "device_policy" in request.form:
+            ml_params["device_policy"] = request.form.get("device_policy", "cpu")
 
     tmp_path = _save_upload(file)
     try:
-        image, mask = _segment(tmp_path, model, params)
+        image, mask = _segment(tmp_path, model, params if model != "ml" else ml_params)
     finally:
         try:
             os.remove(tmp_path)

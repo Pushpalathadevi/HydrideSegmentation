@@ -94,7 +94,7 @@ Deliverables:
 - restartable session persistence for iterative annotation projects
 
 Status:
-- Foundation scaffolding implemented in v0.7.0:
+- Foundation scaffolding implemented in v0.8.0:
   - YAML configuration + `--set` merge engine
   - unified CLI (`microseg-cli`) for inference and dataset packaging
   - project session save/load schema `microseg.project.v1`
@@ -104,6 +104,7 @@ Status:
   - asynchronous subprocess job execution with live logs
   - `microseg-cli` extended with `train` and `evaluate` subcommands
   - baseline CPU pixel-classifier training/evaluation pipeline
+  - opt-in GPU runtime support for training/inference/evaluation with CPU fallback
 
 Exit criteria:
 - documented and testable loop: infer -> correct -> export -> train -> deploy
@@ -118,6 +119,7 @@ Deliverables:
 - installation guides per OS
 - operational diagnostics and support docs
 - semantic versioning policy and release note discipline
+- GPU-runtime deployment guidance for Windows/HPC while preserving CPU default
 
 Exit criteria:
 - install and run on clean target machines with CPU-only setup

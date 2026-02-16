@@ -46,6 +46,7 @@ A local installable desktop application for microstructural segmentation workflo
 ## Non-Functional Requirements
 
 - CPU-first runtime path
+- GPU-compatible runtime for train/infer/eval with explicit enable switch and fallback
 - Offline usability
 - Reproducible outputs
 - Cross-platform packaging target (macOS, Linux, Windows)

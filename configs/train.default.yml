@@ -1,6 +1,11 @@
 dataset_dir: outputs/packaged_dataset
 output_dir: outputs/training
+backend: torch_pixel
 train_split: train
 max_samples: 250000
-max_iter: 500
+epochs: 8
+batch_size: 4096
+learning_rate: 0.01
 seed: 42
+enable_gpu: false
+device_policy: cpu

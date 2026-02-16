@@ -55,3 +55,5 @@ Operational behavior:
 - live command output log
 - job completion/failure status dialogs
 - config path + override support per job
+- per-job GPU controls (`Enable GPU` + `device policy`) with CPU fallback behavior
+- default is CPU execution unless GPU is explicitly enabled

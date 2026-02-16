@@ -1,4 +1,6 @@
 dataset_dir: outputs/packaged_dataset
-model_path: outputs/training/pixel_classifier.joblib
+model_path: outputs/training/torch_pixel_classifier.pt
 split: val
 output_path: outputs/evaluation/pixel_eval_report.json
+enable_gpu: false
+device_policy: cpu

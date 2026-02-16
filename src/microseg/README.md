@@ -22,5 +22,6 @@ Current status:
   - `io/configuration.py` for YAML + `--set` override resolution
 - Phase 4 orchestration/training baseline implemented:
   - `training/pixel_classifier.py` CPU baseline training/inference
+  - `training/torch_pixel_classifier.py` GPU-compatible torch baseline training/inference with CPU fallback
   - `evaluation/pixel_model_eval.py` baseline evaluation reports
 - Existing implementation still remains under `hydride_segmentation/` for backward compatibility.

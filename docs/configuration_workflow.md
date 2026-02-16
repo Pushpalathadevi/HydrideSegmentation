@@ -24,12 +24,19 @@ microseg-cli package --config configs/package.default.yml --set train_ratio=0.75
 
 Training:
 ```bash
-microseg-cli train --config configs/train.default.yml --set max_samples=300000 --set max_iter=800
+microseg-cli train --config configs/train.default.yml --set max_samples=300000 --set epochs=12
 ```
 
 Evaluation:
 ```bash
 microseg-cli evaluate --config configs/evaluate.default.yml --set split=test
+```
+
+GPU-enabled runs (auto policy with CPU fallback):
+```bash
+microseg-cli train --config configs/train.default.yml --enable-gpu --device-policy auto
+microseg-cli infer --config configs/inference.default.yml --enable-gpu --device-policy auto
+microseg-cli evaluate --config configs/evaluate.default.yml --enable-gpu --device-policy auto
 ```
 
 ## GUI Usage

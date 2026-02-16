@@ -18,6 +18,7 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 ## Strategic Scope (Current)
 
 - CPU-first local workflows
+- GPU-compatible training and inference with safe CPU fallback
 - Desktop GUI and CLI parity for core operations
 - Config-driven execution with YAML and command-line overrides
 - Reproducibility logging and schema-versioned outputs
@@ -37,6 +38,7 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 5. Support restartable project sessions with intermediate state persistence.
 6. Keep deployment local, installable, and operationally reliable.
 7. Maintain semantic versioning and release notes for deployed users.
+8. Ensure GPU acceleration is opt-in/configurable and automatically falls back to CPU when unavailable.
 
 ## Success Criteria
 

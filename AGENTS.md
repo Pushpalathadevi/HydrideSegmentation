@@ -43,6 +43,10 @@ Out-of-scope until explicitly reprioritized:
 - Prefer explicit data contracts over ad hoc dictionaries.
 - No silent fallback behavior for critical scientific steps.
 - Persist run metadata: model ID, config, code version, timestamp, and hardware profile where feasible.
+- Training and inference must be GPU-compatible but CPU-safe:
+  - default runtime path is CPU
+  - GPU use must be explicit/configurable (or opt-in auto mode)
+  - missing GPU runtime must automatically and visibly fall back to CPU
 
 ## 4. Annotation And Correction Standards
 
