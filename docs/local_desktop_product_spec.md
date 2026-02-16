@@ -65,6 +65,7 @@ Implemented now:
 - Keyboard shortcut set for high-throughput annotation
 - Session save/load for restartable projects
 - Workflow hub tab for dataset split packaging
+- Workflow hub orchestration tabs for inference/training/evaluation/packaging jobs
 - Unified `microseg-cli` supporting YAML + `--set` flow
 
 Pending:

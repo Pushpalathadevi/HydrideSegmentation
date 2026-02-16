@@ -1,4 +1,4 @@
-# Current State Gap Analysis (v0.6.0)
+# Current State Gap Analysis (v0.7.0)
 
 ## Baseline Status
 
@@ -11,12 +11,14 @@ Implemented:
 - Dataset packaging with deterministic train/val/test split
 - Project/session save-load (`microseg.project.v1`)
 - YAML config loading + `--set` override support
+- GUI orchestration pane for inference/training/evaluation/packaging
+- Baseline CPU training and evaluation pipelines (pixel classifier)
 
 ## Remaining Gaps To World-Class Target
 
 High-priority gaps:
-- Full training pipeline integration (beyond packaging/orchestration)
-- Evaluation workflow integration in GUI with richer reports
+- Advanced model-training pipelines beyond baseline pixel classifier
+- Rich evaluation visualization/reporting in GUI
 - Advanced augmentation workflow authoring and preview in GUI
 - Hardware profile capture beyond current run metadata basics
 - Formal uncertainty quantification pathways in inference outputs

@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- Software version: `0.6.0`
+- Software version: `0.7.0`
 - Version source of truth:
   - `hydride_segmentation/version.py`
   - `pyproject.toml`
@@ -42,4 +42,4 @@ Before release:
 
 ## Deployment Guidance
 
-Field deployments should pin explicit versions (for example `hydride-segmentation==0.6.0`) and avoid floating upgrades.
+Field deployments should pin explicit versions (for example `hydride-segmentation==0.7.0`) and avoid floating upgrades.

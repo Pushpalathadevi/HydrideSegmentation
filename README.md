@@ -1,6 +1,6 @@
 # HydrideSegmentation -> Microstructural Segmentation Platform (Transition)
 
-Current release version: `0.6.0`
+Current release version: `0.7.0`
 
 This repository is transitioning from a hydride-specific toolkit into a general-purpose microstructural segmentation platform.
 Hydride segmentation remains the baseline implemented workflow.
@@ -26,6 +26,7 @@ See `/Users/anantatamukalaamrutha/python_projects/HydrideSegmentation/docs/missi
   - class index and color map editing
   - split-view synchronized zoom/pan and layer transparency
 - Correction export schema `microseg.correction.v1`
+- Orchestration pane for train/infer/evaluate/package jobs
 - Export mask formats: indexed PNG, color PNG, NumPy
 - Session persistence schema `microseg.project.v1`
 - Deterministic correction dataset packaging
@@ -66,6 +67,16 @@ microseg-cli infer --config configs/inference.default.yml --set params.area_thre
 Unified CLI dataset packaging:
 ```bash
 microseg-cli package --config configs/package.default.yml --set train_ratio=0.75
+```
+
+Unified CLI training:
+```bash
+microseg-cli train --config configs/train.default.yml --set max_samples=300000
+```
+
+Unified CLI evaluation:
+```bash
+microseg-cli evaluate --config configs/evaluate.default.yml --set split=test
 ```
 
 Legacy packaging script remains supported:

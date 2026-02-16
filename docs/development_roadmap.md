@@ -94,11 +94,16 @@ Deliverables:
 - restartable session persistence for iterative annotation projects
 
 Status:
-- Foundation scaffolding implemented in v0.6.0:
+- Foundation scaffolding implemented in v0.7.0:
   - YAML configuration + `--set` merge engine
   - unified CLI (`microseg-cli`) for inference and dataset packaging
   - project session save/load schema `microseg.project.v1`
   - GUI workflow hub for split packaging control
+- Orchestration implementation expanded:
+  - GUI orchestration tabs for inference/training/evaluation/packaging
+  - asynchronous subprocess job execution with live logs
+  - `microseg-cli` extended with `train` and `evaluate` subcommands
+  - baseline CPU pixel-classifier training/evaluation pipeline
 
 Exit criteria:
 - documented and testable loop: infer -> correct -> export -> train -> deploy

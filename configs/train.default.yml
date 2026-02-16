@@ -1,0 +1,6 @@
+dataset_dir: outputs/packaged_dataset
+output_dir: outputs/training
+train_split: train
+max_samples: 250000
+max_iter: 500
+seed: 42

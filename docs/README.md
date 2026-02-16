@@ -14,6 +14,7 @@ Core planning and governance docs:
 - Phase 2 desktop implementation status: `phase2_desktop_refactor.md`
 - Phase 3 correction/export implementation status: `phase3_correction_loop.md`
 - Phase 3 correction GUI feature plan: `phase3_correction_gui_features.md`
+- Phase 4 orchestration pane status: `phase4_orchestration_pane.md`
 - GUI usage guide: `gui_user_guide.md`
 - Configuration workflow: `configuration_workflow.md`
 - Versioning and release policy: `versioning_and_release_policy.md`

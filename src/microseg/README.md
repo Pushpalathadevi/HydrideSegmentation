@@ -18,5 +18,9 @@ Current status:
   - `corrections/exporter.py` for schema-based corrected sample export and dataset packaging
 - Phase 4 foundation scaffolding implemented:
   - `app/project_state.py` for project/session persistence
+  - `app/orchestration.py` for infer/train/evaluate/package command construction
   - `io/configuration.py` for YAML + `--set` override resolution
+- Phase 4 orchestration/training baseline implemented:
+  - `training/pixel_classifier.py` CPU baseline training/inference
+  - `evaluation/pixel_model_eval.py` baseline evaluation reports
 - Existing implementation still remains under `hydride_segmentation/` for backward compatibility.

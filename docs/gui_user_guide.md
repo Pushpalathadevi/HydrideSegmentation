@@ -9,6 +9,7 @@
 5. Export corrected sample.
 6. Package datasets for training.
 7. Save session and resume later.
+8. Run full train/infer/evaluate/package jobs from Workflow Hub.
 
 ## Correction Workflow
 
@@ -43,7 +44,14 @@ Output includes correction metadata and provenance (`correction_record.json`).
 
 ## Pipeline Hub
 
-The `Workflow Hub` tab supports dataset packaging:
-- input correction exports directory
-- output dataset directory
-- deterministic split ratios and seed
+The `Workflow Hub` tab includes orchestration sub-tabs:
+- `Inference`: launches `microseg-cli infer`
+- `Training`: launches `microseg-cli train`
+- `Evaluation`: launches `microseg-cli evaluate`
+- `Packaging`: launches `microseg-cli package`
+
+Operational behavior:
+- one active orchestration job at a time
+- live command output log
+- job completion/failure status dialogs
+- config path + override support per job

@@ -22,6 +22,16 @@ Dataset packaging:
 microseg-cli package --config configs/package.default.yml --set train_ratio=0.75 --set val_ratio=0.15
 ```
 
+Training:
+```bash
+microseg-cli train --config configs/train.default.yml --set max_samples=300000 --set max_iter=800
+```
+
+Evaluation:
+```bash
+microseg-cli evaluate --config configs/evaluate.default.yml --set split=test
+```
+
 ## GUI Usage
 
 - Provide optional config path in the top `Config` field.
@@ -39,3 +49,4 @@ microseg-cli package --config configs/package.default.yml --set train_ratio=0.75
 ## Reproducibility
 
 CLI inference/package commands persist `resolved_config.json` with outputs.
+CLI training/evaluation commands also persist `resolved_config.json` beside artifacts/reports.

@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from skimage.draw import disk, line
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QProcess, Qt, Signal
 from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -38,11 +38,10 @@ from PySide6.QtWidgets import (
 )
 
 from hydride_segmentation.version import __version__
-from src.microseg.app import ProjectSaveRequest, ProjectStateStore
+from src.microseg.app import OrchestrationCommandBuilder, ProjectSaveRequest, ProjectStateStore
 from src.microseg.app.desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
 from src.microseg.corrections import (
     DEFAULT_CLASS_MAP,
-    CorrectionDatasetPackager,
     CorrectionExporter,
     CorrectionSession,
     SegmentationClass,
@@ -358,8 +357,10 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.workflow = DesktopWorkflowManager(max_history=400)
         self.exporter = CorrectionExporter()
-        self.packager = CorrectionDatasetPackager(seed=42)
         self.project_store = ProjectStateStore()
+        self.orchestrator = OrchestrationCommandBuilder.discover(start=Path(__file__))
+        self._job_process: QProcess | None = None
+        self._job_name: str = ""
         self.state = _UiState()
         self._model_specs = {spec["display_name"]: spec for spec in self.workflow.model_specs()}
 
@@ -651,7 +652,81 @@ class QtSegmentationMainWindow(QMainWindow):
         self.tabs.addTab(self.split_widget, "Correction Split View")
 
         self.workflow_widget = QWidget()
-        wf = QFormLayout(self.workflow_widget)
+        wf_root = QVBoxLayout(self.workflow_widget)
+        self.workflow_tabs = QTabWidget()
+        wf_root.addWidget(self.workflow_tabs)
+
+        infer_tab = QWidget()
+        infer_form = QFormLayout(infer_tab)
+        self.orch_infer_config_edit = QLineEdit("configs/inference.default.yml")
+        self.orch_infer_set_edit = QLineEdit()
+        self.orch_infer_set_edit.setPlaceholderText("key=value,key2=value2")
+        self.orch_infer_image_edit = QLineEdit()
+        self.orch_infer_image_edit.setPlaceholderText("Image path (optional if in config)")
+        self.orch_infer_model_edit = QLineEdit()
+        self.orch_infer_model_edit.setPlaceholderText("Model name (optional, defaults selected GUI model)")
+        self.orch_infer_output_edit = QLineEdit("outputs/inference")
+        self.btn_orch_infer = QPushButton("Run Inference Job")
+        self.btn_orch_infer.clicked.connect(self.on_orchestrate_inference)
+        infer_form.addRow("Config", self.orch_infer_config_edit)
+        infer_form.addRow("Overrides", self.orch_infer_set_edit)
+        infer_form.addRow("Image", self.orch_infer_image_edit)
+        infer_form.addRow("Model", self.orch_infer_model_edit)
+        infer_form.addRow("Output Dir", self.orch_infer_output_edit)
+        infer_form.addRow(self.btn_orch_infer)
+        self.workflow_tabs.addTab(infer_tab, "Inference")
+
+        train_tab = QWidget()
+        train_form = QFormLayout(train_tab)
+        self.orch_train_config_edit = QLineEdit("configs/train.default.yml")
+        self.orch_train_set_edit = QLineEdit()
+        self.orch_train_set_edit.setPlaceholderText("key=value,key2=value2")
+        self.orch_train_dataset_edit = QLineEdit("outputs/packaged_dataset")
+        self.orch_train_output_edit = QLineEdit("outputs/training")
+        self.orch_train_max_samples = QSpinBox()
+        self.orch_train_max_samples.setRange(1000, 2000000)
+        self.orch_train_max_samples.setValue(250000)
+        self.orch_train_max_iter = QSpinBox()
+        self.orch_train_max_iter.setRange(10, 5000)
+        self.orch_train_max_iter.setValue(500)
+        self.orch_train_seed = QSpinBox()
+        self.orch_train_seed.setRange(0, 100000)
+        self.orch_train_seed.setValue(42)
+        self.btn_orch_train = QPushButton("Run Training Job")
+        self.btn_orch_train.clicked.connect(self.on_orchestrate_training)
+        train_form.addRow("Config", self.orch_train_config_edit)
+        train_form.addRow("Overrides", self.orch_train_set_edit)
+        train_form.addRow("Dataset Dir", self.orch_train_dataset_edit)
+        train_form.addRow("Output Dir", self.orch_train_output_edit)
+        train_form.addRow("Max Samples", self.orch_train_max_samples)
+        train_form.addRow("Max Iter", self.orch_train_max_iter)
+        train_form.addRow("Seed", self.orch_train_seed)
+        train_form.addRow(self.btn_orch_train)
+        self.workflow_tabs.addTab(train_tab, "Training")
+
+        eval_tab = QWidget()
+        eval_form = QFormLayout(eval_tab)
+        self.orch_eval_config_edit = QLineEdit("configs/evaluate.default.yml")
+        self.orch_eval_set_edit = QLineEdit()
+        self.orch_eval_set_edit.setPlaceholderText("key=value,key2=value2")
+        self.orch_eval_dataset_edit = QLineEdit("outputs/packaged_dataset")
+        self.orch_eval_model_edit = QLineEdit("outputs/training/pixel_classifier.joblib")
+        self.orch_eval_split_combo = QComboBox()
+        self.orch_eval_split_combo.addItems(["val", "test", "train"])
+        self.orch_eval_output_edit = QLineEdit("outputs/evaluation/pixel_eval_report.json")
+        self.btn_orch_eval = QPushButton("Run Evaluation Job")
+        self.btn_orch_eval.clicked.connect(self.on_orchestrate_evaluation)
+        eval_form.addRow("Config", self.orch_eval_config_edit)
+        eval_form.addRow("Overrides", self.orch_eval_set_edit)
+        eval_form.addRow("Dataset Dir", self.orch_eval_dataset_edit)
+        eval_form.addRow("Model Path", self.orch_eval_model_edit)
+        eval_form.addRow("Split", self.orch_eval_split_combo)
+        eval_form.addRow("Output Path", self.orch_eval_output_edit)
+        eval_form.addRow(self.btn_orch_eval)
+        self.workflow_tabs.addTab(eval_tab, "Evaluation")
+
+        package_tab = QWidget()
+        package_form = QFormLayout(package_tab)
         self.dataset_input_edit = QLineEdit()
         self.dataset_input_edit.setPlaceholderText("Correction exports directory")
         self.dataset_output_edit = QLineEdit()
@@ -667,23 +742,25 @@ class QtSegmentationMainWindow(QMainWindow):
         self.seed_spin = QSpinBox()
         self.seed_spin.setRange(0, 100000)
         self.seed_spin.setValue(42)
-        self.btn_package = QPushButton("Package Dataset")
+        self.btn_package = QPushButton("Package Dataset Job")
         self.btn_package.clicked.connect(self.on_package_dataset)
+        package_form.addRow("Corrections Dir", self.dataset_input_edit)
+        package_form.addRow("Output Dir", self.dataset_output_edit)
+        package_form.addRow("Train Ratio", self.train_ratio_spin)
+        package_form.addRow("Val Ratio", self.val_ratio_spin)
+        package_form.addRow("Seed", self.seed_spin)
+        package_form.addRow(self.btn_package)
+        self.workflow_tabs.addTab(package_tab, "Packaging")
+
         self.workflow_notes = QTextEdit()
         self.workflow_notes.setReadOnly(True)
         self.workflow_notes.setPlainText(
-            "Pipeline Hub\\n"
-            "- Inference and correction: main controls\\n"
-            "- Dataset packaging: form above\\n"
-            "- Training/evaluation/augmentation use YAML + microseg-cli."
+            "Orchestration Log\\n"
+            "- One active job at a time\\n"
+            "- Commands run through scripts/microseg_cli.py\\n"
+            "- Use YAML config + overrides for reproducibility."
         )
-        wf.addRow("Corrections Dir", self.dataset_input_edit)
-        wf.addRow("Output Dir", self.dataset_output_edit)
-        wf.addRow("Train Ratio", self.train_ratio_spin)
-        wf.addRow("Val Ratio", self.val_ratio_spin)
-        wf.addRow("Seed", self.seed_spin)
-        wf.addRow(self.btn_package)
-        wf.addRow(self.workflow_notes)
+        wf_root.addWidget(self.workflow_notes)
 
         self.tabs.addTab(self.workflow_widget, "Workflow Hub")
 
@@ -865,15 +942,109 @@ class QtSegmentationMainWindow(QMainWindow):
         if path:
             self.config_path_edit.setText(path)
 
-    def _config_overrides(self) -> list[str]:
-        raw = self.config_overrides_edit.text().strip()
-        if not raw:
+    @staticmethod
+    def _parse_override_text(raw: str) -> list[str]:
+        txt = raw.strip()
+        if not txt:
             return []
-        return [part.strip() for part in raw.split(",") if part.strip()]
+        return [part.strip() for part in txt.split(",") if part.strip()]
+
+    def _config_overrides(self) -> list[str]:
+        return self._parse_override_text(self.config_overrides_edit.text())
 
     def _resolve_run_config(self) -> dict:
         cfg_path = self.config_path_edit.text().strip() or None
         return resolve_config(cfg_path, self._config_overrides())
+
+    def _start_orchestration_job(self, command: list[str], job_name: str) -> None:
+        if self._job_process is not None and self._job_process.state() != QProcess.NotRunning:
+            QMessageBox.warning(self, "Job Running", "Another orchestration job is already running.")
+            return
+
+        self._job_name = job_name
+        self.workflow_notes.append(f"$ {' '.join(command)}")
+        self.logger.info("Starting %s job", job_name)
+
+        proc = QProcess(self)
+        proc.setProgram(command[0])
+        proc.setArguments(command[1:])
+        proc.setWorkingDirectory(str(self.orchestrator.repo_root))
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        proc.readyReadStandardOutput.connect(self._on_orchestration_output)
+        proc.finished.connect(self._on_orchestration_finished)
+        proc.errorOccurred.connect(self._on_orchestration_error)
+        self._job_process = proc
+        proc.start()
+
+    def _on_orchestration_output(self) -> None:
+        if self._job_process is None:
+            return
+        text = bytes(self._job_process.readAllStandardOutput()).decode("utf-8", errors="replace")
+        if text:
+            self.workflow_notes.append(text.rstrip("\n"))
+
+    def _on_orchestration_error(self, error) -> None:  # noqa: ANN001
+        _ = error
+        if self._job_process is None:
+            return
+        self.logger.error("Orchestration process error: %s", self._job_process.errorString())
+        self.workflow_notes.append(f"[ERROR] {self._job_process.errorString()}")
+
+    def _on_orchestration_finished(self, exit_code: int, exit_status) -> None:  # noqa: ANN001
+        status_label = "normal" if exit_status == QProcess.NormalExit else "crash"
+        self.logger.info("%s job finished (code=%s, status=%s)", self._job_name, exit_code, status_label)
+        self.workflow_notes.append(
+            f"[{self._job_name}] finished with exit_code={exit_code}, status={status_label}"
+        )
+        if exit_code == 0 and exit_status == QProcess.NormalExit:
+            QMessageBox.information(self, "Job Complete", f"{self._job_name} job completed successfully.")
+        else:
+            QMessageBox.critical(
+                self,
+                "Job Failed",
+                f"{self._job_name} job failed (exit_code={exit_code}, status={status_label}).",
+            )
+        self._job_process = None
+
+    def on_orchestrate_inference(self) -> None:
+        command = self.orchestrator.infer(
+            config=self.orch_infer_config_edit.text().strip() or None,
+            overrides=self._parse_override_text(self.orch_infer_set_edit.text()),
+            image=self.orch_infer_image_edit.text().strip() or None,
+            model_name=self.orch_infer_model_edit.text().strip() or self.model_combo.currentText(),
+            output_dir=self.orch_infer_output_edit.text().strip() or None,
+        )
+        self._start_orchestration_job(command, "Inference")
+
+    def on_orchestrate_training(self) -> None:
+        overrides = self._parse_override_text(self.orch_train_set_edit.text())
+        overrides.extend(
+            [
+                f"max_samples={int(self.orch_train_max_samples.value())}",
+                f"max_iter={int(self.orch_train_max_iter.value())}",
+                f"seed={int(self.orch_train_seed.value())}",
+            ]
+        )
+        command = self.orchestrator.train(
+            config=self.orch_train_config_edit.text().strip() or None,
+            overrides=overrides,
+            dataset_dir=self.orch_train_dataset_edit.text().strip() or None,
+            output_dir=self.orch_train_output_edit.text().strip() or None,
+        )
+        self._start_orchestration_job(command, "Training")
+
+    def on_orchestrate_evaluation(self) -> None:
+        overrides = self._parse_override_text(self.orch_eval_set_edit.text())
+        overrides.append(f"split={self.orch_eval_split_combo.currentText()}")
+        command = self.orchestrator.evaluate(
+            config=self.orch_eval_config_edit.text().strip() or None,
+            overrides=overrides,
+            dataset_dir=self.orch_eval_dataset_edit.text().strip() or None,
+            model_path=self.orch_eval_model_edit.text().strip() or None,
+            split=self.orch_eval_split_combo.currentText(),
+            output_path=self.orch_eval_output_edit.text().strip() or None,
+        )
+        self._start_orchestration_job(command, "Evaluation")
 
     def on_edit_classes(self) -> None:
         dlg = QDialog(self)
@@ -960,7 +1131,8 @@ class QtSegmentationMainWindow(QMainWindow):
             "3. Pick class index/color map and select tool/mode.\n"
             "4. For wrong objects: feature-select + erase to delete component.\n"
             "5. Redraw with brush/polygon/lasso in add mode.\n"
-            "6. Tune layer transparency and export indexed/color/npy masks.",
+            "6. Tune layer transparency and export indexed/color/npy masks.\n"
+            "7. Use Workflow Hub for train/infer/evaluate/package orchestration jobs.",
         )
 
     def on_show_about(self) -> None:
@@ -1218,19 +1390,15 @@ class QtSegmentationMainWindow(QMainWindow):
         if not input_dir or not output_dir:
             QMessageBox.warning(self, "Missing paths", "Set corrections input and dataset output directories")
             return
-        try:
-            sample_dirs = [p for p in sorted(Path(input_dir).iterdir()) if p.is_dir()]
-            if not sample_dirs:
-                raise ValueError("no correction sample directories found")
-            packager = CorrectionDatasetPackager(seed=int(self.seed_spin.value()))
-            out = packager.package(
-                sample_dirs,
-                output_dir,
-                train_ratio=float(self.train_ratio_spin.value()),
-                val_ratio=float(self.val_ratio_spin.value()),
-            )
-            self.logger.info("Packaged dataset written to %s", out)
-            QMessageBox.information(self, "Packaging Complete", f"Dataset package:\n{out}")
-        except Exception as exc:
-            self.logger.exception("Dataset packaging failed")
-            QMessageBox.critical(self, "Packaging Error", str(exc))
+        overrides = [
+            f"train_ratio={float(self.train_ratio_spin.value())}",
+            f"val_ratio={float(self.val_ratio_spin.value())}",
+            f"seed={int(self.seed_spin.value())}",
+        ]
+        command = self.orchestrator.package(
+            config=None,
+            overrides=overrides,
+            input_dir=input_dir,
+            output_dir=output_dir,
+        )
+        self._start_orchestration_job(command, "Packaging")
