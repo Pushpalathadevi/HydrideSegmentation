@@ -19,6 +19,11 @@ from PIL import Image
 
 from src.microseg.core import resolve_torch_device
 from src.microseg.corrections.classes import normalize_binary_index_mask
+from src.microseg.plugins import (
+    resolve_bundle_paths,
+    resolve_pretrained_record,
+    validate_pretrained_registry,
+)
 
 
 def _utc_now() -> str:
@@ -146,6 +151,95 @@ def _select_tracking_pairs(
         rng = random.Random(int(seed) + int(epoch))
         selected.extend(rng.sample(remaining, k=min(need_random, len(remaining))))
     return selected[:total_samples], missing_fixed
+
+
+@dataclass(frozen=True)
+class _PretrainedInitBundle:
+    """Resolved local pretrained-initialization bundle paths and metadata."""
+
+    model_id: str
+    architecture: str
+    framework: str
+    source: str
+    source_revision: str
+    source_url: str
+    license: str
+    citation_key: str
+    citation: str
+    citation_url: str
+    bundle_dir: Path
+    weights_path: Path
+    weights_format: str
+    metadata_path: Path | None = None
+
+
+def _resolve_pretrained_bundle(
+    *,
+    init_mode: str,
+    model_id: str,
+    bundle_dir: str,
+    registry_path: str,
+    architecture: str,
+    verify_sha256: bool,
+) -> _PretrainedInitBundle | None:
+    mode = str(init_mode).strip().lower()
+    if mode in {"", "scratch", "none", "off"}:
+        return None
+    if mode not in {"local", "local_pretrained"}:
+        raise ValueError(f"unsupported pretrained_init_mode={init_mode!r}; expected scratch|local")
+
+    reg_path = str(registry_path).strip() or "pre_trained_weights/registry.json"
+    if model_id:
+        if bool(verify_sha256):
+            report = validate_pretrained_registry(reg_path, verify_sha256=True)
+            if not report.ok:
+                joined = "; ".join(report.errors[:5])
+                raise RuntimeError(f"pretrained registry validation failed: {joined}")
+        rec = resolve_pretrained_record(model_id=str(model_id).strip(), registry_path=reg_path)
+        if str(rec.architecture).strip() and str(rec.architecture).strip().lower() != str(architecture).strip().lower():
+            raise ValueError(
+                f"pretrained model '{rec.model_id}' architecture={rec.architecture!r} is incompatible with "
+                f"requested training architecture={architecture!r}"
+            )
+        bundle_abs, weights_abs, metadata_abs = resolve_bundle_paths(rec, registry_path=reg_path)
+        return _PretrainedInitBundle(
+            model_id=rec.model_id,
+            architecture=rec.architecture,
+            framework=rec.framework,
+            source=rec.source,
+            source_revision=rec.source_revision,
+            source_url=rec.source_url,
+            license=rec.license,
+            citation_key=rec.citation_key,
+            citation=rec.citation,
+            citation_url=rec.citation_url,
+            bundle_dir=bundle_abs,
+            weights_path=weights_abs,
+            weights_format=rec.weights_format,
+            metadata_path=metadata_abs,
+        )
+
+    bdir = Path(str(bundle_dir).strip()).expanduser()
+    if not bdir.exists():
+        raise FileNotFoundError(f"pretrained_bundle_dir does not exist: {bdir}")
+    if not bdir.is_absolute():
+        bdir = bdir.resolve()
+    return _PretrainedInitBundle(
+        model_id="ad_hoc_local_bundle",
+        architecture=str(architecture).strip().lower(),
+        framework="local",
+        source="local_bundle",
+        source_revision="n/a",
+        source_url="",
+        license="",
+        citation_key="",
+        citation="",
+        citation_url="",
+        bundle_dir=bdir,
+        weights_path=bdir,
+        weights_format="directory",
+        metadata_path=None,
+    )
 
 
 class _SegPairDataset:
@@ -518,16 +612,115 @@ def _hf_segformer_config_for_variant(variant: str):
     )
 
 
-class _HfSegFormerBinaryModel:
-    """Hugging Face SegFormer binary segmentation model (scratch init only)."""
+def _extract_state_dict(payload: object) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError(f"unsupported checkpoint payload type: {type(payload).__name__}")
+    if "model_state_dict" in payload and isinstance(payload["model_state_dict"], dict):
+        return dict(payload["model_state_dict"])
+    if "state_dict" in payload and isinstance(payload["state_dict"], dict):
+        return dict(payload["state_dict"])
+    if payload and all(isinstance(key, str) for key in payload.keys()):
+        return dict(payload)
+    raise ValueError("could not determine model state_dict from checkpoint payload")
 
-    def __init__(self, *, variant: str = "b0") -> None:
+
+class _SmpUNetBinaryModel:
+    """SMP U-Net model wrapper supporting local pretrained-state initialization."""
+
+    def __init__(
+        self,
+        *,
+        encoder_name: str = "resnet18",
+        pretrained_bundle: _PretrainedInitBundle | None = None,
+        strict: bool = False,
+    ) -> None:
+        import torch
+
+        try:
+            import segmentation_models_pytorch as smp
+        except Exception as exc:
+            raise RuntimeError(
+                "segmentation_models_pytorch is required for smp_unet_* backends. "
+                "Install with `pip install segmentation-models-pytorch`."
+            ) from exc
+
+        self.torch = torch
+        self.model = smp.Unet(
+            encoder_name=str(encoder_name),
+            encoder_weights=None,
+            in_channels=3,
+            classes=1,
+        )
+        self.load_notes: dict[str, Any] = {"missing_keys": [], "unexpected_keys": []}
+
+        if pretrained_bundle is not None:
+            path = Path(pretrained_bundle.weights_path)
+            if not path.exists() or not path.is_file():
+                raise FileNotFoundError(
+                    "smp_unet_resnet18 requires pretrained weights_path to be an existing file; "
+                    f"got: {path}"
+                )
+            payload = torch.load(path, map_location="cpu")
+            state_dict = _extract_state_dict(payload)
+            load_result = self.model.load_state_dict(state_dict, strict=bool(strict))
+            self.load_notes["missing_keys"] = list(getattr(load_result, "missing_keys", []))
+            self.load_notes["unexpected_keys"] = list(getattr(load_result, "unexpected_keys", []))
+
+    def __call__(self, x):  # noqa: ANN001
+        return self.model(x)
+
+    def to(self, device: str) -> _SmpUNetBinaryModel:
+        self.model.to(device)
+        return self
+
+    def train(self) -> _SmpUNetBinaryModel:
+        self.model.train()
+        return self
+
+    def eval(self) -> _SmpUNetBinaryModel:
+        self.model.eval()
+        return self
+
+    def state_dict(self) -> dict[str, Any]:
+        return self.model.state_dict()
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        self.model.load_state_dict(state)
+
+    def parameters(self):
+        return self.model.parameters()
+
+
+class _HfSegFormerBinaryModel:
+    """Hugging Face SegFormer binary model with optional local pretrained init."""
+
+    def __init__(
+        self,
+        *,
+        variant: str = "b0",
+        pretrained_bundle: _PretrainedInitBundle | None = None,
+        ignore_mismatched_sizes: bool = True,
+    ) -> None:
         import torch
         from transformers import SegformerForSemanticSegmentation
 
         self.torch = torch
         self.variant = str(variant).strip().lower()
-        self.model = SegformerForSemanticSegmentation(_hf_segformer_config_for_variant(self.variant))
+        if pretrained_bundle is None:
+            self.model = SegformerForSemanticSegmentation(_hf_segformer_config_for_variant(self.variant))
+        else:
+            pretrained_dir = Path(pretrained_bundle.weights_path)
+            if not pretrained_dir.exists():
+                raise FileNotFoundError(f"local pretrained transformer path does not exist: {pretrained_dir}")
+            if pretrained_dir.is_file():
+                pretrained_dir = pretrained_dir.parent
+            self.model = SegformerForSemanticSegmentation.from_pretrained(
+                str(pretrained_dir),
+                local_files_only=True,
+                ignore_mismatched_sizes=bool(ignore_mismatched_sizes),
+                num_labels=2,
+            )
+            self.model.config.num_labels = 2
 
     def __call__(self, x):  # noqa: ANN001
         logits = self.model(pixel_values=x).logits
@@ -574,10 +767,22 @@ def _build_binary_model(
     transformer_mlp_ratio: float,
     transformer_dropout: float,
     segformer_patch_size: int,
+    pretrained_bundle: _PretrainedInitBundle | None = None,
+    pretrained_strict: bool = False,
+    pretrained_ignore_mismatched_sizes: bool = True,
 ):
     arch = str(architecture).strip().lower()
     if arch == "unet_binary":
         return _UNetBinaryModel(base_channels=max(4, int(base_channels)))
+    if arch.startswith("smp_unet_"):
+        encoder = arch[len("smp_unet_") :]
+        if not encoder:
+            raise ValueError(f"invalid smp_unet architecture name: {architecture!r}")
+        return _SmpUNetBinaryModel(
+            encoder_name=encoder,
+            pretrained_bundle=pretrained_bundle,
+            strict=bool(pretrained_strict),
+        )
     if arch == "transunet_tiny":
         channels = max(4, int(base_channels)) * 4
         if channels % max(1, int(transformer_num_heads)) != 0:
@@ -608,11 +813,23 @@ def _build_binary_model(
             patch_size=max(2, int(segformer_patch_size)),
         )
     if arch == "hf_segformer_b0":
-        return _HfSegFormerBinaryModel(variant="b0")
+        return _HfSegFormerBinaryModel(
+            variant="b0",
+            pretrained_bundle=pretrained_bundle,
+            ignore_mismatched_sizes=bool(pretrained_ignore_mismatched_sizes),
+        )
     if arch == "hf_segformer_b2":
-        return _HfSegFormerBinaryModel(variant="b2")
+        return _HfSegFormerBinaryModel(
+            variant="b2",
+            pretrained_bundle=pretrained_bundle,
+            ignore_mismatched_sizes=bool(pretrained_ignore_mismatched_sizes),
+        )
     if arch == "hf_segformer_b5":
-        return _HfSegFormerBinaryModel(variant="b5")
+        return _HfSegFormerBinaryModel(
+            variant="b5",
+            pretrained_bundle=pretrained_bundle,
+            ignore_mismatched_sizes=bool(pretrained_ignore_mismatched_sizes),
+        )
     raise ValueError(f"unsupported model_architecture: {architecture}")
 
 
@@ -657,6 +874,13 @@ class UNetBinaryTrainingConfig:
     transformer_dropout: float = 0.0
     segformer_patch_size: int = 4
     backend_label: str = "unet_binary"
+    pretrained_init_mode: str = "scratch"
+    pretrained_model_id: str = ""
+    pretrained_bundle_dir: str = ""
+    pretrained_registry_path: str = "pre_trained_weights/registry.json"
+    pretrained_strict: bool = False
+    pretrained_ignore_mismatched_sizes: bool = True
+    pretrained_verify_sha256: bool = True
     amp_enabled: bool = False
     grad_accum_steps: int = 1
     num_workers: int = 0
@@ -804,7 +1028,38 @@ class UNetBinaryTrainer:
         device = resolved.selected_device
         architecture = str(config.model_architecture).strip().lower() or "unet_binary"
         backend_label = str(config.backend_label).strip().lower() or architecture
-        init_mode = "scratch" if architecture.startswith("hf_segformer_") else "native"
+        pretrained_bundle = _resolve_pretrained_bundle(
+            init_mode=str(config.pretrained_init_mode),
+            model_id=str(config.pretrained_model_id),
+            bundle_dir=str(config.pretrained_bundle_dir),
+            registry_path=str(config.pretrained_registry_path),
+            architecture=architecture,
+            verify_sha256=bool(config.pretrained_verify_sha256),
+        )
+        if pretrained_bundle is not None:
+            init_mode = "local_pretrained"
+        elif architecture.startswith("hf_segformer_") or architecture.startswith("smp_unet_"):
+            init_mode = "scratch"
+        else:
+            init_mode = "native"
+        pretrained_payload: dict[str, Any] = {}
+        if pretrained_bundle is not None:
+            pretrained_payload = {
+                "model_id": pretrained_bundle.model_id,
+                "architecture": pretrained_bundle.architecture,
+                "framework": pretrained_bundle.framework,
+                "source": pretrained_bundle.source,
+                "source_revision": pretrained_bundle.source_revision,
+                "source_url": pretrained_bundle.source_url,
+                "weights_format": pretrained_bundle.weights_format,
+                "license": pretrained_bundle.license,
+                "citation_key": pretrained_bundle.citation_key,
+                "citation": pretrained_bundle.citation,
+                "citation_url": pretrained_bundle.citation_url,
+                "bundle_dir": str(pretrained_bundle.bundle_dir),
+                "weights_path": str(pretrained_bundle.weights_path),
+                "metadata_path": str(pretrained_bundle.metadata_path) if pretrained_bundle.metadata_path else "",
+            }
         model = _build_binary_model(
             architecture=architecture,
             base_channels=int(config.model_base_channels),
@@ -813,6 +1068,9 @@ class UNetBinaryTrainer:
             transformer_mlp_ratio=float(config.transformer_mlp_ratio),
             transformer_dropout=float(config.transformer_dropout),
             segformer_patch_size=int(config.segformer_patch_size),
+            pretrained_bundle=pretrained_bundle,
+            pretrained_strict=bool(config.pretrained_strict),
+            pretrained_ignore_mismatched_sizes=bool(config.pretrained_ignore_mismatched_sizes),
         ).to(device)
         optimizer = torch.optim.Adam(
             model.parameters(),
@@ -880,6 +1138,7 @@ class UNetBinaryTrainer:
                 "config_sha256": config_sha256,
                 "model_architecture": architecture,
                 "model_initialization": init_mode,
+                "pretrained_init": pretrained_payload,
                 "device": device,
                 "device_reason": resolved.reason,
                 "progress": {
@@ -907,9 +1166,10 @@ class UNetBinaryTrainer:
                 _write_training_html(payload, html_report_path)
 
         logger.info(
-            "Segmentation training started | backend=%s arch=%s | dataset=%s | output=%s | device=%s (%s) | epochs=%d | batch=%d",
+            "Segmentation training started | backend=%s arch=%s init=%s | dataset=%s | output=%s | device=%s (%s) | epochs=%d | batch=%d",
             backend_label,
             architecture,
+            init_mode,
             dataset_root,
             output_dir,
             device,
@@ -926,6 +1186,8 @@ class UNetBinaryTrainer:
                 "output_dir": str(output_dir),
                 "device": device,
                 "device_reason": resolved.reason,
+                "model_initialization": init_mode,
+                "pretrained_init": pretrained_payload,
             },
         )
         write_report(current_epoch=start_epoch, epoch_percent=0.0, eta_seconds=0.0, status_value=status)
@@ -1089,6 +1351,7 @@ class UNetBinaryTrainer:
                     "backend": backend_label,
                     "model_architecture": architecture,
                     "model_initialization": init_mode,
+                    "pretrained_init": pretrained_payload,
                     "config": config_payload,
                     "config_sha256": config_sha256,
                     "model_state_dict": model.state_dict(),
@@ -1208,6 +1471,7 @@ class UNetBinaryTrainer:
             "code_version": _code_version(),
             "model_architecture": architecture,
             "model_initialization": init_mode,
+            "pretrained_init": pretrained_payload,
             "device": device,
             "device_reason": resolved.reason,
             "config": config_payload,
@@ -1235,6 +1499,7 @@ class UNetBinaryTrainer:
             "html_report_path": str(html_report_path) if html_report_path.exists() else "",
             "device": device,
             "model_initialization": init_mode,
+            "pretrained_init": pretrained_payload,
             "best_val_loss": float(best_val_loss) if best_val_loss != float("inf") else None,
             "epochs_completed": len(history),
         }
@@ -1287,6 +1552,7 @@ def load_unet_binary_model(
         "architecture": architecture,
         "backend": str(ckpt.get("backend", cfg.get("backend", architecture))),
         "model_initialization": str(ckpt.get("model_initialization", "unknown")),
+        "pretrained_init": ckpt.get("pretrained_init", {}),
         "config": cfg,
     }
 

@@ -70,6 +70,12 @@ frozen_checkpoints/smoke/*.meta.json
 # Keep lifecycle folders tracked, but never track checkpoint binaries by default.
 !frozen_checkpoints/**/.gitkeep
 
+# Local pretrained transfer-learning bundles (air-gap staging area)
+pre_trained_weights/**
+!pre_trained_weights/.gitkeep
+!pre_trained_weights/README.md
+!pre_trained_weights/registry.template.json
+
 # Local development
 .env.local
 .env.development.local

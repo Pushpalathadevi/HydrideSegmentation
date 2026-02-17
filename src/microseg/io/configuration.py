@@ -21,8 +21,8 @@ def _parse_scalar(raw: str) -> Any:
     if (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]")):
         try:
             return json.loads(text)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"invalid JSON override value: {text!r}") from exc
     try:
         if "." in text:
             return float(text)

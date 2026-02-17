@@ -32,7 +32,8 @@ See `docs/mission_statement.md`.
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
 - GPU-compatible training/inference/evaluation with CPU default + safe fallback
-- UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5` scratch-init, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
+- UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5`, `smp_unet_resnet18`, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
+- Air-gapped local transfer-learning support via `pre_trained_weights/` registry + bundle validation (`smp_unet_resnet18`, `hf_segformer_b0/b2/b5`)
 - JSON + HTML run reports for training and evaluation
 - Frozen checkpoint metadata registry for model selection guidance
 
@@ -151,6 +152,23 @@ Registry validation:
 microseg-cli validate-registry --config configs/registry_validation.default.yml --strict
 ```
 
+Pretrained bundle validation:
+```bash
+microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict
+```
+
+Download local pretrained bundles (connected machine):
+```bash
+python scripts/download_pretrained_weights.py --targets all --force
+```
+
+Generate pretrained inventory report (JSON + markdown):
+```bash
+python scripts/pretrained_inventory_report.py \
+  --registry-path pre_trained_weights/registry.json \
+  --output-path outputs/pretrained_weights/inventory_report.json
+```
+
 Phase closeout gate:
 ```bash
 microseg-cli phase-gate --phase-label "Phase N" --strict
@@ -159,6 +177,14 @@ microseg-cli phase-gate --phase-label "Phase N" --strict
 HPC GA bundle generation:
 ```bash
 microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
+```
+
+Air-gapped low-friction HPC sweep generation:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.airgap_pretrained.default.yml \
+  --dataset-dir outputs/prepared_dataset \
+  --output-dir outputs/hpc_ga_bundle_airgap_pretrained
 ```
 
 HPC GA feedback summary report:
@@ -219,6 +245,9 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Phase 18 transformer backend status: `docs/phase18_transformer_backends.md`
 - Phase 19 SOTA HF transformer integration status: `docs/phase19_hf_sota_transformers.md`
 - Phase 20 benchmark suite orchestration status: `docs/phase20_benchmark_suite_orchestration.md`
+- Offline pretrained transfer workflow: `docs/offline_pretrained_transfer_workflow.md`
+- Pretrained model catalog + citations: `docs/pretrained_model_catalog.md`
+- Pretrained citation BibTeX: `docs/pretrained_model_citations.bib`
 - Configuration workflow: `docs/configuration_workflow.md`
 - Development workflow + phase closeout gate: `docs/development_workflow.md`
 - Developer guide: `developer_guide.md`

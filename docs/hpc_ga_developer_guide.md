@@ -77,6 +77,8 @@ Each candidate script:
 - creates candidate run folder
 - runs `microseg-cli train`
 - optionally runs `microseg-cli evaluate` when `run_mode=train_eval`
+- explicitly sets both `backend` and `model_architecture` to avoid base-config drift
+- can set pretrained overrides per candidate backend (`pretrained_init_mode`, `pretrained_model_id`, registry/checksum flags)
 
 Model path fallback for evaluation:
 1. `best_checkpoint.pt`
@@ -97,9 +99,25 @@ Master launcher:
 - `_mutate`
 - `_compute_selection_scores`
 - `_job_script_lines` (`--set` overrides)
+ - pretrained helpers (`_candidate_pretrained_overrides`) when changing local-pretrained policy
 3. Update CLI parser defaults and GUI controls.
 4. Add/adjust tests in `tests/test_phase15_hpc_ga_planner.py`.
 5. Update docs in same change.
+
+## Pretrained Mapping Controls
+
+`HpcGaPlanConfig` supports:
+- `pretrained_init_mode`: `scratch`, `auto`, `local`
+- `pretrained_registry_path`
+- `pretrained_model_map` (`backend -> model_id`)
+- `pretrained_verify_sha256`
+- `pretrained_ignore_mismatched_sizes`
+- `pretrained_strict`
+
+Behavior:
+- `scratch`: no local-pretrained overrides in candidate scripts
+- `auto`: uses local pretrained only when `pretrained_model_map` contains the candidate backend
+- `local`: requires mapping for every pretrained-capable backend in `architectures` and fails fast otherwise
 
 ## Testing
 

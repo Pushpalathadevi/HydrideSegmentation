@@ -82,3 +82,37 @@ def test_phase14_registry_validation_accepts_lifecycle_optional_fields(tmp_path:
     assert report.ok is True
     assert not report.errors
 
+
+def test_phase14_registry_validation_enforces_stage_hint_folder_consistency(tmp_path: Path) -> None:
+    reg = tmp_path / "model_registry.json"
+    reg.write_text(
+        """
+{
+  "schema_version": "microseg.frozen_checkpoint_registry.v1",
+  "models": [
+    {
+      "model_id": "bad_candidate",
+      "model_nickname": "bad_candidate_v1",
+      "model_type": "binary_unet",
+      "framework": "pytorch",
+      "input_size": "variable",
+      "input_dimensions": "H x W x 3",
+      "checkpoint_path_hint": "frozen_checkpoints/promoted/bad_candidate/model.pth",
+      "application_remarks": "candidate",
+      "artifact_stage": "candidate",
+      "classes": [
+        {
+          "index": 0,
+          "name": "background"
+        }
+      ]
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    report = validate_frozen_registry(reg)
+    assert report.ok is False
+    assert any("artifact_stage='candidate'" in err for err in report.errors)

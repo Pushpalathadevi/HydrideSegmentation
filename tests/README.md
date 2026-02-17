@@ -25,10 +25,12 @@ Current phase coverage includes:
 - `test_phase10_dataset_prepare.py` unsplit source/masks auto-prepare with leakage-aware grouping, global IDs, optional RGB-colormap conversion, and preview contract checks
 - `test_phase13_report_review.py` run-report summary/compare and workflow profile persistence roundtrips
 - `test_phase14_checkpoint_lifecycle.py` checkpoint lifecycle metadata validation and registry-hint checkpoint resolution
-- `test_phase15_hpc_ga_planner.py` GA candidate planning, feedback-hybrid ranking inputs, HPC script-bundle generation, and HPC workflow-profile scope roundtrips
+- `test_phase15_hpc_ga_planner.py` GA candidate planning, feedback-hybrid ranking inputs, HPC script-bundle generation, pretrained mapping/script overrides, and HPC workflow-profile scope roundtrips
 - `test_phase18_transformer_backends.py` transformer segmentation backend smoke training/evaluation (`transunet_tiny`, `segformer_mini`)
 - `test_phase19_hf_transformer_backends.py` Hugging Face SegFormer transformer backend smoke training/evaluation from scratch (no pretrained weights)
 - `test_phase20_benchmark_suite_script.py` hydride benchmark suite single-script dry-run orchestration + summary artifact generation
 - `test_phase21_benchmark_dashboard_enrichment.py` benchmark dashboard enrichment with training curves, training-history metrics, and aggregate comparison fields
+- `test_phase22_pretrained_offline.py` offline local pretrained registry validation, checksum verification, and local-bundle initialization smoke tests for `hf_segformer_b0` and `smp_unet_resnet18`
 
 - `test_mask_binary_normalization.py` binary-mask auto-normalization option (`two_value_zero_background`) for 2-value indexed masks
+- `test_service.py` legacy Flask service request validation for model selection, parameter parsing, and response behavior

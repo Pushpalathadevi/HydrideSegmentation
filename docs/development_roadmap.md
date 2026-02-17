@@ -479,3 +479,47 @@ Exit criteria:
 - dashboard includes loss/accuracy/IoU vs epoch curves per run
 - summary outputs include parameter count, model size, train/eval/total runtimes
 - aggregate outputs include mean/std statistics for key quality and runtime metrics
+
+## Phase 22 - Offline Pretrained Transfer Learning (Implemented)
+
+Goals:
+- Enable air-gapped transfer learning from locally staged pretrained bundles.
+- Expand validated local-pretrained coverage across additional transformer variants.
+- Reduce HPC friction for mixed scratch/local-pretrained sweeps.
+- Keep provenance/checksum validation explicit for scientific traceability.
+
+Deliverables:
+- pretrained registry + validation helpers:
+  - `src/microseg/plugins/pretrained_weights.py`
+  - CLI command: `microseg-cli validate-pretrained`
+- local-pretrained init in trainer:
+  - U-Net: `smp_unet_resnet18`
+  - transformers: `hf_segformer_b0`, `hf_segformer_b2`, `hf_segformer_b5` local bundle loading
+  - training provenance fields: `pretrained_init`
+- connected-machine bundle bootstrap scripts:
+  - `scripts/download_pretrained_weights.py`
+  - `scripts/build_debug_duplicate_dataset.py`
+  - `scripts/pretrained_inventory_report.py`
+- debug configs and workflow docs:
+  - `configs/hydride/train.smp_unet_resnet18_local_pretrained.debug.yml`
+  - `configs/hydride/train.hf_segformer_b0_local_pretrained.debug.yml`
+  - `configs/hydride/train.hf_segformer_b2_local_pretrained.debug.yml`
+  - `configs/hydride/train.hf_segformer_b5_local_pretrained.debug.yml`
+  - `configs/hpc_ga.airgap_pretrained.default.yml`
+  - `docs/offline_pretrained_transfer_workflow.md`
+  - `docs/pretrained_model_catalog.md`
+  - `docs/pretrained_model_citations.bib`
+  - `docs/pretrained_model_catalog.json`
+- HPC GA pretrained-init controls:
+  - `pretrained_init_mode` (`scratch|auto|local`)
+  - `pretrained_model_map` (`backend -> model_id`)
+  - generated candidate scripts now set explicit `model_architecture` matching backend
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- `pre_trained_weights/registry.json` validates with strict checksum checks
+- local-pretrained debug runs complete for at least one U-Net and one transformer backend
+- generated HPC scripts require no manual per-candidate edits for mapped pretrained backends
+- full tests and strict phase gate pass in same change

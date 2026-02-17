@@ -39,6 +39,10 @@ Core planning and governance docs:
 - Training data requirements: `training_data_requirements.md`
 - GUI usage guide: `gui_user_guide.md`
 - Configuration workflow: `configuration_workflow.md`
+- Offline pretrained transfer workflow: `offline_pretrained_transfer_workflow.md`
+- Pretrained model catalog + provenance metadata: `pretrained_model_catalog.md`
+- Pretrained citation BibTeX: `pretrained_model_citations.bib`
+- Pretrained model catalog JSON: `pretrained_model_catalog.json`
 - Versioning and release policy: `versioning_and_release_policy.md`
 - Migration strategy: `migration_strategy.md`
 - Repository blueprint: `repository_blueprint.md`

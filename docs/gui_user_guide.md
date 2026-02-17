@@ -62,7 +62,7 @@ Operational behavior:
 - config path + override support per job
 - per-job GPU controls (`Enable GPU` + `device policy`) with CPU fallback behavior
 - default is CPU execution unless GPU is explicitly enabled
-- training tab includes backend selection (`unet_binary`, `hf_segformer_b0`, `hf_segformer_b2`, `hf_segformer_b5`, `transunet_tiny`, `segformer_mini`, `torch_pixel`, `sklearn_pixel`)
+- training tab includes backend selection (`unet_binary`, `smp_unet_resnet18`, `hf_segformer_b0`, `hf_segformer_b2`, `hf_segformer_b5`, `transunet_tiny`, `segformer_mini`, `torch_pixel`, `sklearn_pixel`)
 - training tab includes optional `Require dataset QA pass before launch` gate
 - `unet_binary` supports early stopping and resume checkpoint path
 - training tab supports validation sample tracking:
@@ -97,6 +97,7 @@ Run Review tab highlights:
 HPC GA Planner highlights:
 - architecture list + hyperparameter range controls
 - supports `novelty` and `feedback_hybrid` fitness modes
+- supports air-gapped pretrained sweeps via config-driven fields (`pretrained_init_mode`, `pretrained_model_map`, `pretrained_registry_path`)
 - novelty-oriented synthesis for first-pass sweeps
 - feedback-aware ranking using prior run bundles and metric/runtime weighting
 - scheduler mode selection (`slurm`, `pbs`, `local`)
@@ -107,6 +108,7 @@ HPC GA Planner highlights:
   - candidate parameter files (`json` + `yml`)
   - plan manifest (`ga_plan_manifest.json`)
 - supports profile save/load scope `hpc_ga`
+- recommended air-gapped profile config: `configs/hpc_ga.airgap_pretrained.default.yml`
 
 ## Model Guidance Panel
 

@@ -718,6 +718,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_train_backend.addItems(
             [
                 "unet_binary",
+                "smp_unet_resnet18",
                 "transunet_tiny",
                 "segformer_mini",
                 "hf_segformer_b0",
@@ -1052,7 +1053,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_hpc_run_mode_combo.addItems(["train_eval", "train_only"])
         self.orch_hpc_run_mode_combo.setCurrentText("train_eval")
         self.orch_hpc_architectures_edit = QLineEdit(
-            "unet_binary,hf_segformer_b0,hf_segformer_b2,transunet_tiny,segformer_mini,torch_pixel"
+            "unet_binary,smp_unet_resnet18,hf_segformer_b0,hf_segformer_b2,hf_segformer_b5,transunet_tiny,segformer_mini,torch_pixel"
         )
         self.orch_hpc_num_candidates = QSpinBox()
         self.orch_hpc_num_candidates.setRange(1, 128)

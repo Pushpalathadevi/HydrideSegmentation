@@ -13,9 +13,17 @@ Available training presets:
 - `train.segformer_mini_wide.yml`
 - `train.torch_pixel.yml`
 - `train.sklearn_pixel.yml`
+- `train.smp_unet_resnet18_local_pretrained.debug.yml`
+- `train.hf_segformer_b0_local_pretrained.debug.yml`
+- `train.hf_segformer_b2_local_pretrained.debug.yml`
+- `train.hf_segformer_b5_local_pretrained.debug.yml`
 
 Transformer presets marked with `_scratch` are initialized from architecture configs only.
 They do not load pretrained weights and are suitable for offline HPC runs.
+
+Debug presets ending with `_local_pretrained.debug` are for validating air-gapped local transfer-learning:
+- `smp_unet_resnet18` initializes from local pretrained state dict.
+- `hf_segformer_b0`, `hf_segformer_b2`, and `hf_segformer_b5` initialize from local Hugging Face model directories.
 
 Top-5 benchmark suite config:
 - `benchmark_suite.top5.yml`

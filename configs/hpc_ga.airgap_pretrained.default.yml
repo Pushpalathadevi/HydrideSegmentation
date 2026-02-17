@@ -1,8 +1,9 @@
-# GA-driven HPC bundle generation defaults
+# GA-driven HPC bundle defaults for air-gapped local-pretrained transfer runs.
+# This profile minimizes per-run edits by auto-applying pretrained IDs per backend.
 
-experiment_name: microseg_hpc_ga_sweep
+experiment_name: microseg_hpc_ga_airgap_pretrained
 dataset_dir: outputs/prepared_dataset
-output_dir: outputs/hpc_ga_bundle
+output_dir: outputs/hpc_ga_bundle_airgap_pretrained
 
 base_train_config: configs/train.default.yml
 base_eval_config: configs/evaluate.default.yml
@@ -53,13 +54,13 @@ job_prefix: microseg
 python_executable: python
 microseg_cli_path: scripts/microseg_cli.py
 
-# Pretrained-init policy for generated train jobs:
-# - scratch: always train from scratch
-# - auto: use local pretrained only for backends listed in pretrained_model_map
-# - local: require local pretrained mapping for every pretrained-capable architecture in architectures
-pretrained_init_mode: scratch
+pretrained_init_mode: auto
 pretrained_registry_path: pre_trained_weights/registry.json
-pretrained_model_map: {}
+pretrained_model_map:
+  smp_unet_resnet18: smp_unet_resnet18_imagenet
+  hf_segformer_b0: hf_segformer_b0_ade20k
+  hf_segformer_b2: hf_segformer_b2_ade20k
+  hf_segformer_b5: hf_segformer_b5_ade20k
 pretrained_verify_sha256: true
 pretrained_ignore_mismatched_sizes: true
 pretrained_strict: false

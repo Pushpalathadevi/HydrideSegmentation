@@ -1,0 +1,43 @@
+{
+  "schema_version": "microseg.pretrained_catalog.v1",
+  "updated_utc": "2026-02-17T00:00:00Z",
+  "citation_bib": "docs/pretrained_model_citations.bib",
+  "models": [
+    {
+      "model_id": "smp_unet_resnet18_imagenet",
+      "architecture": "smp_unet_resnet18",
+      "framework": "segmentation_models_pytorch",
+      "source": "segmentation_models_pytorch:Unet(resnet18, encoder_weights=imagenet)",
+      "source_url": "https://github.com/qubvel-org/segmentation_models.pytorch",
+      "license": "See upstream package licenses",
+      "citation_key": ["ronneberger2015unet", "he2016resnet"]
+    },
+    {
+      "model_id": "hf_segformer_b0_ade20k",
+      "architecture": "hf_segformer_b0",
+      "framework": "transformers",
+      "source": "huggingface:nvidia/segformer-b0-finetuned-ade-512-512",
+      "source_url": "https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512",
+      "license": "See upstream model card license metadata",
+      "citation_key": ["xie2021segformer", "zhou2017ade20k"]
+    },
+    {
+      "model_id": "hf_segformer_b2_ade20k",
+      "architecture": "hf_segformer_b2",
+      "framework": "transformers",
+      "source": "huggingface:nvidia/segformer-b2-finetuned-ade-512-512",
+      "source_url": "https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512",
+      "license": "See upstream model card license metadata",
+      "citation_key": ["xie2021segformer", "zhou2017ade20k"]
+    },
+    {
+      "model_id": "hf_segformer_b5_ade20k",
+      "architecture": "hf_segformer_b5",
+      "framework": "transformers",
+      "source": "huggingface:nvidia/segformer-b5-finetuned-ade-640-640",
+      "source_url": "https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640",
+      "license": "See upstream model card license metadata",
+      "citation_key": ["xie2021segformer", "zhou2017ade20k"]
+    }
+  ]
+}

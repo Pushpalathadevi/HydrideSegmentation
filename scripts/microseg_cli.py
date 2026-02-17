@@ -18,6 +18,7 @@ from src.microseg.app.hpc_ga import (
     parse_architectures,
     parse_batch_sizes,
     parse_feedback_sources,
+    parse_pretrained_model_map,
     summarize_feedback_sources,
 )
 from src.microseg.corrections import CorrectionDatasetPackager
@@ -32,7 +33,9 @@ from src.microseg.dataops import (
 from src.microseg.io import resolve_config
 from src.microseg.plugins import (
     load_frozen_checkpoint_records,
+    validate_pretrained_registry,
     validate_frozen_registry,
+    write_pretrained_validation_report,
     write_registry_validation_report,
 )
 from src.microseg.quality import PhaseGateConfig, run_phase_gate
@@ -78,6 +81,18 @@ def _parse_mapping(value: object, *, field_name: str) -> dict[str, object]:
     return {str(k): v for k, v in payload.items()}
 
 
+def _normalize_binary_mask_mode(value: object) -> str:
+    text = str(value).strip().lower()
+    if value is False or text in {"", "0", "false", "off", "none", "null"}:
+        return "off"
+    if value is True or text in {"1", "true", "on", "two_value_zero_background"}:
+        return "two_value_zero_background"
+    raise ValueError(
+        "binary_mask_normalization must be one of: off, two_value_zero_background; "
+        f"got {value!r}"
+    )
+
+
 def _build_dataset_prepare_config(
     *,
     cfg: dict[str, object],
@@ -103,7 +118,7 @@ def _build_dataset_prepare_config(
             field_name="mask_colormap",
         ),
         mask_colormap_strict=bool(cfg.get("mask_colormap_strict", args.mask_colormap_strict)),
-        binary_mask_normalization=str(
+        binary_mask_normalization=_normalize_binary_mask_mode(
             cfg.get("binary_mask_normalization", args.binary_mask_normalization)
         ),
     )
@@ -145,11 +160,24 @@ def _train(args: argparse.Namespace) -> int:
         raise ValueError("dataset directory is required (--dataset-dir or config:dataset_dir)")
     output_dir = args.output_dir or cfg.get("output_dir") or "outputs/training"
     backend = str(cfg.get("backend", args.backend))
+    model_architecture = str(cfg.get("model_architecture", "")).strip()
+    if not model_architecture:
+        model_architecture = backend
+    if (
+        backend in {"smp_unet_resnet18", "transunet_tiny", "segformer_mini", "hf_segformer_b0", "hf_segformer_b2", "hf_segformer_b5"}
+        and model_architecture == "unet_binary"
+    ):
+        # Backward-compat guard: if backend was overridden but model_architecture stayed at train.default.yml baseline.
+        model_architecture = backend
     enable_gpu = bool(cfg.get("enable_gpu", args.enable_gpu))
     device_policy = str(cfg.get("device_policy", args.device_policy))
     seed = int(cfg.get("seed", args.seed))
     val_tracking_fixed = tuple(_parse_name_list(cfg.get("val_tracking_fixed_samples", args.val_tracking_fixed_samples)))
-    auto_prepare = bool(cfg.get("auto_prepare_dataset", args.auto_prepare_dataset))
+    auto_prepare = (
+        bool(args.auto_prepare_dataset)
+        if args.auto_prepare_dataset is not None
+        else bool(cfg.get("auto_prepare_dataset", True))
+    )
     if auto_prepare:
         prep_out = str(
             cfg.get(
@@ -184,13 +212,14 @@ def _train(args: argparse.Namespace) -> int:
                 seed=seed,
                 enable_gpu=enable_gpu,
                 device_policy=device_policy,
-                binary_mask_normalization=str(
+                binary_mask_normalization=_normalize_binary_mask_mode(
                     cfg.get("binary_mask_normalization", args.binary_mask_normalization)
                 ),
             )
         )
     elif backend in {
         "unet_binary",
+        "smp_unet_resnet18",
         "transunet_tiny",
         "segformer_mini",
         "hf_segformer_b0",
@@ -220,7 +249,7 @@ def _train(args: argparse.Namespace) -> int:
                 val_tracking_seed=int(cfg.get("val_tracking_seed", args.val_tracking_seed)),
                 write_html_report=bool(cfg.get("write_html_report", args.write_html_report)),
                 progress_log_interval_pct=int(cfg.get("progress_log_interval_pct", args.progress_log_interval_pct)),
-                model_architecture=str(cfg.get("model_architecture", backend)),
+                model_architecture=model_architecture,
                 model_base_channels=int(cfg.get("model_base_channels", args.model_base_channels)),
                 transformer_depth=int(cfg.get("transformer_depth", args.transformer_depth)),
                 transformer_num_heads=int(cfg.get("transformer_num_heads", args.transformer_num_heads)),
@@ -228,13 +257,29 @@ def _train(args: argparse.Namespace) -> int:
                 transformer_dropout=float(cfg.get("transformer_dropout", args.transformer_dropout)),
                 segformer_patch_size=int(cfg.get("segformer_patch_size", args.segformer_patch_size)),
                 backend_label=str(cfg.get("backend_label", backend)),
+                pretrained_init_mode=str(cfg.get("pretrained_init_mode", args.pretrained_init_mode)),
+                pretrained_model_id=str(cfg.get("pretrained_model_id", args.pretrained_model_id or "")),
+                pretrained_bundle_dir=str(cfg.get("pretrained_bundle_dir", args.pretrained_bundle_dir or "")),
+                pretrained_registry_path=str(
+                    cfg.get("pretrained_registry_path", args.pretrained_registry_path)
+                ),
+                pretrained_strict=bool(cfg.get("pretrained_strict", args.pretrained_strict)),
+                pretrained_ignore_mismatched_sizes=bool(
+                    cfg.get(
+                        "pretrained_ignore_mismatched_sizes",
+                        args.pretrained_ignore_mismatched_sizes,
+                    )
+                ),
+                pretrained_verify_sha256=bool(
+                    cfg.get("pretrained_verify_sha256", args.pretrained_verify_sha256)
+                ),
                 amp_enabled=bool(cfg.get("amp_enabled", args.amp_enabled)),
                 grad_accum_steps=int(cfg.get("grad_accum_steps", args.grad_accum_steps)),
                 num_workers=int(cfg.get("num_workers", args.num_workers)),
                 pin_memory=bool(cfg.get("pin_memory", args.pin_memory)),
                 persistent_workers=bool(cfg.get("persistent_workers", args.persistent_workers)),
                 deterministic=bool(cfg.get("deterministic", args.deterministic)),
-                binary_mask_normalization=str(
+                binary_mask_normalization=_normalize_binary_mask_mode(
                     cfg.get("binary_mask_normalization", args.binary_mask_normalization)
                 ),
             )
@@ -249,7 +294,7 @@ def _train(args: argparse.Namespace) -> int:
                 max_samples=int(cfg.get("max_samples", args.max_samples)),
                 max_iter=int(cfg.get("max_iter", args.max_iter)),
                 seed=seed,
-                binary_mask_normalization=str(
+                binary_mask_normalization=_normalize_binary_mask_mode(
                     cfg.get("binary_mask_normalization", args.binary_mask_normalization)
                 ),
             )
@@ -299,7 +344,11 @@ def _evaluate(args: argparse.Namespace) -> int:
     split = args.split or cfg.get("split") or "val"
     enable_gpu = bool(cfg.get("enable_gpu", args.enable_gpu))
     device_policy = str(cfg.get("device_policy", args.device_policy))
-    auto_prepare = bool(cfg.get("auto_prepare_dataset", args.auto_prepare_dataset))
+    auto_prepare = (
+        bool(args.auto_prepare_dataset)
+        if args.auto_prepare_dataset is not None
+        else bool(cfg.get("auto_prepare_dataset", True))
+    )
     if auto_prepare:
         prep_out = str(
             cfg.get(
@@ -332,7 +381,7 @@ def _evaluate(args: argparse.Namespace) -> int:
             write_html_report=bool(cfg.get("write_html_report", args.write_html_report)),
             tracking_samples=int(cfg.get("tracking_samples", args.tracking_samples)),
             tracking_seed=int(cfg.get("tracking_seed", args.tracking_seed)),
-            binary_mask_normalization=str(
+            binary_mask_normalization=_normalize_binary_mask_mode(
                 cfg.get("binary_mask_normalization", args.binary_mask_normalization)
             ),
         )
@@ -433,6 +482,29 @@ def _validate_registry(args: argparse.Namespace) -> int:
     return 0
 
 
+def _validate_pretrained(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    registry_path = args.registry_path or cfg.get("registry_path") or "pre_trained_weights/registry.json"
+    output_path = (
+        args.output_path
+        or cfg.get("output_path")
+        or "outputs/pretrained_weights/validation_report.json"
+    )
+    strict = bool(cfg.get("strict", args.strict))
+    verify_sha256 = bool(cfg.get("verify_sha256", args.verify_sha256))
+
+    report = validate_pretrained_registry(registry_path, verify_sha256=verify_sha256)
+    write_pretrained_validation_report(report, output_path)
+
+    print(f"pretrained registry valid: {report.ok}")
+    print(f"errors: {len(report.errors)}")
+    print(f"warnings: {len(report.warnings)}")
+    print(f"report: {output_path}")
+    if strict and not report.ok:
+        return 2
+    return 0
+
+
 def _dataset_split(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     input_dir = args.input_dir or cfg.get("input_dir")
@@ -525,6 +597,9 @@ def _hpc_ga_generate(args: argparse.Namespace) -> int:
     feedback_sources = parse_feedback_sources(cfg.get("feedback_sources", args.feedback_sources))
     if not feedback_sources:
         feedback_sources = parse_feedback_sources(args.feedback_sources)
+    pretrained_model_map = parse_pretrained_model_map(cfg.get("pretrained_model_map", args.pretrained_model_map))
+    if not pretrained_model_map:
+        pretrained_model_map = parse_pretrained_model_map(args.pretrained_model_map)
 
     result = generate_hpc_ga_bundle(
         HpcGaPlanConfig(
@@ -573,6 +648,14 @@ def _hpc_ga_generate(args: argparse.Namespace) -> int:
             job_prefix=str(cfg.get("job_prefix", args.job_prefix)),
             python_executable=str(cfg.get("python_executable", args.python_executable)),
             microseg_cli_path=str(cfg.get("microseg_cli_path", args.microseg_cli_path)),
+            pretrained_init_mode=str(cfg.get("pretrained_init_mode", args.pretrained_init_mode)),
+            pretrained_registry_path=str(cfg.get("pretrained_registry_path", args.pretrained_registry_path)),
+            pretrained_model_map=pretrained_model_map,
+            pretrained_verify_sha256=bool(cfg.get("pretrained_verify_sha256", args.pretrained_verify_sha256)),
+            pretrained_ignore_mismatched_sizes=bool(
+                cfg.get("pretrained_ignore_mismatched_sizes", args.pretrained_ignore_mismatched_sizes)
+            ),
+            pretrained_strict=bool(cfg.get("pretrained_strict", args.pretrained_strict)),
         )
     )
 
@@ -722,6 +805,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--backend",
         choices=[
             "unet_binary",
+            "smp_unet_resnet18",
             "transunet_tiny",
             "segformer_mini",
             "hf_segformer_b0",
@@ -752,6 +836,17 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--transformer-mlp-ratio", type=float, default=2.0)
     train.add_argument("--transformer-dropout", type=float, default=0.0)
     train.add_argument("--segformer-patch-size", type=int, default=4)
+    train.add_argument("--pretrained-init-mode", choices=["scratch", "local"], default="scratch")
+    train.add_argument("--pretrained-model-id", type=str, default="")
+    train.add_argument("--pretrained-bundle-dir", type=str, default="")
+    train.add_argument("--pretrained-registry-path", type=str, default="pre_trained_weights/registry.json")
+    train.add_argument("--pretrained-strict", action=argparse.BooleanOptionalAction, default=False)
+    train.add_argument(
+        "--pretrained-ignore-mismatched-sizes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    train.add_argument("--pretrained-verify-sha256", action=argparse.BooleanOptionalAction, default=True)
     train.add_argument("--amp-enabled", action=argparse.BooleanOptionalAction, default=False)
     train.add_argument("--grad-accum-steps", type=int, default=1)
     train.add_argument("--num-workers", type=int, default=0)
@@ -761,7 +856,7 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--binary-mask-normalization", choices=["off", "two_value_zero_background"], default="off")
     train.add_argument("--max-iter", type=int, default=500)
     train.add_argument("--seed", type=int, default=42)
-    train.add_argument("--auto-prepare-dataset", action=argparse.BooleanOptionalAction, default=True)
+    train.add_argument("--auto-prepare-dataset", action=argparse.BooleanOptionalAction, default=None)
     train.add_argument("--prepare-output-dir", type=str)
     train.add_argument("--split-train-ratio", type=float, default=0.8)
     train.add_argument("--split-val-ratio", type=float, default=0.1)
@@ -790,7 +885,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--write-html-report", action=argparse.BooleanOptionalAction, default=True)
     ev.add_argument("--tracking-samples", type=int, default=8)
     ev.add_argument("--tracking-seed", type=int, default=17)
-    ev.add_argument("--auto-prepare-dataset", action=argparse.BooleanOptionalAction, default=True)
+    ev.add_argument("--auto-prepare-dataset", action=argparse.BooleanOptionalAction, default=None)
     ev.add_argument("--prepare-output-dir", type=str)
     ev.add_argument("--split-train-ratio", type=float, default=0.8)
     ev.add_argument("--split-val-ratio", type=float, default=0.1)
@@ -818,6 +913,18 @@ def _build_parser() -> argparse.ArgumentParser:
     validate_registry.add_argument("--output-path", type=str, help="Validation report JSON path")
     validate_registry.add_argument("--strict", action="store_true", help="Exit non-zero when validation fails")
     validate_registry.set_defaults(handler=_validate_registry)
+
+    validate_pretrained = sub.add_parser(
+        "validate-pretrained",
+        help="Validate local pretrained-weight registry metadata and artifacts",
+    )
+    validate_pretrained.add_argument("--config", type=str, help="YAML config path")
+    validate_pretrained.add_argument("--set", action="append", default=[], help="Override key=value")
+    validate_pretrained.add_argument("--registry-path", type=str, help="Pretrained registry JSON path")
+    validate_pretrained.add_argument("--output-path", type=str, help="Validation report JSON path")
+    validate_pretrained.add_argument("--verify-sha256", action=argparse.BooleanOptionalAction, default=True)
+    validate_pretrained.add_argument("--strict", action="store_true", help="Exit non-zero when validation fails")
+    validate_pretrained.set_defaults(handler=_validate_pretrained)
 
     split = sub.add_parser("dataset-split", help="Leakage-aware correction split planner and materializer")
     split.add_argument("--config", type=str, help="YAML config path")
@@ -871,7 +978,7 @@ def _build_parser() -> argparse.ArgumentParser:
     hpc_ga.add_argument(
         "--architectures",
         type=str,
-        default="unet_binary,hf_segformer_b0,hf_segformer_b2,transunet_tiny,segformer_mini,torch_pixel",
+        default="unet_binary,smp_unet_resnet18,hf_segformer_b0,hf_segformer_b2,hf_segformer_b5,transunet_tiny,segformer_mini,torch_pixel",
     )
     hpc_ga.add_argument("--num-candidates", type=int, default=8)
     hpc_ga.add_argument("--population-size", type=int, default=24)
@@ -910,6 +1017,21 @@ def _build_parser() -> argparse.ArgumentParser:
     hpc_ga.add_argument("--job-prefix", type=str, default="microseg")
     hpc_ga.add_argument("--python-executable", type=str, default="python")
     hpc_ga.add_argument("--microseg-cli-path", type=str, default="scripts/microseg_cli.py")
+    hpc_ga.add_argument("--pretrained-init-mode", choices=["scratch", "auto", "local"], default="scratch")
+    hpc_ga.add_argument("--pretrained-registry-path", type=str, default="pre_trained_weights/registry.json")
+    hpc_ga.add_argument(
+        "--pretrained-model-map",
+        type=str,
+        default="",
+        help="backend=model_id CSV or JSON object mapping backend->pretrained model_id",
+    )
+    hpc_ga.add_argument("--pretrained-verify-sha256", action=argparse.BooleanOptionalAction, default=True)
+    hpc_ga.add_argument(
+        "--pretrained-ignore-mismatched-sizes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    hpc_ga.add_argument("--pretrained-strict", action=argparse.BooleanOptionalAction, default=False)
     hpc_ga.set_defaults(handler=_hpc_ga_generate)
 
     hpc_ga_feedback = sub.add_parser("hpc-ga-feedback-report", help="Summarize prior HPC GA run feedback")
@@ -922,7 +1044,7 @@ def _build_parser() -> argparse.ArgumentParser:
     hpc_ga_feedback.add_argument(
         "--architectures",
         type=str,
-        default="unet_binary,hf_segformer_b0,hf_segformer_b2,transunet_tiny,segformer_mini,torch_pixel",
+        default="unet_binary,smp_unet_resnet18,hf_segformer_b0,hf_segformer_b2,hf_segformer_b5,transunet_tiny,segformer_mini,torch_pixel",
     )
     hpc_ga_feedback.add_argument("--batch-size-choices", type=str, default="4,8,16,32")
     hpc_ga_feedback.add_argument("--fitness-mode", choices=["novelty", "feedback_hybrid"], default="feedback_hybrid")

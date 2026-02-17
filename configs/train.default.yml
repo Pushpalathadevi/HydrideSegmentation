@@ -39,6 +39,13 @@ transformer_mlp_ratio: 2.0
 transformer_dropout: 0.0
 segformer_patch_size: 4
 backend_label: unet_binary
+pretrained_init_mode: scratch
+pretrained_model_id: ""
+pretrained_bundle_dir: ""
+pretrained_registry_path: pre_trained_weights/registry.json
+pretrained_strict: false
+pretrained_ignore_mismatched_sizes: true
+pretrained_verify_sha256: true
 seed: 42
 enable_gpu: false
 device_policy: cpu

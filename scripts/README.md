@@ -19,7 +19,12 @@ Current scripts:
   - `dataset-prepare` uses leakage-aware auto-split by default and optionally supports RGB mask conversion via configurable colormap.
   - `dataset-qa` runs packaged dataset quality checks.
   - `phase-gate` command runs mandatory end-of-phase checks and writes closeout artifacts.
+  - `validate-pretrained` validates local pretrained registry metadata, paths, and optional checksums.
   - `hpc-ga-generate` creates GA-planned Slurm/PBS/local script bundles for multi-candidate GPU HPC sweeps.
+  - `hpc-ga-generate` supports low-friction pretrained controls (`pretrained_init_mode`, `pretrained_model_map`) for air-gapped transfer learning.
+- `download_pretrained_weights.py` stages local pretrained bundles for offline transfer learning.
+  - supports HF SegFormer `b0/b2/b5` and SMP U-Net ResNet18 targets.
+- `pretrained_inventory_report.py` builds JSON/markdown inventory reports from `pre_trained_weights/registry.json` for reporting/manuscript traceability.
 - `run_phase_gate.py` standalone wrapper for phase closeout checks/stocktake reporting.
   - installed console entry point: `microseg-phase-gate`
 - `generate_smoke_checkpoint.py` creates deterministic tiny random-weight `.pth` checkpoints for

@@ -50,6 +50,10 @@ microseg-cli validate-registry --config configs/registry_validation.default.yml 
 
 - Do not hardcode absolute local filesystem paths.
 - Keep `checkpoint_path_hint` repository-relative.
+- Keep `artifact_stage` and `checkpoint_path_hint` folder aligned:
+  - `smoke` -> `frozen_checkpoints/smoke/...`
+  - `candidate` -> `frozen_checkpoints/candidates/...`
+  - `promoted` -> `frozen_checkpoints/promoted/...`
 - Keep `source_run_manifest` and `quality_report_path` repository-relative when provided.
 - Keep descriptions concise, user-oriented, and scientifically specific.
 - Keep metadata stable and versioned for reproducibility.

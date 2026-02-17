@@ -11,7 +11,7 @@ You select model backends and hyperparameter ranges in GUI or CLI, then the tool
 - one machine-readable manifest JSON
 
 This is designed for:
-- architecture comparison (for example `unet_binary` vs `hf_segformer_b0` vs `hf_segformer_b2`)
+- architecture comparison (for example `unet_binary` vs `hf_segformer_b0` vs `hf_segformer_b2` vs `hf_segformer_b5`)
 - hyperparameter sweep initialization
 - repeatable GPU training/evaluation batch runs on Slurm/PBS/local schedulers
 
@@ -64,6 +64,14 @@ microseg-cli hpc-ga-generate \
   --config configs/hpc_ga.default.yml \
   --dataset-dir outputs/prepared_dataset \
   --output-dir outputs/hpc_ga_bundle
+```
+
+Air-gapped local-pretrained profile:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.airgap_pretrained.default.yml \
+  --dataset-dir outputs/prepared_dataset \
+  --output-dir outputs/hpc_ga_bundle_airgap_pretrained
 ```
 
 Feedback summary from prior bundles:
@@ -140,6 +148,11 @@ outputs/hpc_ga_feedback/
 - Use repository-relative config paths.
 - Set `REPO_ROOT` before running `submit_all.sh`.
 
+`Expected local pretrained init but candidate ran scratch`
+- Set `pretrained_init_mode=local` to force mapping completeness, or use `auto` with an explicit `pretrained_model_map`.
+- Validate local bundles first:
+  - `microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict`
+
 `Model checkpoint not found during evaluate step`
 - Job script already tries `best_checkpoint.pt`, then `last_checkpoint.pt`, then `torch_pixel_classifier.pt`.
 - Inspect training run folder under `runs/cand_xxx/`.
@@ -151,3 +164,4 @@ outputs/hpc_ga_feedback/
 - `docs/gui_user_guide.md`
 - `docs/phase15_hpc_ga_hpc_bundle.md`
 - `docs/phase17_hpc_ga_feedback.md`
+- `docs/offline_pretrained_transfer_workflow.md`

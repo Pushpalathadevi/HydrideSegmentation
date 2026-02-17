@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+import pytest
 
 from hydride_segmentation.microseg_adapter import resolve_gui_model_id
 from src.microseg.app import ProjectSaveRequest, ProjectStateStore
@@ -19,7 +20,7 @@ from src.microseg.corrections import (
     to_index_mask,
 )
 from src.microseg.corrections.session import CorrectionSession
-from src.microseg.io import merge_dicts, parse_set_overrides, resolve_config
+from src.microseg.io import ConfigError, merge_dicts, parse_set_overrides, resolve_config
 
 
 def _synthetic_image() -> np.ndarray:
@@ -89,6 +90,11 @@ include_analysis: false
     resolved = resolve_config(cfg_path, ["params.crop=true"])
     assert resolved["model_name"] == "Hydride Conventional"
     assert resolved["params"]["crop"] is True
+
+
+def test_phase4_config_overrides_reject_invalid_json() -> None:
+    with pytest.raises(ConfigError, match="invalid JSON override value"):
+        parse_set_overrides(["mask_colormap={bad_json}"])
 
 
 def test_phase4_project_state_roundtrip(tmp_path: Path) -> None:

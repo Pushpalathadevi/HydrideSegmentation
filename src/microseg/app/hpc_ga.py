@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 import math
@@ -70,8 +70,10 @@ class HpcGaPlanConfig:
 
     architectures: tuple[str, ...] = (
         "unet_binary",
+        "smp_unet_resnet18",
         "hf_segformer_b0",
         "hf_segformer_b2",
+        "hf_segformer_b5",
         "transunet_tiny",
         "segformer_mini",
         "torch_pixel",
@@ -118,6 +120,13 @@ class HpcGaPlanConfig:
 
     python_executable: str = "python"
     microseg_cli_path: str = "scripts/microseg_cli.py"
+
+    pretrained_init_mode: str = "scratch"
+    pretrained_registry_path: str = "pre_trained_weights/registry.json"
+    pretrained_model_map: dict[str, str] = field(default_factory=dict)
+    pretrained_verify_sha256: bool = True
+    pretrained_ignore_mismatched_sizes: bool = True
+    pretrained_strict: bool = False
 
 
 @dataclass(frozen=True)
@@ -205,6 +214,61 @@ def _validate_config(cfg: HpcGaPlanConfig) -> None:
         raise ValueError("feedback_min_samples must be >= 1")
     if cfg.feedback_k < 1:
         raise ValueError("feedback_k must be >= 1")
+    if cfg.pretrained_init_mode not in {"scratch", "auto", "local"}:
+        raise ValueError("pretrained_init_mode must be one of: scratch, auto, local")
+    if cfg.pretrained_init_mode == "local":
+        missing = [
+            arch
+            for arch in cfg.architectures
+            if _architecture_supports_pretrained(arch)
+            and not str(cfg.pretrained_model_map.get(arch, "")).strip()
+        ]
+        if missing:
+            raise ValueError(
+                "pretrained_init_mode=local requires pretrained_model_map entries for architectures: "
+                + ", ".join(sorted(missing))
+            )
+    for backend, model_id in cfg.pretrained_model_map.items():
+        if not str(model_id).strip():
+            raise ValueError(f"pretrained_model_map has empty model_id for backend: {backend}")
+
+
+def _architecture_supports_pretrained(architecture: str) -> bool:
+    arch = str(architecture).strip().lower()
+    return arch.startswith("hf_segformer_") or arch.startswith("smp_unet_")
+
+
+def _candidate_pretrained_overrides(cfg: HpcGaPlanConfig, candidate: HpcGaCandidate) -> tuple[str, ...]:
+    mode = str(cfg.pretrained_init_mode).strip().lower()
+    backend = str(candidate.backend).strip()
+
+    if mode == "scratch" or not _architecture_supports_pretrained(backend):
+        return (
+            "pretrained_init_mode=scratch",
+            f"pretrained_registry_path={cfg.pretrained_registry_path}",
+            "pretrained_model_id=",
+        )
+
+    model_id = str(cfg.pretrained_model_map.get(backend, "")).strip()
+    if mode == "local" and not model_id:
+        raise ValueError(
+            f"candidate backend '{backend}' requires pretrained_model_map entry when pretrained_init_mode=local"
+        )
+    if mode == "auto" and not model_id:
+        return (
+            "pretrained_init_mode=scratch",
+            f"pretrained_registry_path={cfg.pretrained_registry_path}",
+            "pretrained_model_id=",
+        )
+
+    return (
+        "pretrained_init_mode=local",
+        f"pretrained_model_id={model_id}",
+        f"pretrained_registry_path={cfg.pretrained_registry_path}",
+        f"pretrained_verify_sha256={str(bool(cfg.pretrained_verify_sha256)).lower()}",
+        f"pretrained_ignore_mismatched_sizes={str(bool(cfg.pretrained_ignore_mismatched_sizes)).lower()}",
+        f"pretrained_strict={str(bool(cfg.pretrained_strict)).lower()}",
+    )
 
 
 def _sample_candidate(rng: random.Random, cfg: HpcGaPlanConfig, idx: int, score: float = 0.0) -> HpcGaCandidate:
@@ -714,6 +778,7 @@ def _script_header(cfg: HpcGaPlanConfig, candidate: HpcGaCandidate) -> list[str]
 
 def _job_script_lines(cfg: HpcGaPlanConfig, candidate: HpcGaCandidate) -> list[str]:
     lines = _script_header(cfg, candidate)
+    pretrained_overrides = _candidate_pretrained_overrides(cfg, candidate)
     lines.extend(
         [
             "TRAIN_CMD=(",
@@ -730,6 +795,7 @@ def _job_script_lines(cfg: HpcGaPlanConfig, candidate: HpcGaCandidate) -> list[s
             f'  "--set" "weight_decay={candidate.weight_decay:.8g}"',
             f'  "--set" "max_samples={candidate.max_samples}"',
             f'  "--set" "seed={candidate.seed}"',
+            f'  "--set" "model_architecture={candidate.backend}"',
             f'  "--set" "enable_gpu={str(bool(cfg.enable_gpu)).lower()}"',
             f'  "--set" "device_policy={cfg.device_policy}"',
             "  --no-auto-prepare-dataset",
@@ -739,6 +805,11 @@ def _job_script_lines(cfg: HpcGaPlanConfig, candidate: HpcGaCandidate) -> list[s
             "",
         ]
     )
+    for override in pretrained_overrides:
+        lines.insert(
+            lines.index("  --no-auto-prepare-dataset"),
+            f'  "--set" "{override}"',
+        )
     if cfg.run_mode == "train_eval":
         lines.extend(
             [
@@ -861,6 +932,7 @@ def generate_hpc_ga_bundle(cfg: HpcGaPlanConfig) -> HpcGaBundleResult:
         f"Candidates: {len(selected)}",
         f"Run mode: {cfg.run_mode}",
         f"Fitness mode: {cfg.fitness_mode}",
+        f"Pretrained mode: {cfg.pretrained_init_mode}",
     ]
     if feedback_summary is not None:
         quick_lines.append(f"Feedback samples available: {int(feedback_summary.get('sample_count', 0))}")
@@ -923,3 +995,46 @@ def parse_feedback_sources(value: object) -> tuple[str, ...]:
     if isinstance(value, (list, tuple)):
         return tuple(str(v).strip() for v in value if str(v).strip())
     return _split_csv(str(value))
+
+
+def parse_pretrained_model_map(value: object) -> dict[str, str]:
+    """Parse backend->pretrained-model-id map from config/CLI input."""
+
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return {
+            str(k).strip(): str(v).strip()
+            for k, v in value.items()
+            if str(k).strip() and str(v).strip()
+        }
+    text = str(value).strip()
+    if not text:
+        return {}
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict):
+            return {
+                str(k).strip(): str(v).strip()
+                for k, v in payload.items()
+                if str(k).strip() and str(v).strip()
+            }
+    except Exception:
+        payload = None
+    pairs: dict[str, str] = {}
+    for item in _split_csv(text):
+        if "=" not in item:
+            raise ValueError(
+                "pretrained_model_map entries must use backend=model_id format; "
+                f"invalid item: {item!r}"
+            )
+        backend, model_id = item.split("=", 1)
+        b = str(backend).strip()
+        m = str(model_id).strip()
+        if not b or not m:
+            raise ValueError(
+                "pretrained_model_map entries must include non-empty backend and model_id; "
+                f"invalid item: {item!r}"
+            )
+        pairs[b] = m
+    return pairs

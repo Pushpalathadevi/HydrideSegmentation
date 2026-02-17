@@ -62,6 +62,7 @@ microseg-cli train --config configs/train.default.yml --set max_samples=300000 -
 ```
 Common training backend options:
 - `backend=unet_binary` (default)
+- `backend=smp_unet_resnet18` (SMP U-Net with ResNet18 encoder)
 - `backend=hf_segformer_b0` (Hugging Face SegFormer-B0, scratch init)
 - `backend=hf_segformer_b2` (Hugging Face SegFormer-B2, scratch init)
 - `backend=hf_segformer_b5` (Hugging Face SegFormer-B5, scratch init)
@@ -81,6 +82,45 @@ microseg-cli train \
   --config configs/train.default.yml \
   --set backend=hf_segformer_b0 \
   --set model_architecture=hf_segformer_b0
+```
+
+Local pretrained transfer-learning example (air-gap ready):
+```bash
+microseg-cli train \
+  --config configs/train.default.yml \
+  --set backend=hf_segformer_b0 \
+  --set model_architecture=hf_segformer_b0 \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=hf_segformer_b0_ade20k \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+```
+
+Local pretrained transformer variants:
+```bash
+microseg-cli train --config configs/train.default.yml \
+  --set backend=hf_segformer_b2 \
+  --set model_architecture=hf_segformer_b2 \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=hf_segformer_b2_ade20k \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+
+microseg-cli train --config configs/train.default.yml \
+  --set backend=hf_segformer_b5 \
+  --set model_architecture=hf_segformer_b5 \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=hf_segformer_b5_ade20k \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+```
+
+Local pretrained SMP U-Net example:
+```bash
+microseg-cli train \
+  --config configs/train.default.yml \
+  --set backend=smp_unet_resnet18 \
+  --set model_architecture=smp_unet_resnet18 \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=smp_unet_resnet18_imagenet \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
 ```
 
 Binary mask normalization override example:
@@ -122,6 +162,23 @@ Frozen registry validation:
 microseg-cli validate-registry --config configs/registry_validation.default.yml --strict
 ```
 
+Pretrained registry validation:
+```bash
+microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict
+```
+
+Download/stage pretrained bundles on connected machine:
+```bash
+python scripts/download_pretrained_weights.py --targets all --force
+```
+
+Generate pretrained inventory report for reporting/manuscript provenance:
+```bash
+python scripts/pretrained_inventory_report.py \
+  --registry-path pre_trained_weights/registry.json \
+  --output-path outputs/pretrained_weights/inventory_report.json
+```
+
 Generate tiny smoke checkpoint for pipeline sanity checks:
 ```bash
 python scripts/generate_smoke_checkpoint.py --force
@@ -130,6 +187,14 @@ python scripts/generate_smoke_checkpoint.py --force
 HPC GA bundle generation:
 ```bash
 microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
+```
+
+Air-gapped low-friction HPC GA bundle generation with backend->pretrained mapping:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.airgap_pretrained.default.yml \
+  --dataset-dir outputs/prepared_dataset \
+  --output-dir outputs/hpc_ga_bundle_airgap_pretrained
 ```
 
 HPC GA feedback report generation:
@@ -166,6 +231,7 @@ microseg-cli evaluate --config configs/evaluate.default.yml --enable-gpu --devic
 - Dotted keys create nested structures (`params.crop=true`).
 - Scalars parse into bool/int/float/null/string automatically.
 - JSON objects/lists can be passed in `--set` values (for example `mask_colormap={...}`).
+- JSON-like override values with malformed syntax now fail fast with a clear config error (no silent string fallback).
 
 ## Reproducibility
 
@@ -180,3 +246,8 @@ Phase closeout checks:
 ```bash
 microseg-cli phase-gate --config configs/phase_gate.default.yml --set phase_label=\"Phase N\"
 ```
+
+HPC pretrained controls (in `configs/hpc_ga*.yml`):
+- `pretrained_init_mode`: `scratch`, `auto`, `local`
+- `pretrained_registry_path`: local pretrained registry path
+- `pretrained_model_map`: backend->model_id mapping used by generated candidate scripts

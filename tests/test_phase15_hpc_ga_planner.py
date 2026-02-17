@@ -12,6 +12,7 @@ from src.microseg.app.hpc_ga import (
     parse_architectures,
     parse_batch_sizes,
     parse_feedback_sources,
+    parse_pretrained_model_map,
     plan_hpc_ga_candidates,
     summarize_feedback_sources,
 )
@@ -22,6 +23,12 @@ def test_phase15_parse_helpers() -> None:
     assert parse_architectures("unet_binary, torch_pixel") == ("unet_binary", "torch_pixel")
     assert parse_batch_sizes("4,8,16") == (4, 8, 16)
     assert parse_feedback_sources("a,b") == ("a", "b")
+    assert parse_pretrained_model_map('{"hf_segformer_b0":"hf_segformer_b0_ade20k"}') == {
+        "hf_segformer_b0": "hf_segformer_b0_ade20k"
+    }
+    assert parse_pretrained_model_map("hf_segformer_b2=hf_segformer_b2_ade20k") == {
+        "hf_segformer_b2": "hf_segformer_b2_ade20k"
+    }
 
 
 def _write_feedback_sample(
@@ -212,3 +219,48 @@ def test_phase15_workflow_profile_roundtrip_hpc_ga_scope(tmp_path: Path) -> None
     assert loaded["scope"] == "hpc_ga"
     assert loaded["values"]["scheduler"] == "slurm"
     assert loaded["values"]["fitness_mode"] == "feedback_hybrid"
+
+
+def test_phase15_hpc_job_script_includes_pretrained_overrides(tmp_path: Path) -> None:
+    out = tmp_path / "hpc_bundle_pretrained"
+    cfg = HpcGaPlanConfig(
+        dataset_dir="outputs/prepared_dataset",
+        output_dir=str(out),
+        architectures=("hf_segformer_b0",),
+        num_candidates=1,
+        population_size=4,
+        generations=1,
+        seed=3,
+        scheduler="local",
+        pretrained_init_mode="local",
+        pretrained_registry_path="pre_trained_weights/registry.json",
+        pretrained_model_map={"hf_segformer_b0": "hf_segformer_b0_ade20k"},
+        pretrained_verify_sha256=True,
+        pretrained_ignore_mismatched_sizes=True,
+        pretrained_strict=False,
+    )
+
+    generate_hpc_ga_bundle(cfg)
+    job_text = (out / "jobs" / "cand_001.sh").read_text(encoding="utf-8")
+    assert '"--set" "model_architecture=hf_segformer_b0"' in job_text
+    assert '"--set" "pretrained_init_mode=local"' in job_text
+    assert '"--set" "pretrained_model_id=hf_segformer_b0_ade20k"' in job_text
+    assert '"--set" "pretrained_registry_path=pre_trained_weights/registry.json"' in job_text
+
+
+def test_phase15_hpc_local_pretrained_requires_mapping() -> None:
+    cfg = HpcGaPlanConfig(
+        dataset_dir="outputs/prepared_dataset",
+        output_dir="outputs/hpc_ga_bundle",
+        architectures=("hf_segformer_b0",),
+        num_candidates=1,
+        population_size=4,
+        generations=1,
+        pretrained_init_mode="local",
+        pretrained_model_map={},
+    )
+    try:
+        plan_hpc_ga_candidates(cfg)
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert "pretrained_model_map" in str(exc)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
 
 from .frozen_checkpoints import REGISTRY_SCHEMA, registry_path
 
@@ -33,6 +32,11 @@ _REQUIRED_MODEL_FIELDS = (
     "application_remarks",
 )
 _ALLOWED_ARTIFACT_STAGES = {"", "smoke", "candidate", "promoted", "builtin", "deprecated"}
+_STAGE_HINT_PREFIX = {
+    "smoke": "frozen_checkpoints/smoke/",
+    "candidate": "frozen_checkpoints/candidates/",
+    "promoted": "frozen_checkpoints/promoted/",
+}
 
 
 def _is_absolute_hint(value: str) -> bool:
@@ -106,6 +110,14 @@ def validate_frozen_registry(path: str | Path | None = None) -> RegistryValidati
                 f"model '{model_id}' has unsupported artifact_stage={artifact_stage!r}; "
                 f"allowed={sorted(_ALLOWED_ARTIFACT_STAGES)}"
             )
+        expected_prefix = _STAGE_HINT_PREFIX.get(artifact_stage)
+        if expected_prefix and hint and hint.lower() != "n/a":
+            normalized_hint = hint.replace("\\", "/").lstrip("./")
+            if not normalized_hint.startswith(expected_prefix):
+                report.errors.append(
+                    f"model '{model_id}' artifact_stage={artifact_stage!r} requires checkpoint_path_hint under "
+                    f"{expected_prefix!r}; got {hint!r}"
+                )
 
         source_run_manifest = str(item.get("source_run_manifest", "")).strip()
         if source_run_manifest and _is_absolute_hint(source_run_manifest):

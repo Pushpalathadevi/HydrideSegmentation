@@ -45,3 +45,9 @@
 PYTHONPATH=. pytest -q
 microseg-cli phase-gate --phase-label "Phase 19 HF SOTA Transformers" --strict
 ```
+
+## Later Extension Note
+
+Scratch initialization remains the default for Phase 19 benchmark presets.
+Offline local-pretrained initialization is now supported for `hf_segformer_b0`, `hf_segformer_b2`, and `hf_segformer_b5`;
+see `offline_pretrained_transfer_workflow.md`.

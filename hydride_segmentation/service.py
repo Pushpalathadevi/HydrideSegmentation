@@ -3,6 +3,8 @@ import io
 import os
 import tempfile
 import ast
+import logging
+from copy import deepcopy
 from typing import Tuple
 
 from flask import Flask, jsonify, request, send_file
@@ -23,6 +25,8 @@ DEFAULT_PARAMS = {
 }
 
 app = Flask(__name__)
+_logger = logging.getLogger(__name__)
+_CONV_MODEL_NAMES = {"conv", "conventional"}
 
 
 def _save_upload(file) -> str:
@@ -55,18 +59,20 @@ def infer():
         return jsonify({"error": "No image uploaded"}), 400
 
     file = request.files["image"]
-    model = request.form.get("model", "ml").lower()
+    model = request.form.get("model", "ml").strip().lower()
+    if model not in {"ml", *_CONV_MODEL_NAMES}:
+        return jsonify({"error": f"Unsupported model '{model}'. Expected one of: ml, conv, conventional."}), 400
     analysis = request.form.get("analysis", "false").lower() == "true"
 
-    params = DEFAULT_PARAMS.copy()
+    params = deepcopy(DEFAULT_PARAMS)
     ml_params: dict = {}
-    if model != "ml":
+    if model in _CONV_MODEL_NAMES:
         for key in params:
             if key in request.form:
                 try:
                     params[key] = ast.literal_eval(request.form[key])
-                except Exception:
-                    pass
+                except Exception as exc:
+                    return jsonify({"error": f"Invalid value for '{key}': {request.form[key]!r}. {exc}"}), 400
     else:
         if "enable_gpu" in request.form:
             ml_params["enable_gpu"] = request.form.get("enable_gpu", "false").lower() == "true"
@@ -75,12 +81,12 @@ def infer():
 
     tmp_path = _save_upload(file)
     try:
-        image, mask = _segment(tmp_path, model, params if model != "ml" else ml_params)
+        image, mask = _segment(tmp_path, model, params if model in _CONV_MODEL_NAMES else ml_params)
     finally:
         try:
             os.remove(tmp_path)
-        except OSError:
-            pass
+        except OSError as exc:
+            _logger.warning("Failed to delete temporary upload %s: %s", tmp_path, exc)
 
     mask_img = Image.fromarray(mask)
 

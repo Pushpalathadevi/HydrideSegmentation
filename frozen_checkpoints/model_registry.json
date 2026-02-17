@@ -9,7 +9,7 @@
       "framework": "pytorch",
       "input_size": "variable",
       "input_dimensions": "H x W x 3",
-      "checkpoint_path_hint": "frozen_checkpoints/hydride_unet_optical_v1/model.pth",
+      "checkpoint_path_hint": "frozen_checkpoints/candidates/hydride_unet_optical_v1/model.pth",
       "application_remarks": "Suitable for optical microscopy hydride segmentation after contrast normalization.",
       "short_description": "Recommended for optical hydride segmentation when a validated checkpoint is available.",
       "detailed_description": "Learns hydride morphology from labeled masks. Validate on representative samples and use correction workflow for edge cases before production reporting.",
