@@ -52,6 +52,11 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     prep_cmd = builder.dataset_prepare(config="configs/dataset_prepare.default.yml", dataset_dir="d", output_dir="o")
     qa_cmd = builder.dataset_qa(config="configs/dataset_qa.default.yml", dataset_dir="d", strict=True)
     hpc_cmd = builder.hpc_ga_generate(config="configs/hpc_ga.default.yml", dataset_dir="d", output_dir="o")
+    hpc_feedback_cmd = builder.hpc_ga_feedback_report(
+        config="configs/hpc_ga.default.yml",
+        feedback_sources="outputs/a,outputs/b",
+        output_path="outputs/hpc_ga_feedback/report.json",
+    )
 
     assert infer_cmd[0].endswith("python") or "python" in infer_cmd[0]
     assert infer_cmd[2] == "infer"
@@ -61,7 +66,9 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     assert prep_cmd[2] == "dataset-prepare"
     assert qa_cmd[2] == "dataset-qa"
     assert hpc_cmd[2] == "hpc-ga-generate"
+    assert hpc_feedback_cmd[2] == "hpc-ga-feedback-report"
     assert qa_cmd[-1] == "--strict"
+    assert "--feedback-sources" in hpc_feedback_cmd
 
 
 def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:

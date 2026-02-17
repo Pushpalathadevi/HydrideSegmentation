@@ -190,21 +190,27 @@ class PixelModelEvaluator:
         samples_dir.mkdir(parents=True, exist_ok=True)
 
         model_path = Path(config.model_path)
+        model_initialization = "unknown"
         if model_path.suffix.lower() in {".pt", ".pth", ".ckpt"}:
             import torch
 
             ckpt = torch.load(model_path, map_location="cpu")
             schema = str(ckpt.get("schema_version", ""))
 
-            if schema == "microseg.torch_unet_binary.v1":
+            if schema in {
+                "microseg.torch_unet_binary.v1",
+                "microseg.torch_segmentation_binary.v2",
+                "microseg.hf_transformer_segmentation.v1",
+            }:
                 bundle = load_unet_binary_model(
                     model_path,
                     enable_gpu=bool(config.enable_gpu),
                     device_policy=str(config.device_policy),
                 )
                 predictor = lambda image: predict_unet_binary_mask(image, bundle)
-                backend = "unet_binary"
+                backend = str(bundle.get("backend", bundle.get("architecture", "unet_binary")))
                 device = str(bundle["device"])
+                model_initialization = str(bundle.get("model_initialization", "unknown"))
             else:
                 bundle = load_torch_pixel_classifier(
                     model_path,
@@ -214,11 +220,13 @@ class PixelModelEvaluator:
                 predictor = lambda image: predict_index_mask_torch(image, bundle)
                 backend = "torch_pixel"
                 device = str(bundle["device"])
+                model_initialization = str(bundle.get("init", "unknown"))
         else:
             model = load_pixel_classifier(config.model_path)
             predictor = lambda image: predict_index_mask(image, model)
             backend = "sklearn_pixel"
             device = "cpu"
+            model_initialization = "native"
 
         started_utc = _utc_now()
         run_start = time.perf_counter()
@@ -300,6 +308,7 @@ class PixelModelEvaluator:
             "config": config_payload,
             "config_sha256": _config_hash(config_payload),
             "backend": backend,
+            "model_initialization": model_initialization,
             "runtime_device": device,
             "runtime_seconds": runtime_seconds,
             "runtime_human": _format_seconds(runtime_seconds),

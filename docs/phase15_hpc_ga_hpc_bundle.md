@@ -42,4 +42,4 @@ Bundle root includes:
 ## Notes
 
 - Current GA is diversity-first (novelty search), suitable for initial sweep setup.
-- Metric-feedback optimization can be layered in later phases using report-derived fitness.
+- Feedback-hybrid optimization was implemented in Phase 17 (`docs/phase17_hpc_ga_feedback.md`).

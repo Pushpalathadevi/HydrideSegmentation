@@ -1,0 +1,22 @@
+dataset_dir: outputs/prepared_dataset_hydride_v1
+output_root: outputs/benchmarks/top5_suite
+eval_config: configs/hydride/evaluate.hydride.yml
+eval_split: test
+python_executable: python
+seeds: [42, 43, 44]
+experiments:
+  - name: unet_binary
+    train_config: configs/hydride/train.unet_binary.baseline.yml
+    rationale: "Convolutional baseline; strong local texture modeling and stable training."
+  - name: hf_segformer_b0
+    train_config: configs/hydride/train.hf_segformer_b0_scratch.yml
+    rationale: "Efficient SOTA transformer baseline with low memory footprint."
+  - name: hf_segformer_b2
+    train_config: configs/hydride/train.hf_segformer_b2_scratch.yml
+    rationale: "Higher-capacity SOTA transformer for improved global context modeling."
+  - name: transunet_tiny
+    train_config: configs/hydride/train.transunet_tiny.yml
+    rationale: "Hybrid transformer-UNet internal reference architecture."
+  - name: segformer_mini
+    train_config: configs/hydride/train.segformer_mini.yml
+    rationale: "Lightweight in-repo transformer baseline for ablation against HF SegFormer."

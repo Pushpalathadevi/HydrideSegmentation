@@ -10,7 +10,7 @@ Current scripts:
 - `package_corrections_dataset.py` packages exported correction samples into train/val/test layout.
 - `microseg_cli.py` unified CLI for inference, training, evaluation, model listing, and correction-dataset packaging with YAML + `--set` overrides.
   - supports optional GPU runtime selection for inference/training/evaluation with CPU fallback.
-  - training supports `unet_binary`, `torch_pixel`, and `sklearn_pixel` backends.
+  - training supports `unet_binary`, HF SegFormer scratch backends (`hf_segformer_b0/b2/b5`), internal transformer variants, `torch_pixel`, and `sklearn_pixel`.
   - training/evaluation can emit HTML reports and tracked sample panels.
   - `models` command reads frozen checkpoint metadata for dynamic help text.
   - `validate-registry` validates frozen checkpoint metadata schema/constraints.
@@ -24,3 +24,6 @@ Current scripts:
   - installed console entry point: `microseg-phase-gate`
 - `generate_smoke_checkpoint.py` creates deterministic tiny random-weight `.pth` checkpoints for
   smoke-testing model loading/evaluation paths without large binary artifacts.
+- `hydride_benchmark_suite.py` runs multi-model hydride benchmark suites (train+eval) and writes consolidated
+  JSON/CSV summaries and a single HTML comparison dashboard.
+  - installed console entry point: `microseg-benchmark-suite`

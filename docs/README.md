@@ -26,10 +26,15 @@ Core planning and governance docs:
 - Phase 13 run review and e2e QA status: `phase13_run_review_and_e2e_qa.md`
 - Phase 14 checkpoint lifecycle and smoke artifact status: `phase14_checkpoint_lifecycle_and_smoke.md`
 - Phase 15 GA-based HPC orchestration status: `phase15_hpc_ga_hpc_bundle.md`
+- Phase 17 HPC GA feedback-hybrid status: `phase17_hpc_ga_feedback.md`
+- Phase 18 transformer backend status: `phase18_transformer_backends.md`
+- Phase 19 SOTA HF transformer integration status: `phase19_hf_sota_transformers.md`
+- Phase 20 benchmark suite orchestration status: `phase20_benchmark_suite_orchestration.md`
 - Repository health audit: `repo_health_audit.md`
 - Frozen checkpoint registry guide: `frozen_checkpoint_registry.md`
 - HPC GA user guide: `hpc_ga_user_guide.md`
 - HPC GA developer guide: `hpc_ga_developer_guide.md`
+- Hydride end-to-end research workflow: `hydride_research_workflow.md`
 - Training data requirements: `training_data_requirements.md`
 - GUI usage guide: `gui_user_guide.md`
 - Configuration workflow: `configuration_workflow.md`

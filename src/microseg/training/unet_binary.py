@@ -267,6 +267,360 @@ class _UNetBinaryModel:
         return self.model.parameters()
 
 
+class _TransUNetTinyModel:
+    """UNet-like model with transformer encoder at bottleneck."""
+
+    def __init__(
+        self,
+        *,
+        in_channels: int = 3,
+        base_channels: int = 16,
+        transformer_depth: int = 2,
+        transformer_num_heads: int = 4,
+        transformer_mlp_ratio: float = 2.0,
+        transformer_dropout: float = 0.0,
+    ) -> None:
+        import torch
+
+        self.torch = torch
+        self.in_channels = in_channels
+        self.base_channels = base_channels
+
+        bottleneck_channels = base_channels * 4
+        self.inc = _DoubleConv(in_channels, base_channels).module
+        self.down1 = torch.nn.Sequential(
+            torch.nn.MaxPool2d(2),
+            _DoubleConv(base_channels, base_channels * 2).module,
+        )
+        self.down2 = torch.nn.Sequential(
+            torch.nn.MaxPool2d(2),
+            _DoubleConv(base_channels * 2, bottleneck_channels).module,
+        )
+
+        ff = max(32, int(round(float(transformer_mlp_ratio) * bottleneck_channels)))
+        enc_layer = torch.nn.TransformerEncoderLayer(
+            d_model=bottleneck_channels,
+            nhead=transformer_num_heads,
+            dim_feedforward=ff,
+            dropout=float(transformer_dropout),
+            activation="gelu",
+            batch_first=True,
+        )
+        self.transformer = torch.nn.TransformerEncoder(enc_layer, num_layers=max(1, int(transformer_depth)))
+
+        self.up1_t = torch.nn.ConvTranspose2d(bottleneck_channels, base_channels * 2, kernel_size=2, stride=2)
+        self.up1_c = _DoubleConv(base_channels * 4, base_channels * 2).module
+        self.up2_t = torch.nn.ConvTranspose2d(base_channels * 2, base_channels, kernel_size=2, stride=2)
+        self.up2_c = _DoubleConv(base_channels * 2, base_channels).module
+        self.out = torch.nn.Conv2d(base_channels, 1, kernel_size=1)
+
+        self.model = torch.nn.ModuleDict(
+            {
+                "inc": self.inc,
+                "down1": self.down1,
+                "down2": self.down2,
+                "transformer": self.transformer,
+                "up1_t": self.up1_t,
+                "up1_c": self.up1_c,
+                "up2_t": self.up2_t,
+                "up2_c": self.up2_c,
+                "out": self.out,
+            }
+        )
+
+    def __call__(self, x):  # noqa: ANN001
+        m = self.model
+        x1 = m["inc"](x)
+        x2 = m["down1"](x1)
+        x3 = m["down2"](x2)
+
+        b, c, h, w = x3.shape
+        t = x3.flatten(2).transpose(1, 2)
+        t = m["transformer"](t)
+        x3 = t.transpose(1, 2).reshape(b, c, h, w)
+
+        u1 = m["up1_t"](x3)
+        if u1.shape[-2:] != x2.shape[-2:]:
+            u1 = self.torch.nn.functional.interpolate(u1, size=x2.shape[-2:], mode="bilinear", align_corners=False)
+        u1 = self.torch.cat([u1, x2], dim=1)
+        u1 = m["up1_c"](u1)
+
+        u2 = m["up2_t"](u1)
+        if u2.shape[-2:] != x1.shape[-2:]:
+            u2 = self.torch.nn.functional.interpolate(u2, size=x1.shape[-2:], mode="bilinear", align_corners=False)
+        u2 = self.torch.cat([u2, x1], dim=1)
+        u2 = m["up2_c"](u2)
+
+        return m["out"](u2)
+
+    def to(self, device: str) -> _TransUNetTinyModel:
+        self.model.to(device)
+        return self
+
+    def train(self) -> _TransUNetTinyModel:
+        self.model.train()
+        return self
+
+    def eval(self) -> _TransUNetTinyModel:
+        self.model.eval()
+        return self
+
+    def state_dict(self) -> dict[str, Any]:
+        return self.model.state_dict()
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        self.model.load_state_dict(state)
+
+    def parameters(self):
+        return self.model.parameters()
+
+
+class _SegFormerMiniModel:
+    """Small patch-transformer segmentation model for binary masks."""
+
+    def __init__(
+        self,
+        *,
+        in_channels: int = 3,
+        base_channels: int = 16,
+        transformer_depth: int = 2,
+        transformer_num_heads: int = 4,
+        transformer_mlp_ratio: float = 2.0,
+        transformer_dropout: float = 0.0,
+        patch_size: int = 4,
+    ) -> None:
+        import torch
+
+        self.torch = torch
+        embed_dim = max(16, base_channels * 4)
+        p = max(2, int(patch_size))
+
+        self.patch_embed = torch.nn.Conv2d(in_channels, embed_dim, kernel_size=p, stride=p, bias=False)
+        self.patch_norm = torch.nn.BatchNorm2d(embed_dim)
+        self.patch_act = torch.nn.ReLU(inplace=True)
+
+        ff = max(32, int(round(float(transformer_mlp_ratio) * embed_dim)))
+        enc_layer = torch.nn.TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=transformer_num_heads,
+            dim_feedforward=ff,
+            dropout=float(transformer_dropout),
+            activation="gelu",
+            batch_first=True,
+        )
+        self.transformer = torch.nn.TransformerEncoder(enc_layer, num_layers=max(1, int(transformer_depth)))
+
+        self.decode = torch.nn.Sequential(
+            torch.nn.Conv2d(embed_dim, base_channels * 2, kernel_size=3, padding=1, bias=False),
+            torch.nn.BatchNorm2d(base_channels * 2),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.Conv2d(base_channels * 2, base_channels, kernel_size=3, padding=1, bias=False),
+            torch.nn.BatchNorm2d(base_channels),
+            torch.nn.ReLU(inplace=True),
+        )
+        self.out = torch.nn.Conv2d(base_channels, 1, kernel_size=1)
+        self.model = torch.nn.ModuleDict(
+            {
+                "patch_embed": self.patch_embed,
+                "patch_norm": self.patch_norm,
+                "patch_act": self.patch_act,
+                "transformer": self.transformer,
+                "decode": self.decode,
+                "out": self.out,
+            }
+        )
+
+    def __call__(self, x):  # noqa: ANN001
+        m = self.model
+        feat = m["patch_embed"](x)
+        feat = m["patch_norm"](feat)
+        feat = m["patch_act"](feat)
+
+        b, c, h, w = feat.shape
+        t = feat.flatten(2).transpose(1, 2)
+        t = m["transformer"](t)
+        feat = t.transpose(1, 2).reshape(b, c, h, w)
+
+        feat = self.torch.nn.functional.interpolate(feat, size=x.shape[-2:], mode="bilinear", align_corners=False)
+        feat = m["decode"](feat)
+        return m["out"](feat)
+
+    def to(self, device: str) -> _SegFormerMiniModel:
+        self.model.to(device)
+        return self
+
+    def train(self) -> _SegFormerMiniModel:
+        self.model.train()
+        return self
+
+    def eval(self) -> _SegFormerMiniModel:
+        self.model.eval()
+        return self
+
+    def state_dict(self) -> dict[str, Any]:
+        return self.model.state_dict()
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        self.model.load_state_dict(state)
+
+    def parameters(self):
+        return self.model.parameters()
+
+
+def _hf_segformer_config_for_variant(variant: str):
+    from transformers import SegformerConfig
+
+    name = str(variant).strip().lower()
+    presets: dict[str, dict[str, Any]] = {
+        "b0": {
+            "hidden_sizes": [32, 64, 160, 256],
+            "depths": [2, 2, 2, 2],
+            "num_attention_heads": [1, 2, 5, 8],
+            "decoder_hidden_size": 256,
+            "drop_path_rate": 0.1,
+        },
+        "b2": {
+            "hidden_sizes": [64, 128, 320, 512],
+            "depths": [3, 4, 6, 3],
+            "num_attention_heads": [1, 2, 5, 8],
+            "decoder_hidden_size": 768,
+            "drop_path_rate": 0.1,
+        },
+        "b5": {
+            "hidden_sizes": [64, 128, 320, 512],
+            "depths": [3, 6, 40, 3],
+            "num_attention_heads": [1, 2, 5, 8],
+            "decoder_hidden_size": 768,
+            "drop_path_rate": 0.1,
+        },
+    }
+    if name not in presets:
+        raise ValueError(f"unsupported hf segformer variant: {variant}")
+
+    p = presets[name]
+    return SegformerConfig(
+        num_labels=2,
+        num_channels=3,
+        hidden_sizes=p["hidden_sizes"],
+        depths=p["depths"],
+        num_attention_heads=p["num_attention_heads"],
+        decoder_hidden_size=p["decoder_hidden_size"],
+        sr_ratios=[8, 4, 2, 1],
+        mlp_ratios=[4, 4, 4, 4],
+        hidden_dropout_prob=0.0,
+        attention_probs_dropout_prob=0.0,
+        drop_path_rate=float(p["drop_path_rate"]),
+        reshape_last_stage=True,
+    )
+
+
+class _HfSegFormerBinaryModel:
+    """Hugging Face SegFormer binary segmentation model (scratch init only)."""
+
+    def __init__(self, *, variant: str = "b0") -> None:
+        import torch
+        from transformers import SegformerForSemanticSegmentation
+
+        self.torch = torch
+        self.variant = str(variant).strip().lower()
+        self.model = SegformerForSemanticSegmentation(_hf_segformer_config_for_variant(self.variant))
+
+    def __call__(self, x):  # noqa: ANN001
+        logits = self.model(pixel_values=x).logits
+        if logits.shape[-2:] != x.shape[-2:]:
+            logits = self.torch.nn.functional.interpolate(
+                logits,
+                size=x.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        if logits.shape[1] == 1:
+            return logits
+        # Convert 2-class logits to one-logit binary form for BCE workflow.
+        return logits[:, 1:2, ...] - logits[:, 0:1, ...]
+
+    def to(self, device: str) -> _HfSegFormerBinaryModel:
+        self.model.to(device)
+        return self
+
+    def train(self) -> _HfSegFormerBinaryModel:
+        self.model.train()
+        return self
+
+    def eval(self) -> _HfSegFormerBinaryModel:
+        self.model.eval()
+        return self
+
+    def state_dict(self) -> dict[str, Any]:
+        return self.model.state_dict()
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        self.model.load_state_dict(state)
+
+    def parameters(self):
+        return self.model.parameters()
+
+
+def _build_binary_model(
+    *,
+    architecture: str,
+    base_channels: int,
+    transformer_depth: int,
+    transformer_num_heads: int,
+    transformer_mlp_ratio: float,
+    transformer_dropout: float,
+    segformer_patch_size: int,
+):
+    arch = str(architecture).strip().lower()
+    if arch == "unet_binary":
+        return _UNetBinaryModel(base_channels=max(4, int(base_channels)))
+    if arch == "transunet_tiny":
+        channels = max(4, int(base_channels)) * 4
+        if channels % max(1, int(transformer_num_heads)) != 0:
+            raise ValueError(
+                "transunet_tiny requires (model_base_channels*4) divisible by transformer_num_heads; "
+                f"got base={base_channels}, heads={transformer_num_heads}"
+            )
+        return _TransUNetTinyModel(
+            base_channels=max(4, int(base_channels)),
+            transformer_depth=max(1, int(transformer_depth)),
+            transformer_num_heads=max(1, int(transformer_num_heads)),
+            transformer_mlp_ratio=max(1.0, float(transformer_mlp_ratio)),
+            transformer_dropout=max(0.0, float(transformer_dropout)),
+        )
+    if arch == "segformer_mini":
+        embed_dim = max(16, max(4, int(base_channels)) * 4)
+        if embed_dim % max(1, int(transformer_num_heads)) != 0:
+            raise ValueError(
+                "segformer_mini requires embed_dim divisible by transformer_num_heads; "
+                f"got embed_dim={embed_dim}, heads={transformer_num_heads}"
+            )
+        return _SegFormerMiniModel(
+            base_channels=max(4, int(base_channels)),
+            transformer_depth=max(1, int(transformer_depth)),
+            transformer_num_heads=max(1, int(transformer_num_heads)),
+            transformer_mlp_ratio=max(1.0, float(transformer_mlp_ratio)),
+            transformer_dropout=max(0.0, float(transformer_dropout)),
+            patch_size=max(2, int(segformer_patch_size)),
+        )
+    if arch == "hf_segformer_b0":
+        return _HfSegFormerBinaryModel(variant="b0")
+    if arch == "hf_segformer_b2":
+        return _HfSegFormerBinaryModel(variant="b2")
+    if arch == "hf_segformer_b5":
+        return _HfSegFormerBinaryModel(variant="b5")
+    raise ValueError(f"unsupported model_architecture: {architecture}")
+
+
+def _checkpoint_schema_for_architecture(architecture: str) -> str:
+    arch = str(architecture).strip().lower()
+    if arch == "unet_binary":
+        return "microseg.torch_unet_binary.v1"
+    if arch.startswith("hf_segformer_"):
+        return "microseg.hf_transformer_segmentation.v1"
+    return "microseg.torch_segmentation_binary.v2"
+
+
 @dataclass(frozen=True)
 class UNetBinaryTrainingConfig:
     """Configuration for UNet binary segmentation training."""
@@ -291,6 +645,14 @@ class UNetBinaryTrainingConfig:
     val_tracking_seed: int = 17
     write_html_report: bool = True
     progress_log_interval_pct: int = 10
+    model_architecture: str = "unet_binary"
+    model_base_channels: int = 16
+    transformer_depth: int = 2
+    transformer_num_heads: int = 4
+    transformer_mlp_ratio: float = 2.0
+    transformer_dropout: float = 0.0
+    segformer_patch_size: int = 4
+    backend_label: str = "unet_binary"
 
 
 def _binary_iou_from_logits(logits, targets) -> float:  # noqa: ANN001
@@ -412,8 +774,18 @@ class UNetBinaryTrainer:
 
         resolved = resolve_torch_device(enable_gpu=bool(config.enable_gpu), policy=str(config.device_policy))
         device = resolved.selected_device
-
-        model = _UNetBinaryModel().to(device)
+        architecture = str(config.model_architecture).strip().lower() or "unet_binary"
+        backend_label = str(config.backend_label).strip().lower() or architecture
+        init_mode = "scratch" if architecture.startswith("hf_segformer_") else "native"
+        model = _build_binary_model(
+            architecture=architecture,
+            base_channels=int(config.model_base_channels),
+            transformer_depth=int(config.transformer_depth),
+            transformer_num_heads=int(config.transformer_num_heads),
+            transformer_mlp_ratio=float(config.transformer_mlp_ratio),
+            transformer_dropout=float(config.transformer_dropout),
+            segformer_patch_size=int(config.segformer_patch_size),
+        ).to(device)
         optimizer = torch.optim.Adam(
             model.parameters(),
             lr=float(config.learning_rate),
@@ -459,7 +831,7 @@ class UNetBinaryTrainer:
             total_percent = min(100.0, max(0.0, (len(history) / total_epochs) * 100.0))
             payload: dict[str, Any] = {
                 "schema_version": "microseg.training_report.v1",
-                "backend": "unet_binary",
+                "backend": backend_label,
                 "status": status_value,
                 "started_utc": started_utc,
                 "updated_utc": _utc_now(),
@@ -468,6 +840,8 @@ class UNetBinaryTrainer:
                 "code_version": _code_version(),
                 "config": config_payload,
                 "config_sha256": config_sha256,
+                "model_architecture": architecture,
+                "model_initialization": init_mode,
                 "device": device,
                 "device_reason": resolved.reason,
                 "progress": {
@@ -495,7 +869,9 @@ class UNetBinaryTrainer:
                 _write_training_html(payload, html_report_path)
 
         logger.info(
-            "UNet training started | dataset=%s | output=%s | device=%s (%s) | epochs=%d | batch=%d",
+            "Segmentation training started | backend=%s arch=%s | dataset=%s | output=%s | device=%s (%s) | epochs=%d | batch=%d",
+            backend_label,
+            architecture,
             dataset_root,
             output_dir,
             device,
@@ -649,10 +1025,13 @@ class UNetBinaryTrainer:
                 _append_jsonl(history_jsonl_path, record)
 
                 checkpoint = {
-                    "schema_version": "microseg.torch_unet_binary.v1",
+                    "schema_version": _checkpoint_schema_for_architecture(architecture),
                     "created_utc": _utc_now(),
                     "epoch": epoch,
                     "best_val_loss": best_val_loss,
+                    "backend": backend_label,
+                    "model_architecture": architecture,
+                    "model_initialization": init_mode,
                     "config": config_payload,
                     "config_sha256": config_sha256,
                     "model_state_dict": model.state_dict(),
@@ -763,11 +1142,13 @@ class UNetBinaryTrainer:
         model_path = best_path if best_path.exists() else last_path
         manifest = {
             "schema_version": "microseg.training_manifest.v2",
-            "backend": "unet_binary",
+            "backend": backend_label,
             "created_utc": _utc_now(),
             "status": status,
             "interrupted": interrupted,
             "code_version": _code_version(),
+            "model_architecture": architecture,
+            "model_initialization": init_mode,
             "device": device,
             "device_reason": resolved.reason,
             "config": config_payload,
@@ -786,7 +1167,7 @@ class UNetBinaryTrainer:
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
         return {
-            "backend": "unet_binary",
+            "backend": backend_label,
             "status": status,
             "interrupted": interrupted,
             "model_path": str(model_path),
@@ -794,6 +1175,7 @@ class UNetBinaryTrainer:
             "report_path": str(report_path),
             "html_report_path": str(html_report_path) if html_report_path.exists() else "",
             "device": device,
+            "model_initialization": init_mode,
             "best_val_loss": float(best_val_loss) if best_val_loss != float("inf") else None,
             "epochs_completed": len(history),
         }
@@ -813,7 +1195,28 @@ def load_unet_binary_model(
     device = resolved.selected_device
 
     ckpt = torch.load(Path(checkpoint_path), map_location="cpu")
-    model = _UNetBinaryModel().to(device)
+    schema = str(ckpt.get("schema_version", "")).strip()
+    cfg = ckpt.get("config", {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+    architecture = str(
+        ckpt.get(
+            "model_architecture",
+            cfg.get("model_architecture", cfg.get("backend", "unet_binary")),
+        )
+    ).strip() or "unet_binary"
+    if schema == "microseg.torch_unet_binary.v1":
+        architecture = "unet_binary"
+
+    model = _build_binary_model(
+        architecture=architecture,
+        base_channels=int(cfg.get("model_base_channels", 16)),
+        transformer_depth=int(cfg.get("transformer_depth", 2)),
+        transformer_num_heads=int(cfg.get("transformer_num_heads", 4)),
+        transformer_mlp_ratio=float(cfg.get("transformer_mlp_ratio", 2.0)),
+        transformer_dropout=float(cfg.get("transformer_dropout", 0.0)),
+        segformer_patch_size=int(cfg.get("segformer_patch_size", 4)),
+    ).to(device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
@@ -821,8 +1224,11 @@ def load_unet_binary_model(
         "model": model,
         "device": device,
         "reason": resolved.reason,
-        "schema_version": ckpt.get("schema_version", ""),
-        "config": ckpt.get("config", {}),
+        "schema_version": schema,
+        "architecture": architecture,
+        "backend": str(ckpt.get("backend", cfg.get("backend", architecture))),
+        "model_initialization": str(ckpt.get("model_initialization", "unknown")),
+        "config": cfg,
     }
 
 

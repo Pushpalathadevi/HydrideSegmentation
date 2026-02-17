@@ -62,12 +62,25 @@ microseg-cli train --config configs/train.default.yml --set max_samples=300000 -
 ```
 Common training backend options:
 - `backend=unet_binary` (default)
+- `backend=hf_segformer_b0` (Hugging Face SegFormer-B0, scratch init)
+- `backend=hf_segformer_b2` (Hugging Face SegFormer-B2, scratch init)
+- `backend=hf_segformer_b5` (Hugging Face SegFormer-B5, scratch init)
+- `backend=transunet_tiny`
+- `backend=segformer_mini`
 - `backend=torch_pixel`
 - `backend=sklearn_pixel`
 
 UNet resume example:
 ```bash
 microseg-cli train --config configs/train.default.yml --set resume_checkpoint=outputs/training/last_checkpoint.pt
+```
+
+Transformer backend example (scratch, no transfer learning):
+```bash
+microseg-cli train \
+  --config configs/train.default.yml \
+  --set backend=hf_segformer_b0 \
+  --set model_architecture=hf_segformer_b0
 ```
 
 UNet validation tracking + reporting example:
@@ -114,6 +127,14 @@ HPC GA bundle generation:
 microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
 ```
 
+HPC GA feedback report generation:
+```bash
+microseg-cli hpc-ga-feedback-report \
+  --config configs/hpc_ga.default.yml \
+  --feedback-sources outputs/hpc_ga_bundle \
+  --output-path outputs/hpc_ga_feedback/feedback_report.json
+```
+
 GPU-enabled runs (auto policy with CPU fallback):
 ```bash
 microseg-cli train --config configs/train.default.yml --enable-gpu --device-policy auto
@@ -133,6 +154,7 @@ microseg-cli evaluate --config configs/evaluate.default.yml --enable-gpu --devic
   - `dataset_prepare`
   - `training`
   - `evaluation`
+  - `hpc_ga`
 
 ## Override Conventions
 

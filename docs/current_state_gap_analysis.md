@@ -1,4 +1,4 @@
-# Current State Gap Analysis (v0.17.0)
+# Current State Gap Analysis (v0.21.0)
 
 ## Baseline Status
 
@@ -15,6 +15,7 @@ Implemented:
 - Baseline CPU training and evaluation pipelines (pixel classifier)
 - Torch-based baseline training/evaluation with opt-in GPU runtime and CPU fallback
 - UNet binary training backend with checkpoint/resume lifecycle controls
+- Transformer segmentation backends for trials (`hf_segformer_b0/b2/b5` scratch-init, `transunet_tiny`, `segformer_mini`)
 - Frozen checkpoint metadata registry with GUI/CLI model guidance
 - Tiny smoke-checkpoint generation for local pipeline sanity checks without large model binaries
 - Frozen-checkpoint lifecycle folders (`smoke`, `candidates`, `promoted`) with metadata-only tracking
@@ -27,6 +28,8 @@ Implemented:
 - GUI Dataset Prep + QA workspace with searchable preview table and optional training QA gate
 - GUI Run Review workspace for training/evaluation report summaries and metric-delta comparison
 - GA-based HPC bundle generation (Slurm/PBS/local) from GUI/CLI for architecture/hyperparameter comparison sweeps
+- Feedback-aware HPC GA planning mode with kNN fitness estimation and report summarization (`hpc-ga-feedback-report`)
+- Single-script top-5 hydride benchmark orchestration with consolidated JSON/CSV/HTML summary outputs
 
 ## Remaining Gaps To World-Class Target
 
@@ -56,7 +59,7 @@ Medium-priority gaps:
 
 ## Latest Health Audit Snapshot
 
-- Full tests pass (`53 passed`).
-- Strict phase gate pass confirmed (`Repo Health Hardening`).
+- Full tests pass (`57 passed`).
+- Strict phase gate pass confirmed (`Phase 20 Benchmark Suite Orchestration`).
 - API validation warnings removed (Pydantic v2 validators and image-type probing modernization).
 - Detailed audit record: `repo_health_audit.md`.

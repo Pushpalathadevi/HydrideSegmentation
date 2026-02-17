@@ -10,7 +10,7 @@ This audit focused on codebase robustness, documentation consistency, and test r
 ```bash
 PYTHONPATH=. pytest -q
 ```
-Result: `53 passed`.
+Result: `57 passed`.
 
 2. Strict phase gate:
 ```bash
@@ -41,14 +41,15 @@ Result: `pass`.
 - Core platform tests are green.
 - Phase gate strict pass confirmed.
 - HPC GA planner is integrated in GUI + CLI with tests and docs.
+- HPC GA now supports feedback-hybrid ranking and report generation from prior bundles.
 - Checkpoint lifecycle policy and registry validation are active.
 
 ## Remaining Strategic Gaps (Not Failures)
 
-- Multi-objective metric-feedback GA optimization (current GA is novelty-first).
+- Full Pareto-front multi-objective optimization (current feedback mode is weighted scalar fitness).
 - Broader model-family defaults beyond hydride-focused presets.
 - Installer-grade deployment pipeline for field distribution.
 
 ## Next Recommended Hardening Step
 
-Implement metric-feedback candidate ranking for HPC GA by ingesting prior evaluation reports (quality + runtime objectives).
+Implement Pareto-front candidate optimization and scheduler array-job emission for larger HPC sweeps.

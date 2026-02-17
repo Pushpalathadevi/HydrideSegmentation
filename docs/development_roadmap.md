@@ -356,3 +356,101 @@ Exit criteria:
 - no failing tests
 - no known deprecation warnings from repository test run
 - audit findings documented with clear next hardening step
+
+## Phase 17 - HPC GA Feedback-Hybrid Optimization (Implemented)
+
+Goals:
+- Add feedback-aware candidate planning for later HPC sweep iterations.
+- Ingest prior run artifacts and summarize reusable optimization signals.
+- Keep GUI/CLI/profile workflows synchronized with new planning controls.
+
+Deliverables:
+- feedback-hybrid ranking in planner: `src/microseg/app/hpc_ga.py`
+- CLI command: `microseg-cli hpc-ga-feedback-report`
+- GUI `HPC GA Planner` updates:
+  - fitness mode controls
+  - feedback-source controls
+  - report generation action (`Analyze Feedback`)
+- command builder method: `OrchestrationCommandBuilder.hpc_ga_feedback_report(...)`
+- expanded tests for feedback ingestion/hybrid ranking and command builder coverage
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- planner supports `novelty` and `feedback_hybrid` modes
+- feedback report command generates JSON + markdown outputs
+- GUI workflow profile (`hpc_ga`) roundtrip includes feedback fields
+- docs and tests updated in the same phase change
+
+## Phase 18 - Transformer Segmentation Trial Backends (Implemented)
+
+Goals:
+- Add transformer-based segmentation backends for hydride trials.
+- Keep training/evaluation orchestration compatible with existing pipelines.
+- Provide HPC-ready benchmark configs and user-facing trial guidance.
+
+Deliverables:
+- training architecture variants in `src/microseg/training/unet_binary.py`:
+  - `transunet_tiny`
+  - `segformer_mini`
+- evaluation compatibility for new torch checkpoint schema in `src/microseg/evaluation/pixel_model_eval.py`
+- CLI backend support in `scripts/microseg_cli.py`
+- GUI backend selection updates in `hydride_segmentation/qt/main_window.py`
+- hydride benchmark config set in `configs/hydride/`
+- end-to-end trial matrix table in `docs/hydride_research_workflow.md`
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- transformer variants train and evaluate in regression tests
+- existing UNet checkpoint compatibility preserved
+- docs include explicit HPC trial matrix and config references
+
+## Phase 19 - SOTA External Transformer Backends (Implemented)
+
+Goals:
+- Integrate external, publication-grade transformer segmentation models via pip-installable libraries.
+- Guarantee scratch-only initialization for offline HPC workflows (no transfer learning).
+- Expand fair-comparison hydride benchmark matrix against U-Net baseline.
+
+Deliverables:
+- HF SegFormer backends:
+  - `hf_segformer_b0`
+  - `hf_segformer_b2`
+  - `hf_segformer_b5`
+- scratch-only initialization path in `src/microseg/training/unet_binary.py`
+- evaluation support for `microseg.hf_transformer_segmentation.v1`
+- CLI/GUI/HPC architecture list updates for new backends
+- hydride benchmark presets for HF backends in `configs/hydride/`
+- workflow table update in `docs/hydride_research_workflow.md`
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- HF transformer backends train/evaluate without downloading pretrained weights
+- benchmark matrix documents scratch-only runs and HPC trial guidance
+- tests and strict phase-gate pass
+
+## Phase 20 - Top-5 Benchmark Suite Orchestration (Implemented)
+
+Goals:
+- Add one-command orchestration for top-5 hydride benchmark runs.
+- Produce run-level and aggregate summary artifacts for model comparison.
+- Emit a manuscript-friendly dashboard artifact from the same pipeline.
+
+Deliverables:
+- suite runner script: `scripts/hydride_benchmark_suite.py`
+- top-5 suite config: `configs/hydride/benchmark_suite.top5.yml`
+- workflow documentation updates with top-5 rationale/compatibility/metrics contract
+- dry-run orchestration regression test: `tests/test_phase20_benchmark_suite_script.py`
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- script can execute or dry-run full model/seed matrix from one config file
+- outputs include JSON, CSV, aggregate CSV, and HTML dashboard
+- docs explicitly describe remaining gaps and next hardening targets

@@ -715,7 +715,18 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_train_dataset_edit = QLineEdit("outputs/packaged_dataset")
         self.orch_train_output_edit = QLineEdit("outputs/training")
         self.orch_train_backend = QComboBox()
-        self.orch_train_backend.addItems(["unet_binary", "torch_pixel", "sklearn_pixel"])
+        self.orch_train_backend.addItems(
+            [
+                "unet_binary",
+                "transunet_tiny",
+                "segformer_mini",
+                "hf_segformer_b0",
+                "hf_segformer_b2",
+                "hf_segformer_b5",
+                "torch_pixel",
+                "sklearn_pixel",
+            ]
+        )
         self.orch_train_backend.setCurrentText("unet_binary")
         self.orch_train_enable_gpu = QCheckBox("Enable GPU")
         self.orch_train_enable_gpu.setChecked(False)
@@ -1040,7 +1051,9 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_hpc_run_mode_combo = QComboBox()
         self.orch_hpc_run_mode_combo.addItems(["train_eval", "train_only"])
         self.orch_hpc_run_mode_combo.setCurrentText("train_eval")
-        self.orch_hpc_architectures_edit = QLineEdit("unet_binary,torch_pixel")
+        self.orch_hpc_architectures_edit = QLineEdit(
+            "unet_binary,hf_segformer_b0,hf_segformer_b2,transunet_tiny,segformer_mini,torch_pixel"
+        )
         self.orch_hpc_num_candidates = QSpinBox()
         self.orch_hpc_num_candidates.setRange(1, 128)
         self.orch_hpc_num_candidates.setValue(8)
@@ -1090,6 +1103,37 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_hpc_ms_max = QSpinBox()
         self.orch_hpc_ms_max.setRange(1, 1000000000)
         self.orch_hpc_ms_max.setValue(250000)
+        self.orch_hpc_fitness_mode = QComboBox()
+        self.orch_hpc_fitness_mode.addItems(["novelty", "feedback_hybrid"])
+        self.orch_hpc_fitness_mode.setCurrentText("novelty")
+        self.orch_hpc_feedback_sources = QLineEdit()
+        self.orch_hpc_feedback_sources.setPlaceholderText("Comma-separated prior bundle dirs or ga_plan_manifest.json paths")
+        self.orch_hpc_feedback_min_samples = QSpinBox()
+        self.orch_hpc_feedback_min_samples.setRange(1, 2000)
+        self.orch_hpc_feedback_min_samples.setValue(3)
+        self.orch_hpc_feedback_k = QSpinBox()
+        self.orch_hpc_feedback_k.setRange(1, 200)
+        self.orch_hpc_feedback_k.setValue(5)
+        self.orch_hpc_exploration_weight = QDoubleSpinBox()
+        self.orch_hpc_exploration_weight.setRange(0.0, 1.0)
+        self.orch_hpc_exploration_weight.setDecimals(3)
+        self.orch_hpc_exploration_weight.setValue(0.55)
+        self.orch_hpc_w_iou = QDoubleSpinBox()
+        self.orch_hpc_w_iou.setRange(0.0, 10.0)
+        self.orch_hpc_w_iou.setDecimals(3)
+        self.orch_hpc_w_iou.setValue(0.50)
+        self.orch_hpc_w_f1 = QDoubleSpinBox()
+        self.orch_hpc_w_f1.setRange(0.0, 10.0)
+        self.orch_hpc_w_f1.setDecimals(3)
+        self.orch_hpc_w_f1.setValue(0.30)
+        self.orch_hpc_w_acc = QDoubleSpinBox()
+        self.orch_hpc_w_acc.setRange(0.0, 10.0)
+        self.orch_hpc_w_acc.setDecimals(3)
+        self.orch_hpc_w_acc.setValue(0.20)
+        self.orch_hpc_w_runtime = QDoubleSpinBox()
+        self.orch_hpc_w_runtime.setRange(0.0, 10.0)
+        self.orch_hpc_w_runtime.setDecimals(3)
+        self.orch_hpc_w_runtime.setValue(0.05)
         self.orch_hpc_enable_gpu = QCheckBox("Enable GPU")
         self.orch_hpc_enable_gpu.setChecked(True)
         self.orch_hpc_device_policy = QComboBox()
@@ -1119,6 +1163,10 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_hpc_eval_split = QComboBox()
         self.orch_hpc_eval_split.addItems(["val", "test", "train"])
         self.orch_hpc_eval_split.setCurrentText("val")
+        self.orch_hpc_feedback_top_k = QSpinBox()
+        self.orch_hpc_feedback_top_k.setRange(1, 500)
+        self.orch_hpc_feedback_top_k.setValue(10)
+        self.orch_hpc_feedback_report_output = QLineEdit("outputs/hpc_ga_feedback/feedback_report.json")
 
         hpc_form.addRow("Config", self.orch_hpc_config_edit)
         hpc_form.addRow("Overrides", self.orch_hpc_set_edit)
@@ -1143,6 +1191,15 @@ class QtSegmentationMainWindow(QMainWindow):
         hpc_form.addRow("Weight Decay Max", self.orch_hpc_wd_max)
         hpc_form.addRow("Max Samples Min", self.orch_hpc_ms_min)
         hpc_form.addRow("Max Samples Max", self.orch_hpc_ms_max)
+        hpc_form.addRow("Fitness Mode", self.orch_hpc_fitness_mode)
+        hpc_form.addRow("Feedback Sources", self.orch_hpc_feedback_sources)
+        hpc_form.addRow("Feedback Min Samples", self.orch_hpc_feedback_min_samples)
+        hpc_form.addRow("Feedback K (kNN)", self.orch_hpc_feedback_k)
+        hpc_form.addRow("Exploration Weight", self.orch_hpc_exploration_weight)
+        hpc_form.addRow("Fitness Weight Mean IoU", self.orch_hpc_w_iou)
+        hpc_form.addRow("Fitness Weight Macro F1", self.orch_hpc_w_f1)
+        hpc_form.addRow("Fitness Weight Pixel Accuracy", self.orch_hpc_w_acc)
+        hpc_form.addRow("Fitness Weight Runtime", self.orch_hpc_w_runtime)
         hpc_form.addRow(self.orch_hpc_enable_gpu, self.orch_hpc_device_policy)
         hpc_form.addRow("Queue/Partition", self.orch_hpc_queue)
         hpc_form.addRow("Account", self.orch_hpc_account)
@@ -1157,12 +1214,17 @@ class QtSegmentationMainWindow(QMainWindow):
         hpc_form.addRow("Base Train Config", self.orch_hpc_base_train)
         hpc_form.addRow("Base Eval Config", self.orch_hpc_base_eval)
         hpc_form.addRow("Eval Split", self.orch_hpc_eval_split)
+        hpc_form.addRow("Feedback Top K", self.orch_hpc_feedback_top_k)
+        hpc_form.addRow("Feedback Report Output", self.orch_hpc_feedback_report_output)
         hpc_root.addLayout(hpc_form)
 
         hpc_actions = QHBoxLayout()
         self.btn_orch_hpc_generate = QPushButton("Generate HPC GA Bundle")
         self.btn_orch_hpc_generate.clicked.connect(self.on_orchestrate_hpc_ga)
         hpc_actions.addWidget(self.btn_orch_hpc_generate)
+        self.btn_orch_hpc_feedback = QPushButton("Analyze Feedback")
+        self.btn_orch_hpc_feedback.clicked.connect(self.on_orchestrate_hpc_feedback_report)
+        hpc_actions.addWidget(self.btn_orch_hpc_feedback)
         hpc_actions.addStretch(1)
         hpc_root.addLayout(hpc_actions)
 
@@ -1172,6 +1234,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_hpc_preview.setPlainText(
             "HPC GA Planner\n"
             "- Configure architectures + GA search ranges.\n"
+            "- Optional: set feedback sources and switch fitness mode to feedback_hybrid.\n"
+            "- Use 'Analyze Feedback' to build a ranked report from previous runs.\n"
             "- Click 'Generate HPC GA Bundle' to write scheduler scripts.\n"
             "- Upload the bundle to HPC and run submit_all.sh."
         )
@@ -1869,6 +1933,15 @@ class QtSegmentationMainWindow(QMainWindow):
                 "weight_decay_max": float(self.orch_hpc_wd_max.value()),
                 "max_samples_min": int(self.orch_hpc_ms_min.value()),
                 "max_samples_max": int(self.orch_hpc_ms_max.value()),
+                "fitness_mode": self.orch_hpc_fitness_mode.currentText(),
+                "feedback_sources": self.orch_hpc_feedback_sources.text().strip(),
+                "feedback_min_samples": int(self.orch_hpc_feedback_min_samples.value()),
+                "feedback_k": int(self.orch_hpc_feedback_k.value()),
+                "exploration_weight": float(self.orch_hpc_exploration_weight.value()),
+                "fitness_weight_mean_iou": float(self.orch_hpc_w_iou.value()),
+                "fitness_weight_macro_f1": float(self.orch_hpc_w_f1.value()),
+                "fitness_weight_pixel_accuracy": float(self.orch_hpc_w_acc.value()),
+                "fitness_weight_runtime": float(self.orch_hpc_w_runtime.value()),
                 "enable_gpu": bool(self.orch_hpc_enable_gpu.isChecked()),
                 "device_policy": self.orch_hpc_device_policy.currentText(),
                 "queue": self.orch_hpc_queue.text().strip(),
@@ -1884,6 +1957,8 @@ class QtSegmentationMainWindow(QMainWindow):
                 "base_train_config": self.orch_hpc_base_train.text().strip(),
                 "base_eval_config": self.orch_hpc_base_eval.text().strip(),
                 "eval_split": self.orch_hpc_eval_split.currentText(),
+                "feedback_top_k": int(self.orch_hpc_feedback_top_k.value()),
+                "feedback_report_output": self.orch_hpc_feedback_report_output.text().strip(),
             }
         raise ValueError(f"Unsupported profile scope: {scope}")
 
@@ -1974,6 +2049,15 @@ class QtSegmentationMainWindow(QMainWindow):
             self.orch_hpc_wd_max.setValue(float(values.get("weight_decay_max", self.orch_hpc_wd_max.value())))
             self.orch_hpc_ms_min.setValue(int(values.get("max_samples_min", self.orch_hpc_ms_min.value())))
             self.orch_hpc_ms_max.setValue(int(values.get("max_samples_max", self.orch_hpc_ms_max.value())))
+            self.orch_hpc_fitness_mode.setCurrentText(str(values.get("fitness_mode", self.orch_hpc_fitness_mode.currentText())))
+            self.orch_hpc_feedback_sources.setText(str(values.get("feedback_sources", self.orch_hpc_feedback_sources.text())))
+            self.orch_hpc_feedback_min_samples.setValue(int(values.get("feedback_min_samples", self.orch_hpc_feedback_min_samples.value())))
+            self.orch_hpc_feedback_k.setValue(int(values.get("feedback_k", self.orch_hpc_feedback_k.value())))
+            self.orch_hpc_exploration_weight.setValue(float(values.get("exploration_weight", self.orch_hpc_exploration_weight.value())))
+            self.orch_hpc_w_iou.setValue(float(values.get("fitness_weight_mean_iou", self.orch_hpc_w_iou.value())))
+            self.orch_hpc_w_f1.setValue(float(values.get("fitness_weight_macro_f1", self.orch_hpc_w_f1.value())))
+            self.orch_hpc_w_acc.setValue(float(values.get("fitness_weight_pixel_accuracy", self.orch_hpc_w_acc.value())))
+            self.orch_hpc_w_runtime.setValue(float(values.get("fitness_weight_runtime", self.orch_hpc_w_runtime.value())))
             self.orch_hpc_enable_gpu.setChecked(bool(values.get("enable_gpu", self.orch_hpc_enable_gpu.isChecked())))
             self.orch_hpc_device_policy.setCurrentText(str(values.get("device_policy", self.orch_hpc_device_policy.currentText())))
             self.orch_hpc_queue.setText(str(values.get("queue", self.orch_hpc_queue.text())))
@@ -1989,6 +2073,10 @@ class QtSegmentationMainWindow(QMainWindow):
             self.orch_hpc_base_train.setText(str(values.get("base_train_config", self.orch_hpc_base_train.text())))
             self.orch_hpc_base_eval.setText(str(values.get("base_eval_config", self.orch_hpc_base_eval.text())))
             self.orch_hpc_eval_split.setCurrentText(str(values.get("eval_split", self.orch_hpc_eval_split.currentText())))
+            self.orch_hpc_feedback_top_k.setValue(int(values.get("feedback_top_k", self.orch_hpc_feedback_top_k.value())))
+            self.orch_hpc_feedback_report_output.setText(
+                str(values.get("feedback_report_output", self.orch_hpc_feedback_report_output.text()))
+            )
             self.workflow_tabs.setCurrentIndex(self.workflow_tabs.indexOf(self.workflow_hpc_tab))
             return
         raise ValueError(f"Unsupported profile scope: {scope}")
@@ -2144,6 +2232,15 @@ class QtSegmentationMainWindow(QMainWindow):
                 f"weight_decay_max={float(self.orch_hpc_wd_max.value())}",
                 f"max_samples_min={int(self.orch_hpc_ms_min.value())}",
                 f"max_samples_max={int(self.orch_hpc_ms_max.value())}",
+                f"fitness_mode={self.orch_hpc_fitness_mode.currentText()}",
+                f"feedback_sources={self.orch_hpc_feedback_sources.text().strip()}",
+                f"feedback_min_samples={int(self.orch_hpc_feedback_min_samples.value())}",
+                f"feedback_k={int(self.orch_hpc_feedback_k.value())}",
+                f"exploration_weight={float(self.orch_hpc_exploration_weight.value())}",
+                f"fitness_weight_mean_iou={float(self.orch_hpc_w_iou.value())}",
+                f"fitness_weight_macro_f1={float(self.orch_hpc_w_f1.value())}",
+                f"fitness_weight_pixel_accuracy={float(self.orch_hpc_w_acc.value())}",
+                f"fitness_weight_runtime={float(self.orch_hpc_w_runtime.value())}",
                 f"enable_gpu={str(self.orch_hpc_enable_gpu.isChecked()).lower()}",
                 f"device_policy={self.orch_hpc_device_policy.currentText()}",
                 f"queue={self.orch_hpc_queue.text().strip()}",
@@ -2169,6 +2266,42 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         self.orch_hpc_preview.appendPlainText("$ " + " ".join(command))
         self._start_orchestration_job(command, "HPC-GA-Bundle")
+
+    def on_orchestrate_hpc_feedback_report(self) -> None:
+        feedback_sources = self.orch_hpc_feedback_sources.text().strip()
+        if not feedback_sources:
+            QMessageBox.warning(
+                self,
+                "Missing Feedback Sources",
+                "Set one or more feedback sources (bundle directory or ga_plan_manifest.json path).",
+            )
+            return
+        overrides = self._parse_override_text(self.orch_hpc_set_edit.text())
+        overrides.extend(
+            [
+                f"dataset_dir={self.orch_hpc_dataset_edit.text().strip()}",
+                f"output_dir={self.orch_hpc_output_edit.text().strip()}",
+                f"architectures={self.orch_hpc_architectures_edit.text().strip()}",
+                f"batch_size_choices={self.orch_hpc_batch_sizes.text().strip()}",
+                f"fitness_mode={self.orch_hpc_fitness_mode.currentText()}",
+                f"feedback_min_samples={int(self.orch_hpc_feedback_min_samples.value())}",
+                f"feedback_k={int(self.orch_hpc_feedback_k.value())}",
+                f"exploration_weight={float(self.orch_hpc_exploration_weight.value())}",
+                f"fitness_weight_mean_iou={float(self.orch_hpc_w_iou.value())}",
+                f"fitness_weight_macro_f1={float(self.orch_hpc_w_f1.value())}",
+                f"fitness_weight_pixel_accuracy={float(self.orch_hpc_w_acc.value())}",
+                f"fitness_weight_runtime={float(self.orch_hpc_w_runtime.value())}",
+                f"top_k={int(self.orch_hpc_feedback_top_k.value())}",
+            ]
+        )
+        command = self.orchestrator.hpc_ga_feedback_report(
+            config=self.orch_hpc_config_edit.text().strip() or None,
+            overrides=overrides,
+            feedback_sources=feedback_sources,
+            output_path=self.orch_hpc_feedback_report_output.text().strip() or None,
+        )
+        self.orch_hpc_preview.appendPlainText("$ " + " ".join(command))
+        self._start_orchestration_job(command, "HPC-GA-Feedback")
 
     def on_edit_classes(self) -> None:
         dlg = QDialog(self)

@@ -25,4 +25,7 @@ Current phase coverage includes:
 - `test_phase10_dataset_prepare.py` unsplit source/masks auto-prepare with leakage-aware grouping, global IDs, optional RGB-colormap conversion, and preview contract checks
 - `test_phase13_report_review.py` run-report summary/compare and workflow profile persistence roundtrips
 - `test_phase14_checkpoint_lifecycle.py` checkpoint lifecycle metadata validation and registry-hint checkpoint resolution
-- `test_phase15_hpc_ga_planner.py` GA candidate planning, HPC script-bundle generation, and HPC workflow-profile scope roundtrips
+- `test_phase15_hpc_ga_planner.py` GA candidate planning, feedback-hybrid ranking inputs, HPC script-bundle generation, and HPC workflow-profile scope roundtrips
+- `test_phase18_transformer_backends.py` transformer segmentation backend smoke training/evaluation (`transunet_tiny`, `segformer_mini`)
+- `test_phase19_hf_transformer_backends.py` Hugging Face SegFormer transformer backend smoke training/evaluation from scratch (no pretrained weights)
+- `test_phase20_benchmark_suite_script.py` hydride benchmark suite single-script dry-run orchestration + summary artifact generation

@@ -176,3 +176,21 @@ class OrchestrationCommandBuilder:
         if output_dir:
             args.extend(["--output-dir", output_dir])
         return args
+
+    def hpc_ga_feedback_report(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        feedback_sources: str | None = None,
+        output_path: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["hpc-ga-feedback-report"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if feedback_sources:
+            args.extend(["--feedback-sources", feedback_sources])
+        if output_path:
+            args.extend(["--output-path", output_path])
+        return args

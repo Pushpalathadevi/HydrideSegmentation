@@ -27,6 +27,8 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Human-readable + machine-readable run reporting (`json` + `html`)
 - Mandatory end-of-phase quality gates (tests + stocktake + gap review + docs sync)
 - HPC-ready orchestration artifact generation (scheduler scripts + manifests) for GPU environments
+- Feedback-informed HPC sweep planning from prior evaluation reports (quality/runtime-aware)
+- External SOTA transformer-model support with scratch initialization for offline HPC training
 
 ## Non-Goals (Current Phases)
 
@@ -52,6 +54,7 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 14. Provide GUI-native run review and report comparison to support evidence-based model iteration decisions.
 15. Maintain a deterministic tiny smoke-checkpoint path to validate model plumbing on fresh systems without large artifacts.
 16. Provide GUI/CLI generation of multi-candidate HPC script bundles from architecture/hyperparameter search definitions.
+17. Provide feedback-aware candidate ranking for later HPC sweeps using prior run metrics and reproducible reporting artifacts.
 
 ## Success Criteria
 

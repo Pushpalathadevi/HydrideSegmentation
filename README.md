@@ -1,6 +1,6 @@
 # HydrideSegmentation -> MicroSeg Platform (Transition)
 
-Current release version: `0.17.0`
+Current release version: `0.21.0`
 
 This repository is transitioning from a hydride-specific toolkit into a general local platform for microstructural segmentation.
 Hydride segmentation is the first validated workflow.
@@ -27,12 +27,12 @@ See `docs/mission_statement.md`.
   - project/session save-load
   - Dataset Prep + QA workspace (preview, prepare, QA, training gate)
   - Run Review workspace for report summary + metric-delta comparison
-  - HPC GA Planner for scheduler-ready multi-candidate bundle generation
+  - HPC GA Planner for scheduler-ready multi-candidate bundle generation and feedback analysis
 - Correction export schema `microseg.correction.v1`
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
 - GPU-compatible training/inference/evaluation with CPU default + safe fallback
-- UNet training backend with checkpoint/resume + fixed/random validation sample tracking
+- UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5` scratch-init, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
 - JSON + HTML run reports for training and evaluation
 - Frozen checkpoint metadata registry for model selection guidance
 
@@ -137,6 +137,19 @@ HPC GA bundle generation:
 microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
 ```
 
+HPC GA feedback summary report:
+```bash
+microseg-cli hpc-ga-feedback-report \
+  --config configs/hpc_ga.default.yml \
+  --feedback-sources outputs/hpc_ga_bundle \
+  --output-path outputs/hpc_ga_feedback/feedback_report.json
+```
+
+Single-script top-5 hydride benchmark run + dashboard:
+```bash
+python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_suite.top5.yml --strict
+```
+
 ## Beginner End-To-End Workflow
 
 1. Prepare data:
@@ -152,6 +165,7 @@ microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir o
 - Use GUI `Run Review` tab for metric deltas.
 6. Scale on HPC:
 - Use GUI `HPC GA Planner` or CLI `hpc-ga-generate`.
+- Optionally run `Analyze Feedback` in GUI or `hpc-ga-feedback-report` in CLI before the next sweep.
 - Upload bundle and run `submit_all.sh` on scheduler environment.
 
 ## Frozen Checkpoints
@@ -174,6 +188,11 @@ microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir o
 - GUI user guide: `docs/gui_user_guide.md`
 - HPC GA user guide: `docs/hpc_ga_user_guide.md`
 - HPC GA developer guide: `docs/hpc_ga_developer_guide.md`
+- Hydride end-to-end research workflow: `docs/hydride_research_workflow.md`
+- Phase 17 HPC GA feedback status: `docs/phase17_hpc_ga_feedback.md`
+- Phase 18 transformer backend status: `docs/phase18_transformer_backends.md`
+- Phase 19 SOTA HF transformer integration status: `docs/phase19_hf_sota_transformers.md`
+- Phase 20 benchmark suite orchestration status: `docs/phase20_benchmark_suite_orchestration.md`
 - Configuration workflow: `docs/configuration_workflow.md`
 - Development workflow + phase closeout gate: `docs/development_workflow.md`
 - Developer guide: `developer_guide.md`

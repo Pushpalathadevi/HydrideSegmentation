@@ -39,19 +39,26 @@ def _clip(v: float, lo: float, hi: float) -> float:
     return float(max(lo, min(hi, v)))
 
 
+def _normalize_values(values: list[float], *, neutral: float = 0.5) -> list[float]:
+    if not values:
+        return []
+    lo = min(values)
+    hi = max(values)
+    if abs(hi - lo) < 1e-12:
+        return [neutral for _ in values]
+    return [(v - lo) / (hi - lo) for v in values]
+
+
+def _coerce_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
 @dataclass(frozen=True)
 class HpcGaPlanConfig:
-    """Configuration for GA-based HPC script bundle generation.
-
-    Parameters
-    ----------
-    dataset_dir:
-        Dataset directory for training jobs.
-    output_dir:
-        Bundle output directory.
-    architectures:
-        Candidate model backends to compare.
-    """
+    """Configuration for GA-based HPC script bundle generation."""
 
     dataset_dir: str
     output_dir: str
@@ -61,7 +68,14 @@ class HpcGaPlanConfig:
     run_mode: str = "train_eval"
     eval_split: str = "val"
 
-    architectures: tuple[str, ...] = ("unet_binary", "torch_pixel")
+    architectures: tuple[str, ...] = (
+        "unet_binary",
+        "hf_segformer_b0",
+        "hf_segformer_b2",
+        "transunet_tiny",
+        "segformer_mini",
+        "torch_pixel",
+    )
     num_candidates: int = 8
     population_size: int = 24
     generations: int = 8
@@ -78,6 +92,16 @@ class HpcGaPlanConfig:
     weight_decay_max: float = 1e-3
     max_samples_min: int = 50000
     max_samples_max: int = 250000
+
+    fitness_mode: str = "novelty"
+    feedback_sources: tuple[str, ...] = ()
+    feedback_min_samples: int = 3
+    feedback_k: int = 5
+    exploration_weight: float = 0.55
+    fitness_weight_mean_iou: float = 0.50
+    fitness_weight_macro_f1: float = 0.30
+    fitness_weight_pixel_accuracy: float = 0.20
+    fitness_weight_runtime: float = 0.05
 
     enable_gpu: bool = True
     device_policy: str = "auto"
@@ -109,6 +133,27 @@ class HpcGaCandidate:
     max_samples: int
     seed: int
     novelty_score: float
+    predicted_fitness: float | None = None
+    selection_score: float | None = None
+
+
+@dataclass(frozen=True)
+class HpcGaHistoricalSample:
+    """Feedback sample loaded from previous candidate evaluation outputs."""
+
+    source_path: str
+    candidate_id: str
+    backend: str
+    learning_rate: float
+    batch_size: int
+    epochs: int
+    weight_decay: float
+    max_samples: int
+    pixel_accuracy: float
+    macro_f1: float
+    mean_iou: float
+    runtime_seconds: float
+    fitness_score: float
 
 
 @dataclass(frozen=True)
@@ -152,6 +197,14 @@ def _validate_config(cfg: HpcGaPlanConfig) -> None:
         raise ValueError("scheduler must be one of: slurm, pbs, local")
     if cfg.run_mode not in {"train_only", "train_eval"}:
         raise ValueError("run_mode must be one of: train_only, train_eval")
+    if cfg.fitness_mode not in {"novelty", "feedback_hybrid"}:
+        raise ValueError("fitness_mode must be one of: novelty, feedback_hybrid")
+    if not (0.0 <= cfg.exploration_weight <= 1.0):
+        raise ValueError("exploration_weight must be in [0,1]")
+    if cfg.feedback_min_samples < 1:
+        raise ValueError("feedback_min_samples must be >= 1")
+    if cfg.feedback_k < 1:
+        raise ValueError("feedback_k must be >= 1")
 
 
 def _sample_candidate(rng: random.Random, cfg: HpcGaPlanConfig, idx: int, score: float = 0.0) -> HpcGaCandidate:
@@ -191,6 +244,30 @@ def _candidate_features(c: HpcGaCandidate, cfg: HpcGaPlanConfig) -> tuple[float,
     e_norm = (c.epochs - e_lo) / max(1, (e_hi - e_lo))
     ms_norm = (c.max_samples - ms_lo) / max(1, (ms_hi - ms_lo))
     return (arch_norm, lr_norm, b_norm, e_norm, wd_norm, ms_norm)
+
+
+def _feature_tuple_from_values(
+    *,
+    backend: str,
+    learning_rate: float,
+    batch_size: int,
+    epochs: int,
+    weight_decay: float,
+    max_samples: int,
+    cfg: HpcGaPlanConfig,
+) -> tuple[float, ...]:
+    proxy = HpcGaCandidate(
+        candidate_id="proxy",
+        backend=backend,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        epochs=epochs,
+        weight_decay=weight_decay,
+        max_samples=max_samples,
+        seed=cfg.seed,
+        novelty_score=0.0,
+    )
+    return _candidate_features(proxy, cfg)
 
 
 def _euclidean(a: tuple[float, ...], b: tuple[float, ...]) -> float:
@@ -281,36 +358,263 @@ def _candidate_key(c: HpcGaCandidate) -> tuple[Any, ...]:
     )
 
 
+def _extract_bundle_root(path: Path) -> Path | None:
+    if path.is_dir():
+        return path
+    if path.is_file() and path.name == "ga_plan_manifest.json":
+        return path.parent
+    return None
+
+
+def _fitness_from_metrics(
+    *,
+    pixel_accuracy: float,
+    macro_f1: float,
+    mean_iou: float,
+    runtime_norm: float,
+    cfg: HpcGaPlanConfig,
+) -> float:
+    score = 0.0
+    score += float(cfg.fitness_weight_mean_iou) * float(mean_iou)
+    score += float(cfg.fitness_weight_macro_f1) * float(macro_f1)
+    score += float(cfg.fitness_weight_pixel_accuracy) * float(pixel_accuracy)
+    score -= float(cfg.fitness_weight_runtime) * float(runtime_norm)
+    return float(score)
+
+
+def load_feedback_samples(
+    feedback_sources: tuple[str, ...],
+    *,
+    cfg: HpcGaPlanConfig,
+) -> list[HpcGaHistoricalSample]:
+    """Load feedback samples from previously completed HPC GA bundles."""
+
+    if not feedback_sources:
+        return []
+
+    raw: list[dict[str, Any]] = []
+    for src in feedback_sources:
+        source_text = str(src).strip()
+        if not source_text:
+            continue
+        path = Path(source_text)
+        bundle_root = _extract_bundle_root(path)
+        if bundle_root is None:
+            continue
+        candidates_dir = bundle_root / "candidates"
+        runs_dir = bundle_root / "runs"
+        if not candidates_dir.exists() or not runs_dir.exists():
+            continue
+        for candidate_json in sorted(candidates_dir.glob("cand_*.json")):
+            try:
+                c_payload = json.loads(candidate_json.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            cid = str(c_payload.get("candidate_id", "")).strip() or candidate_json.stem
+            report = runs_dir / cid / "eval_report.json"
+            if not report.exists():
+                continue
+            try:
+                r_payload = json.loads(report.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            metrics = r_payload.get("metrics", {})
+            if not isinstance(metrics, dict):
+                continue
+
+            pa = _coerce_float(metrics.get("pixel_accuracy"), default=float("nan"))
+            f1 = _coerce_float(metrics.get("macro_f1"), default=float("nan"))
+            mi = _coerce_float(metrics.get("mean_iou"), default=float("nan"))
+            rt = _coerce_float(r_payload.get("runtime_seconds"), default=float("nan"))
+            if any(math.isnan(v) for v in (pa, f1, mi, rt)):
+                continue
+
+            try:
+                backend = str(c_payload["backend"])
+                lr = float(c_payload["learning_rate"])
+                bs = int(c_payload["batch_size"])
+                epochs = int(c_payload["epochs"])
+                wd = float(c_payload["weight_decay"])
+                ms = int(c_payload["max_samples"])
+            except Exception:
+                continue
+
+            if backend not in cfg.architectures:
+                continue
+            raw.append(
+                {
+                    "source_path": report.as_posix(),
+                    "candidate_id": cid,
+                    "backend": backend,
+                    "learning_rate": lr,
+                    "batch_size": bs,
+                    "epochs": epochs,
+                    "weight_decay": wd,
+                    "max_samples": ms,
+                    "pixel_accuracy": pa,
+                    "macro_f1": f1,
+                    "mean_iou": mi,
+                    "runtime_seconds": rt,
+                }
+            )
+
+    if not raw:
+        return []
+    runtime_vals = [float(item["runtime_seconds"]) for item in raw]
+    runtime_norm = _normalize_values(runtime_vals, neutral=0.0)
+
+    out: list[HpcGaHistoricalSample] = []
+    for item, rt_norm in zip(raw, runtime_norm):
+        fit = _fitness_from_metrics(
+            pixel_accuracy=float(item["pixel_accuracy"]),
+            macro_f1=float(item["macro_f1"]),
+            mean_iou=float(item["mean_iou"]),
+            runtime_norm=float(rt_norm),
+            cfg=cfg,
+        )
+        out.append(
+            HpcGaHistoricalSample(
+                source_path=str(item["source_path"]),
+                candidate_id=str(item["candidate_id"]),
+                backend=str(item["backend"]),
+                learning_rate=float(item["learning_rate"]),
+                batch_size=int(item["batch_size"]),
+                epochs=int(item["epochs"]),
+                weight_decay=float(item["weight_decay"]),
+                max_samples=int(item["max_samples"]),
+                pixel_accuracy=float(item["pixel_accuracy"]),
+                macro_f1=float(item["macro_f1"]),
+                mean_iou=float(item["mean_iou"]),
+                runtime_seconds=float(item["runtime_seconds"]),
+                fitness_score=float(fit),
+            )
+        )
+    return out
+
+
+def summarize_feedback_sources(
+    feedback_sources: tuple[str, ...],
+    *,
+    cfg: HpcGaPlanConfig,
+    top_k: int = 10,
+) -> dict[str, Any]:
+    """Summarize prior feedback sources for operator review."""
+
+    samples = load_feedback_samples(feedback_sources, cfg=cfg)
+    ranked = sorted(samples, key=lambda s: s.fitness_score, reverse=True)
+    top = ranked[: max(0, int(top_k))]
+    return {
+        "schema_version": "microseg.hpc_ga_feedback_summary.v1",
+        "created_utc": _utc_now(),
+        "fitness_mode": cfg.fitness_mode,
+        "sample_count": len(samples),
+        "sources": list(feedback_sources),
+        "weights": {
+            "mean_iou": cfg.fitness_weight_mean_iou,
+            "macro_f1": cfg.fitness_weight_macro_f1,
+            "pixel_accuracy": cfg.fitness_weight_pixel_accuracy,
+            "runtime": cfg.fitness_weight_runtime,
+        },
+        "top_candidates": [
+            {
+                "candidate_id": s.candidate_id,
+                "backend": s.backend,
+                "fitness_score": s.fitness_score,
+                "mean_iou": s.mean_iou,
+                "macro_f1": s.macro_f1,
+                "pixel_accuracy": s.pixel_accuracy,
+                "runtime_seconds": s.runtime_seconds,
+                "source_path": s.source_path,
+            }
+            for s in top
+        ],
+    }
+
+
+def _predict_fitness_knn(
+    candidate: HpcGaCandidate,
+    history: list[HpcGaHistoricalSample],
+    *,
+    cfg: HpcGaPlanConfig,
+) -> float | None:
+    if not history:
+        return None
+    cf = _candidate_features(candidate, cfg)
+    d_fit: list[tuple[float, float]] = []
+    for s in history:
+        hf = _feature_tuple_from_values(
+            backend=s.backend,
+            learning_rate=s.learning_rate,
+            batch_size=s.batch_size,
+            epochs=s.epochs,
+            weight_decay=s.weight_decay,
+            max_samples=s.max_samples,
+            cfg=cfg,
+        )
+        d_fit.append((_euclidean(cf, hf), float(s.fitness_score)))
+    d_fit.sort(key=lambda item: item[0])
+    k = min(max(1, int(cfg.feedback_k)), len(d_fit))
+    top = d_fit[:k]
+    weighted_sum = 0.0
+    weight_sum = 0.0
+    for dist, fit in top:
+        w = 1.0 / (dist + 1e-6)
+        weighted_sum += w * fit
+        weight_sum += w
+    if weight_sum <= 0.0:
+        return None
+    return float(weighted_sum / weight_sum)
+
+
+def _compute_selection_scores(
+    pop: list[HpcGaCandidate],
+    *,
+    cfg: HpcGaPlanConfig,
+    history: list[HpcGaHistoricalSample],
+) -> tuple[list[float], list[float | None], list[float]]:
+    novelty = _novelty_scores(pop, cfg)
+    predicted = [_predict_fitness_knn(c, history, cfg=cfg) for c in pop]
+
+    use_feedback = cfg.fitness_mode == "feedback_hybrid" and len(history) >= int(cfg.feedback_min_samples)
+    if not use_feedback:
+        return novelty, predicted, novelty
+
+    novelty_norm = _normalize_values(novelty, neutral=0.5)
+    pred_vals = [0.0 if p is None else float(p) for p in predicted]
+    pred_norm = _normalize_values(pred_vals, neutral=0.5)
+    exp = float(cfg.exploration_weight)
+    combined = [(exp * n) + ((1.0 - exp) * p) for n, p in zip(novelty_norm, pred_norm)]
+    return novelty, predicted, combined
+
+
 def plan_hpc_ga_candidates(cfg: HpcGaPlanConfig) -> list[HpcGaCandidate]:
-    """Plan candidate experiments with a novelty-oriented GA.
-
-    Parameters
-    ----------
-    cfg:
-        Planner configuration.
-
-    Returns
-    -------
-    list[HpcGaCandidate]
-        Planned candidate configurations.
-    """
+    """Plan candidate experiments with novelty or feedback-hybrid GA ranking."""
 
     _validate_config(cfg)
+    history = load_feedback_samples(cfg.feedback_sources, cfg=cfg)
     rng = random.Random(int(cfg.seed))
     pop = [_sample_candidate(rng, cfg, idx=i + 1) for i in range(max(cfg.population_size, cfg.num_candidates))]
 
     serial = len(pop) + 1
     for _gen in range(int(cfg.generations)):
-        scores = _novelty_scores(pop, cfg)
-        rank = sorted(range(len(pop)), key=lambda i: scores[i], reverse=True)
+        novelty, predicted, selection = _compute_selection_scores(pop, cfg=cfg, history=history)
+        rank = sorted(range(len(pop)), key=lambda i: selection[i], reverse=True)
         elite_count = max(2, int(len(pop) * 0.2))
         next_pop: list[HpcGaCandidate] = [
-            HpcGaCandidate(**{**asdict(pop[i]), "candidate_id": f"cand_{k + 1:03d}", "novelty_score": scores[i]})
+            HpcGaCandidate(
+                **{
+                    **asdict(pop[i]),
+                    "candidate_id": f"cand_{k + 1:03d}",
+                    "novelty_score": float(novelty[i]),
+                    "predicted_fitness": predicted[i],
+                    "selection_score": float(selection[i]),
+                }
+            )
             for k, i in enumerate(rank[:elite_count])
         ]
         while len(next_pop) < len(pop):
-            pa = _select_tournament(pop, scores, rng)
-            pb = _select_tournament(pop, scores, rng)
+            pa = _select_tournament(pop, selection, rng)
+            pb = _select_tournament(pop, selection, rng)
             child_id = f"cand_{serial:03d}"
             serial += 1
             if rng.random() < cfg.crossover_rate:
@@ -321,8 +625,8 @@ def plan_hpc_ga_candidates(cfg: HpcGaPlanConfig) -> list[HpcGaCandidate]:
             next_pop.append(child)
         pop = next_pop
 
-    final_scores = _novelty_scores(pop, cfg)
-    ranked = sorted(range(len(pop)), key=lambda i: final_scores[i], reverse=True)
+    novelty, predicted, selection = _compute_selection_scores(pop, cfg=cfg, history=history)
+    ranked = sorted(range(len(pop)), key=lambda i: selection[i], reverse=True)
     selected: list[HpcGaCandidate] = []
     seen: set[tuple[Any, ...]] = set()
     for idx in ranked:
@@ -331,14 +635,20 @@ def plan_hpc_ga_candidates(cfg: HpcGaPlanConfig) -> list[HpcGaCandidate]:
         if key in seen:
             continue
         seen.add(key)
-        selected.append(HpcGaCandidate(**{**asdict(cand), "novelty_score": float(final_scores[idx])}))
+        selected.append(
+            HpcGaCandidate(
+                **{
+                    **asdict(cand),
+                    "novelty_score": float(novelty[idx]),
+                    "predicted_fitness": predicted[idx],
+                    "selection_score": float(selection[idx]),
+                }
+            )
+        )
         if len(selected) >= cfg.num_candidates:
             break
 
-    selected = [
-        HpcGaCandidate(**{**asdict(c), "candidate_id": f"cand_{i + 1:03d}"})
-        for i, c in enumerate(selected)
-    ]
+    selected = [HpcGaCandidate(**{**asdict(c), "candidate_id": f"cand_{i + 1:03d}"}) for i, c in enumerate(selected)]
     return selected
 
 
@@ -502,24 +812,18 @@ def _candidate_yaml_text(candidate: HpcGaCandidate) -> str:
         f"seed: {candidate.seed}",
         f"novelty_score: {candidate.novelty_score:.8g}",
     ]
+    if candidate.predicted_fitness is not None:
+        lines.append(f"predicted_fitness: {candidate.predicted_fitness:.8g}")
+    if candidate.selection_score is not None:
+        lines.append(f"selection_score: {candidate.selection_score:.8g}")
     return "\n".join(lines) + "\n"
 
 
 def generate_hpc_ga_bundle(cfg: HpcGaPlanConfig) -> HpcGaBundleResult:
-    """Generate GA candidates and scheduler scripts for HPC execution.
-
-    Parameters
-    ----------
-    cfg:
-        Planner configuration.
-
-    Returns
-    -------
-    HpcGaBundleResult
-        Output paths and selected candidates.
-    """
+    """Generate GA candidates and scheduler scripts for HPC execution."""
 
     _validate_config(cfg)
+    feedback_summary = summarize_feedback_sources(cfg.feedback_sources, cfg=cfg, top_k=5) if cfg.feedback_sources else None
     selected = plan_hpc_ga_candidates(cfg)
     out_root = Path(cfg.output_dir)
     jobs_dir = out_root / "jobs"
@@ -544,26 +848,24 @@ def generate_hpc_ga_bundle(cfg: HpcGaPlanConfig) -> HpcGaBundleResult:
     submit.write_text("\n".join(_submit_all_lines(cfg)) + "\n", encoding="utf-8")
     submit.chmod(0o755)
 
+    quick_lines = [
+        "MicroSeg HPC GA Bundle",
+        "",
+        "1) Upload this bundle directory to your HPC workspace.",
+        "2) Ensure your environment has Python + project dependencies.",
+        "3) Set REPO_ROOT when launching if repository is not adjacent to bundle:",
+        "   REPO_ROOT=/path/to/HydrideSegmentation ./submit_all.sh",
+        "4) For scheduler='local', submit_all.sh runs job scripts sequentially.",
+        "",
+        f"Scheduler: {cfg.scheduler}",
+        f"Candidates: {len(selected)}",
+        f"Run mode: {cfg.run_mode}",
+        f"Fitness mode: {cfg.fitness_mode}",
+    ]
+    if feedback_summary is not None:
+        quick_lines.append(f"Feedback samples available: {int(feedback_summary.get('sample_count', 0))}")
     quickstart = out_root / "README.txt"
-    quickstart.write_text(
-        "\n".join(
-            [
-                "MicroSeg HPC GA Bundle",
-                "",
-                "1) Upload this bundle directory to your HPC workspace.",
-                "2) Ensure your environment has Python + project dependencies.",
-                "3) Set REPO_ROOT when launching if repository is not adjacent to bundle:",
-                "   REPO_ROOT=/path/to/HydrideSegmentation ./submit_all.sh",
-                "4) For scheduler='local', submit_all.sh runs job scripts sequentially.",
-                "",
-                f"Scheduler: {cfg.scheduler}",
-                f"Candidates: {len(selected)}",
-                f"Run mode: {cfg.run_mode}",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    quickstart.write_text("\n".join(quick_lines) + "\n", encoding="utf-8")
 
     manifest = out_root / "ga_plan_manifest.json"
     payload = {
@@ -571,6 +873,7 @@ def generate_hpc_ga_bundle(cfg: HpcGaPlanConfig) -> HpcGaBundleResult:
         "created_utc": _utc_now(),
         "experiment_name": cfg.experiment_name,
         "config": asdict(cfg),
+        "feedback_summary": feedback_summary,
         "candidates": [asdict(c) for c in selected],
         "paths": {
             "bundle_dir": out_root.as_posix(),
@@ -610,3 +913,13 @@ def parse_batch_sizes(value: object) -> tuple[int, ...]:
     if isinstance(value, (list, tuple)):
         return tuple(int(v) for v in value)
     return _split_csv_ints(str(value))
+
+
+def parse_feedback_sources(value: object) -> tuple[str, ...]:
+    """Parse feedback source list from config/CLI input."""
+
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple)):
+        return tuple(str(v).strip() for v in value if str(v).strip())
+    return _split_csv(str(value))
