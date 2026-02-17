@@ -3,6 +3,24 @@
   "updated_utc": "2026-02-17T00:00:00Z",
   "models": [
     {
+      "model_id": "unet_binary_resnet18_imagenet_partial",
+      "architecture": "unet_binary",
+      "framework": "torch",
+      "source": "timm:resnet18",
+      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "source_revision": "<timm/torch version tuple>",
+      "bundle_dir": "unet_binary_resnet18_imagenet_partial",
+      "weights_path": "weights/unet_binary_resnet18_imagenet_partial_state_dict.pt",
+      "weights_format": "torch_state_dict",
+      "metadata_path": "metadata.json",
+      "license": "See upstream timm model card/license terms",
+      "citation_key": "he2016resnet;ronneberger2015unet",
+      "citation": "ResNet and U-Net citation strings",
+      "citation_url": "https://arxiv.org/abs/1512.03385;https://arxiv.org/abs/1505.04597",
+      "notes": "Partial warm-start bootstrap from ResNet18 into unet_binary encoder tensors.",
+      "files": []
+    },
+    {
       "model_id": "hf_segformer_b0_ade20k",
       "architecture": "hf_segformer_b0",
       "framework": "transformers",
@@ -72,6 +90,42 @@
       "citation": "U-Net and ResNet citations",
       "citation_url": "https://arxiv.org/abs/1505.04597;https://arxiv.org/abs/1512.03385",
       "notes": "Local SMP U-Net ResNet18 state dict for offline fine-tuning.",
+      "files": []
+    },
+    {
+      "model_id": "transunet_tiny_vit_tiny_patch16_imagenet",
+      "architecture": "transunet_tiny",
+      "framework": "torch",
+      "source": "timm:vit_tiny_patch16_224",
+      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "source_revision": "<timm/torch version tuple>",
+      "bundle_dir": "transunet_tiny_vit_tiny_patch16_imagenet",
+      "weights_path": "weights/transunet_tiny_vit_tiny_patch16_imagenet_state_dict.pt",
+      "weights_format": "torch_state_dict",
+      "metadata_path": "metadata.json",
+      "license": "See upstream timm model card/license terms",
+      "citation_key": "dosovitskiy2020vit",
+      "citation": "ViT citation string",
+      "citation_url": "https://arxiv.org/abs/2010.11929",
+      "notes": "Partial warm-start bootstrap from ViT-tiny to transunet_tiny (shape-adapted mapping).",
+      "files": []
+    },
+    {
+      "model_id": "segformer_mini_vit_tiny_patch16_imagenet",
+      "architecture": "segformer_mini",
+      "framework": "torch",
+      "source": "timm:vit_tiny_patch16_224",
+      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "source_revision": "<timm/torch version tuple>",
+      "bundle_dir": "segformer_mini_vit_tiny_patch16_imagenet",
+      "weights_path": "weights/segformer_mini_vit_tiny_patch16_imagenet_state_dict.pt",
+      "weights_format": "torch_state_dict",
+      "metadata_path": "metadata.json",
+      "license": "See upstream timm model card/license terms",
+      "citation_key": "dosovitskiy2020vit",
+      "citation": "ViT citation string",
+      "citation_url": "https://arxiv.org/abs/2010.11929",
+      "notes": "Partial warm-start bootstrap from ViT-tiny to segformer_mini (shape-adapted mapping).",
       "files": []
     }
   ]

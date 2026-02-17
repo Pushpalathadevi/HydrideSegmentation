@@ -23,14 +23,18 @@ Current scripts:
   - `hpc-ga-generate` creates GA-planned Slurm/PBS/local script bundles for multi-candidate GPU HPC sweeps.
   - `hpc-ga-generate` supports low-friction pretrained controls (`pretrained_init_mode`, `pretrained_model_map`) for air-gapped transfer learning.
 - `download_pretrained_weights.py` stages local pretrained bundles for offline transfer learning.
-  - supports HF SegFormer `b0/b2/b5` and SMP U-Net ResNet18 targets.
+  - supports HF SegFormer `b0/b2/b5`, SMP U-Net ResNet18, `unet_binary` ResNet18-derived bootstrap, and internal ViT-tiny bootstrap bundles for `transunet_tiny`/`segformer_mini`.
 - `pretrained_inventory_report.py` builds JSON/markdown inventory reports from `pre_trained_weights/registry.json` for reporting/manuscript traceability.
 - `run_phase_gate.py` standalone wrapper for phase closeout checks/stocktake reporting.
   - installed console entry point: `microseg-phase-gate`
 - `generate_smoke_checkpoint.py` creates deterministic tiny random-weight `.pth` checkpoints for
   smoke-testing model loading/evaluation paths without large binary artifacts.
+- `build_debug_duplicate_dataset.py` creates tiny duplicated train/val datasets from one image for
+  end-to-end pipeline integrity checks.
+  - supports optional `--resize-width/--resize-height` downscaling to keep transformer debug runs fast on CPU.
 - `hydride_benchmark_suite.py` runs multi-model hydride benchmark suites (train+eval) and writes consolidated
   JSON/CSV summaries and a single HTML comparison dashboard.
   - includes per-run training curves (`loss`, `accuracy`, `IoU` vs epoch), model artifact size, parameter count, and train/eval/total runtime fields.
+  - includes tracked validation-sample IoU summaries and panel galleries from training reports.
   - aggregate output includes mean/std rollups for quality and runtime metrics across seeds.
   - installed console entry point: `microseg-benchmark-suite`

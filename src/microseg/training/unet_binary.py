@@ -358,8 +358,8 @@ class _UNetBinaryModel:
     def state_dict(self) -> dict[str, Any]:
         return self.model.state_dict()
 
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        self.model.load_state_dict(state)
+    def load_state_dict(self, state: dict[str, Any], *, strict: bool = True):
+        return self.model.load_state_dict(state, strict=bool(strict))
 
     def parameters(self):
         return self.model.parameters()
@@ -466,8 +466,8 @@ class _TransUNetTinyModel:
     def state_dict(self) -> dict[str, Any]:
         return self.model.state_dict()
 
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        self.model.load_state_dict(state)
+    def load_state_dict(self, state: dict[str, Any], *, strict: bool = True):
+        return self.model.load_state_dict(state, strict=bool(strict))
 
     def parameters(self):
         return self.model.parameters()
@@ -558,8 +558,8 @@ class _SegFormerMiniModel:
     def state_dict(self) -> dict[str, Any]:
         return self.model.state_dict()
 
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        self.model.load_state_dict(state)
+    def load_state_dict(self, state: dict[str, Any], *, strict: bool = True):
+        return self.model.load_state_dict(state, strict=bool(strict))
 
     def parameters(self):
         return self.model.parameters()
@@ -624,6 +624,34 @@ def _extract_state_dict(payload: object) -> dict[str, Any]:
     raise ValueError("could not determine model state_dict from checkpoint payload")
 
 
+def _load_local_torch_pretrained(
+    *,
+    model_obj: Any,
+    pretrained_bundle: _PretrainedInitBundle,
+    strict: bool,
+) -> dict[str, Any]:
+    """Load local torch checkpoint/state_dict into a model wrapper."""
+
+    import torch
+
+    path = Path(pretrained_bundle.weights_path)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(
+            "local pretrained weights must point to an existing checkpoint/state_dict file; "
+            f"got: {path}"
+        )
+    payload = torch.load(path, map_location="cpu")
+    state_dict = _extract_state_dict(payload)
+    load_notes: dict[str, Any] = {"missing_keys": [], "unexpected_keys": []}
+    try:
+        result = model_obj.load_state_dict(state_dict, strict=bool(strict))
+    except TypeError:
+        result = model_obj.load_state_dict(state_dict)
+    load_notes["missing_keys"] = list(getattr(result, "missing_keys", []))
+    load_notes["unexpected_keys"] = list(getattr(result, "unexpected_keys", []))
+    return load_notes
+
+
 class _SmpUNetBinaryModel:
     """SMP U-Net model wrapper supporting local pretrained-state initialization."""
 
@@ -684,8 +712,8 @@ class _SmpUNetBinaryModel:
     def state_dict(self) -> dict[str, Any]:
         return self.model.state_dict()
 
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        self.model.load_state_dict(state)
+    def load_state_dict(self, state: dict[str, Any], *, strict: bool = True):
+        return self.model.load_state_dict(state, strict=bool(strict))
 
     def parameters(self):
         return self.model.parameters()
@@ -751,8 +779,8 @@ class _HfSegFormerBinaryModel:
     def state_dict(self) -> dict[str, Any]:
         return self.model.state_dict()
 
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        self.model.load_state_dict(state)
+    def load_state_dict(self, state: dict[str, Any], *, strict: bool = True):
+        return self.model.load_state_dict(state, strict=bool(strict))
 
     def parameters(self):
         return self.model.parameters()
@@ -773,7 +801,19 @@ def _build_binary_model(
 ):
     arch = str(architecture).strip().lower()
     if arch == "unet_binary":
-        return _UNetBinaryModel(base_channels=max(4, int(base_channels)))
+        model = _UNetBinaryModel(base_channels=max(4, int(base_channels)))
+        if pretrained_bundle is not None:
+            if str(pretrained_bundle.weights_format).strip().lower() == "hf_model_dir":
+                raise ValueError(
+                    "unet_binary local-pretrained expects a torch checkpoint/state_dict file, "
+                    f"got weights_format={pretrained_bundle.weights_format!r}"
+                )
+            _load_local_torch_pretrained(
+                model_obj=model,
+                pretrained_bundle=pretrained_bundle,
+                strict=bool(pretrained_strict),
+            )
+        return model
     if arch.startswith("smp_unet_"):
         encoder = arch[len("smp_unet_") :]
         if not encoder:
@@ -790,13 +830,25 @@ def _build_binary_model(
                 "transunet_tiny requires (model_base_channels*4) divisible by transformer_num_heads; "
                 f"got base={base_channels}, heads={transformer_num_heads}"
             )
-        return _TransUNetTinyModel(
+        model = _TransUNetTinyModel(
             base_channels=max(4, int(base_channels)),
             transformer_depth=max(1, int(transformer_depth)),
             transformer_num_heads=max(1, int(transformer_num_heads)),
             transformer_mlp_ratio=max(1.0, float(transformer_mlp_ratio)),
             transformer_dropout=max(0.0, float(transformer_dropout)),
         )
+        if pretrained_bundle is not None:
+            if str(pretrained_bundle.weights_format).strip().lower() == "hf_model_dir":
+                raise ValueError(
+                    "transunet_tiny local-pretrained expects a torch checkpoint/state_dict file, "
+                    f"got weights_format={pretrained_bundle.weights_format!r}"
+                )
+            _load_local_torch_pretrained(
+                model_obj=model,
+                pretrained_bundle=pretrained_bundle,
+                strict=bool(pretrained_strict),
+            )
+        return model
     if arch == "segformer_mini":
         embed_dim = max(16, max(4, int(base_channels)) * 4)
         if embed_dim % max(1, int(transformer_num_heads)) != 0:
@@ -804,7 +856,7 @@ def _build_binary_model(
                 "segformer_mini requires embed_dim divisible by transformer_num_heads; "
                 f"got embed_dim={embed_dim}, heads={transformer_num_heads}"
             )
-        return _SegFormerMiniModel(
+        model = _SegFormerMiniModel(
             base_channels=max(4, int(base_channels)),
             transformer_depth=max(1, int(transformer_depth)),
             transformer_num_heads=max(1, int(transformer_num_heads)),
@@ -812,6 +864,18 @@ def _build_binary_model(
             transformer_dropout=max(0.0, float(transformer_dropout)),
             patch_size=max(2, int(segformer_patch_size)),
         )
+        if pretrained_bundle is not None:
+            if str(pretrained_bundle.weights_format).strip().lower() == "hf_model_dir":
+                raise ValueError(
+                    "segformer_mini local-pretrained expects a torch checkpoint/state_dict file, "
+                    f"got weights_format={pretrained_bundle.weights_format!r}"
+                )
+            _load_local_torch_pretrained(
+                model_obj=model,
+                pretrained_bundle=pretrained_bundle,
+                strict=bool(pretrained_strict),
+            )
+        return model
     if arch == "hf_segformer_b0":
         return _HfSegFormerBinaryModel(
             variant="b0",

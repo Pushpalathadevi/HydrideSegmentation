@@ -248,6 +248,38 @@ def test_phase15_hpc_job_script_includes_pretrained_overrides(tmp_path: Path) ->
     assert '"--set" "pretrained_registry_path=pre_trained_weights/registry.json"' in job_text
 
 
+def test_phase15_hpc_job_script_includes_pretrained_overrides_for_internal_backends(tmp_path: Path) -> None:
+    cases = [
+        ("unet_binary", "unet_binary_resnet18_imagenet_partial"),
+        ("transunet_tiny", "transunet_tiny_vit_tiny_patch16_imagenet"),
+        ("segformer_mini", "segformer_mini_vit_tiny_patch16_imagenet"),
+    ]
+    for idx, (backend, model_id) in enumerate(cases, start=1):
+        out = tmp_path / f"hpc_bundle_pretrained_{idx}"
+        cfg = HpcGaPlanConfig(
+            dataset_dir="outputs/prepared_dataset",
+            output_dir=str(out),
+            architectures=(backend,),
+            num_candidates=1,
+            population_size=4,
+            generations=1,
+            seed=idx,
+            scheduler="local",
+            pretrained_init_mode="auto",
+            pretrained_registry_path="pre_trained_weights/registry.json",
+            pretrained_model_map={backend: model_id},
+            pretrained_verify_sha256=True,
+            pretrained_ignore_mismatched_sizes=True,
+            pretrained_strict=False,
+        )
+        generate_hpc_ga_bundle(cfg)
+        job_text = (out / "jobs" / "cand_001.sh").read_text(encoding="utf-8")
+        assert f'"--set" "backend={backend}"' in job_text
+        assert f'"--set" "model_architecture={backend}"' in job_text
+        assert '"--set" "pretrained_init_mode=local"' in job_text
+        assert f'"--set" "pretrained_model_id={model_id}"' in job_text
+
+
 def test_phase15_hpc_local_pretrained_requires_mapping() -> None:
     cfg = HpcGaPlanConfig(
         dataset_dir="outputs/prepared_dataset",

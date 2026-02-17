@@ -123,6 +123,36 @@ microseg-cli train \
   --set pretrained_registry_path=pre_trained_weights/registry.json
 ```
 
+Local pretrained internal U-Net example:
+```bash
+microseg-cli train \
+  --config configs/train.default.yml \
+  --set backend=unet_binary \
+  --set model_architecture=unet_binary \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=unet_binary_resnet18_imagenet_partial \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+```
+
+Local pretrained internal transformer bootstrap examples:
+```bash
+microseg-cli train --config configs/train.default.yml \
+  --set backend=transunet_tiny \
+  --set model_architecture=transunet_tiny \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=transunet_tiny_vit_tiny_patch16_imagenet \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+
+microseg-cli train --config configs/train.default.yml \
+  --set backend=segformer_mini \
+  --set model_architecture=segformer_mini \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=segformer_mini_vit_tiny_patch16_imagenet \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+```
+These two bundles are partial warm-start mappings from ViT-tiny; see `docs/pretrained_model_catalog.md` and
+`pre_trained_weights/metadata/*.meta.json` for mapped/unmapped component details.
+
 Binary mask normalization override example:
 ```bash
 microseg-cli train --config configs/train.default.yml --set binary_mask_normalization=two_value_zero_background
@@ -195,6 +225,22 @@ microseg-cli hpc-ga-generate \
   --config configs/hpc_ga.airgap_pretrained.default.yml \
   --dataset-dir outputs/prepared_dataset \
   --output-dir outputs/hpc_ga_bundle_airgap_pretrained
+```
+
+Top-5 scratch-only HPC GA profile:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.top5_scratch.default.yml \
+  --dataset-dir outputs/prepared_dataset_hydride_v1 \
+  --output-dir outputs/hpc_ga_bundle_top5_scratch
+```
+
+Top-5 local-pretrained HPC GA profile:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.top5_airgap_pretrained.default.yml \
+  --dataset-dir outputs/prepared_dataset_hydride_v1 \
+  --output-dir outputs/hpc_ga_bundle_top5_airgap_pretrained
 ```
 
 HPC GA feedback report generation:

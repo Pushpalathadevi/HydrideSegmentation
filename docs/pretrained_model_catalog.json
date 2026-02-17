@@ -13,6 +13,16 @@
       "citation_key": ["ronneberger2015unet", "he2016resnet"]
     },
     {
+      "model_id": "unet_binary_resnet18_imagenet_partial",
+      "architecture": "unet_binary",
+      "framework": "torch",
+      "source": "timm:resnet18",
+      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "license": "See upstream timm model card/license terms",
+      "citation_key": ["he2016resnet", "ronneberger2015unet"],
+      "bootstrap_type": "partial_warm_start"
+    },
+    {
       "model_id": "hf_segformer_b0_ade20k",
       "architecture": "hf_segformer_b0",
       "framework": "transformers",
@@ -38,6 +48,26 @@
       "source_url": "https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640",
       "license": "See upstream model card license metadata",
       "citation_key": ["xie2021segformer", "zhou2017ade20k"]
+    },
+    {
+      "model_id": "transunet_tiny_vit_tiny_patch16_imagenet",
+      "architecture": "transunet_tiny",
+      "framework": "torch",
+      "source": "timm:vit_tiny_patch16_224",
+      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "license": "See upstream timm model card/license terms",
+      "citation_key": ["dosovitskiy2020vit"],
+      "bootstrap_type": "partial_warm_start"
+    },
+    {
+      "model_id": "segformer_mini_vit_tiny_patch16_imagenet",
+      "architecture": "segformer_mini",
+      "framework": "torch",
+      "source": "timm:vit_tiny_patch16_224",
+      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "license": "See upstream timm model card/license terms",
+      "citation_key": ["dosovitskiy2020vit"],
+      "bootstrap_type": "partial_warm_start"
     }
   ]
 }

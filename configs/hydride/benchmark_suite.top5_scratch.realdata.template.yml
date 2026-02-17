@@ -1,0 +1,28 @@
+# Copy this file and edit only the marked fields for a real-data run.
+# This template assumes the dataset already exists in train/val/test split layout.
+
+dataset_dir: /path/to/real_dataset_root
+output_root: /path/to/hpc_outputs/top5_suite_scratch
+
+eval_config: configs/hydride/evaluate.hydride.yml
+eval_split: test
+python_executable: python
+
+# Start with one seed for first HPC validation run; expand to [42, 43, 44] for full study.
+seeds: [42]
+
+# Set false when using an externally prepared split without dataset_manifest.json.
+# Set true only for manifest-controlled prepared datasets.
+benchmark_mode: false
+
+experiments:
+  - name: unet_binary_scratch
+    train_config: configs/hydride/train.unet_binary.baseline.yml
+  - name: hf_segformer_b0_scratch
+    train_config: configs/hydride/train.hf_segformer_b0_scratch.yml
+  - name: hf_segformer_b2_scratch
+    train_config: configs/hydride/train.hf_segformer_b2_scratch.yml
+  - name: transunet_tiny_scratch
+    train_config: configs/hydride/train.transunet_tiny.yml
+  - name: segformer_mini_scratch
+    train_config: configs/hydride/train.segformer_mini.yml

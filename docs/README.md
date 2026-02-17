@@ -40,6 +40,7 @@ Core planning and governance docs:
 - GUI usage guide: `gui_user_guide.md`
 - Configuration workflow: `configuration_workflow.md`
 - Offline pretrained transfer workflow: `offline_pretrained_transfer_workflow.md`
+- HPC air-gapped top-5 real-data runbook: `hpc_airgap_top5_realdata_runbook.md`
 - Pretrained model catalog + provenance metadata: `pretrained_model_catalog.md`
 - Pretrained citation BibTeX: `pretrained_model_citations.bib`
 - Pretrained model catalog JSON: `pretrained_model_catalog.json`

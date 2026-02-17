@@ -1,0 +1,39 @@
+{
+  "schema_version": "microseg.pretrained_bundle_metadata.v1",
+  "model_id": "smp_unet_resnet18_imagenet",
+  "architecture": "smp_unet_resnet18",
+  "framework": "segmentation_models_pytorch",
+  "weights_format": "torch_state_dict",
+  "upstream": {
+    "source": "segmentation_models_pytorch:Unet(resnet18, encoder_weights=imagenet)",
+    "url": "https://github.com/qubvel-org/segmentation_models.pytorch",
+    "maintainers": ["Pavel Yakubovskiy and contributors"],
+    "checkpoint_revision": "set at download time in registry.json",
+    "dataset_context": "ImageNet encoder initialization"
+  },
+  "model_properties": {
+    "family": "U-Net",
+    "encoder": "ResNet18",
+    "task": "semantic segmentation",
+    "input_channels": 3,
+    "target_num_labels": 1,
+    "notes": "Full model state dict saved after encoder-pretrained initialization"
+  },
+  "citations": [
+    {
+      "key": "ronneberger2015unet",
+      "title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+      "url": "https://arxiv.org/abs/1505.04597"
+    },
+    {
+      "key": "he2016resnet",
+      "title": "Deep Residual Learning for Image Recognition",
+      "url": "https://arxiv.org/abs/1512.03385"
+    }
+  ],
+  "license_notes": "See upstream package and weight source license terms.",
+  "remarks": [
+    "Suitable baseline pretrained U-Net for transfer learning in MicroSeg.",
+    "Checksum validation should be enabled before training."
+  ]
+}

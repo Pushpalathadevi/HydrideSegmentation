@@ -6,12 +6,16 @@ import argparse
 import hashlib
 import json
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 DEFAULT_OUTPUT = ROOT / "pre_trained_weights"
 REGISTRY_SCHEMA = "microseg.pretrained_weights_registry.v1"
 BUNDLE_SCHEMA = "microseg.pretrained_bundle.v1"
@@ -28,6 +32,10 @@ UNET_CITATION = (
 RESNET_CITATION = (
     "He, K., Zhang, X., Ren, S., and Sun, J. "
     "\"Deep Residual Learning for Image Recognition.\" CVPR 2016."
+)
+VIT_CITATION = (
+    "Dosovitskiy, A., Beyer, L., Kolesnikov, A., et al. "
+    "\"An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale.\" ICLR 2021."
 )
 
 HF_SEGFORMER_TARGETS: dict[str, dict[str, str]] = {
@@ -56,7 +64,37 @@ SMP_UNET_TARGETS: dict[str, dict[str, str]] = {
     },
 }
 
-ALL_TARGETS = tuple(sorted((*HF_SEGFORMER_TARGETS.keys(), *SMP_UNET_TARGETS.keys())))
+INTERNAL_TRANSFORMER_BOOTSTRAP_TARGETS: dict[str, dict[str, str]] = {
+    "transunet_tiny": {
+        "model_id": "transunet_tiny_vit_tiny_patch16_imagenet",
+        "architecture": "transunet_tiny",
+        "source_model": "vit_tiny_patch16_224",
+    },
+    "segformer_mini": {
+        "model_id": "segformer_mini_vit_tiny_patch16_imagenet",
+        "architecture": "segformer_mini",
+        "source_model": "vit_tiny_patch16_224",
+    },
+}
+
+UNET_BINARY_BOOTSTRAP_TARGETS: dict[str, dict[str, str]] = {
+    "unet_binary": {
+        "model_id": "unet_binary_resnet18_imagenet_partial",
+        "architecture": "unet_binary",
+        "source_model": "resnet18",
+    }
+}
+
+ALL_TARGETS = tuple(
+    sorted(
+        (
+            *UNET_BINARY_BOOTSTRAP_TARGETS.keys(),
+            *HF_SEGFORMER_TARGETS.keys(),
+            *SMP_UNET_TARGETS.keys(),
+            *INTERNAL_TRANSFORMER_BOOTSTRAP_TARGETS.keys(),
+        )
+    )
+)
 
 
 def _utc_now() -> str:
@@ -247,6 +285,332 @@ def _build_smp_unet_bundle(spec: dict[str, str], bundle_root: Path, *, force: bo
     }
 
 
+def _build_unet_binary_resnet18_bootstrap_bundle(
+    spec: dict[str, str],
+    bundle_root: Path,
+    *,
+    force: bool,
+) -> dict[str, Any]:
+    import timm
+    import torch
+
+    from src.microseg.training.unet_binary import _build_binary_model
+
+    model_id = str(spec["model_id"])
+    architecture = str(spec["architecture"])
+    source_model = str(spec["source_model"])
+    bundle_dir = bundle_root / model_id
+    weights_dir = bundle_dir / "weights"
+    weights_path = weights_dir / f"{model_id}_state_dict.pt"
+    metadata_path = bundle_dir / "metadata.json"
+
+    if bundle_dir.exists() and force:
+        shutil.rmtree(bundle_dir)
+    weights_dir.mkdir(parents=True, exist_ok=True)
+
+    target_model = _build_binary_model(
+        architecture=architecture,
+        base_channels=16,
+        transformer_depth=2,
+        transformer_num_heads=4,
+        transformer_mlp_ratio=2.0,
+        transformer_dropout=0.0,
+        segformer_patch_size=4,
+        pretrained_bundle=None,
+        pretrained_strict=False,
+        pretrained_ignore_mismatched_sizes=True,
+    )
+    state = target_model.state_dict()
+    resnet = timm.create_model(source_model, pretrained=True)
+    src = resnet.state_dict()
+
+    # Encoder conv/bn warm-start from ResNet18 with channel slicing and kernel resizing.
+    state["inc.0.weight"] = _fit_tensor(src["conv1.weight"], state["inc.0.weight"])
+    state["inc.1.weight"] = _fit_tensor(src["bn1.weight"], state["inc.1.weight"])
+    state["inc.1.bias"] = _fit_tensor(src["bn1.bias"], state["inc.1.bias"])
+    state["inc.1.running_mean"] = _fit_tensor(src["bn1.running_mean"], state["inc.1.running_mean"])
+    state["inc.1.running_var"] = _fit_tensor(src["bn1.running_var"], state["inc.1.running_var"])
+    state["inc.3.weight"] = _fit_tensor(src["layer1.0.conv1.weight"], state["inc.3.weight"])
+    state["inc.4.weight"] = _fit_tensor(src["layer1.0.bn1.weight"], state["inc.4.weight"])
+    state["inc.4.bias"] = _fit_tensor(src["layer1.0.bn1.bias"], state["inc.4.bias"])
+    state["inc.4.running_mean"] = _fit_tensor(src["layer1.0.bn1.running_mean"], state["inc.4.running_mean"])
+    state["inc.4.running_var"] = _fit_tensor(src["layer1.0.bn1.running_var"], state["inc.4.running_var"])
+
+    state["down1.1.0.weight"] = _fit_tensor(src["layer1.0.conv2.weight"], state["down1.1.0.weight"])
+    state["down1.1.1.weight"] = _fit_tensor(src["layer1.0.bn2.weight"], state["down1.1.1.weight"])
+    state["down1.1.1.bias"] = _fit_tensor(src["layer1.0.bn2.bias"], state["down1.1.1.bias"])
+    state["down1.1.1.running_mean"] = _fit_tensor(src["layer1.0.bn2.running_mean"], state["down1.1.1.running_mean"])
+    state["down1.1.1.running_var"] = _fit_tensor(src["layer1.0.bn2.running_var"], state["down1.1.1.running_var"])
+    state["down1.1.3.weight"] = _fit_tensor(src["layer1.1.conv1.weight"], state["down1.1.3.weight"])
+    state["down1.1.4.weight"] = _fit_tensor(src["layer1.1.bn1.weight"], state["down1.1.4.weight"])
+    state["down1.1.4.bias"] = _fit_tensor(src["layer1.1.bn1.bias"], state["down1.1.4.bias"])
+    state["down1.1.4.running_mean"] = _fit_tensor(src["layer1.1.bn1.running_mean"], state["down1.1.4.running_mean"])
+    state["down1.1.4.running_var"] = _fit_tensor(src["layer1.1.bn1.running_var"], state["down1.1.4.running_var"])
+
+    state["down2.1.0.weight"] = _fit_tensor(src["layer2.0.conv1.weight"], state["down2.1.0.weight"])
+    state["down2.1.1.weight"] = _fit_tensor(src["layer2.0.bn1.weight"], state["down2.1.1.weight"])
+    state["down2.1.1.bias"] = _fit_tensor(src["layer2.0.bn1.bias"], state["down2.1.1.bias"])
+    state["down2.1.1.running_mean"] = _fit_tensor(src["layer2.0.bn1.running_mean"], state["down2.1.1.running_mean"])
+    state["down2.1.1.running_var"] = _fit_tensor(src["layer2.0.bn1.running_var"], state["down2.1.1.running_var"])
+    state["down2.1.3.weight"] = _fit_tensor(src["layer2.0.conv2.weight"], state["down2.1.3.weight"])
+    state["down2.1.4.weight"] = _fit_tensor(src["layer2.0.bn2.weight"], state["down2.1.4.weight"])
+    state["down2.1.4.bias"] = _fit_tensor(src["layer2.0.bn2.bias"], state["down2.1.4.bias"])
+    state["down2.1.4.running_mean"] = _fit_tensor(src["layer2.0.bn2.running_mean"], state["down2.1.4.running_mean"])
+    state["down2.1.4.running_var"] = _fit_tensor(src["layer2.0.bn2.running_var"], state["down2.1.4.running_var"])
+
+    torch.save({"model_state_dict": state}, weights_path)
+
+    source = f"timm:{source_model}"
+    source_revision = f"timm={getattr(timm, '__version__', 'unknown')};torch={getattr(torch, '__version__', 'unknown')}"
+    metadata = {
+        "schema_version": BUNDLE_SCHEMA,
+        "created_utc": _utc_now(),
+        "model_id": model_id,
+        "architecture": architecture,
+        "framework": "torch",
+        "weights_format": "torch_state_dict",
+        "source": source,
+        "source_url": "https://github.com/huggingface/pytorch-image-models",
+        "source_revision": source_revision,
+        "license": "See upstream timm model card/license terms",
+        "citation_key": "he2016resnet;ronneberger2015unet",
+        "citation": f"{RESNET_CITATION} {UNET_CITATION}",
+        "citation_url": "https://arxiv.org/abs/1512.03385;https://arxiv.org/abs/1505.04597",
+        "notes": (
+            "Partial warm-start bundle: maps ResNet18 convolution and normalization weights into internal "
+            "unet_binary encoder tensors using channel slicing and kernel resizing. Decoder/head remain default init."
+        ),
+        "creators": "Ross Wightman (timm) and original ResNet authors",
+        "bootstrap_mapping": {
+            "source_model": source_model,
+            "target_architecture": architecture,
+            "mapped_components": ["inc", "down1", "down2"],
+            "unmapped_components": ["up1_t", "up1_c", "up2_t", "up2_c", "out"],
+            "target_defaults": {"model_base_channels": 16},
+        },
+    }
+    _write_json(metadata_path, metadata)
+    files = _collect_files(bundle_dir)
+    _write_json(bundle_dir / "SHA256SUMS.json", {"schema_version": "microseg.sha256.v1", "files": files})
+
+    return {
+        "model_id": model_id,
+        "architecture": architecture,
+        "framework": "torch",
+        "source": source,
+        "source_url": "https://github.com/huggingface/pytorch-image-models",
+        "source_revision": source_revision,
+        "bundle_dir": model_id,
+        "weights_path": f"weights/{model_id}_state_dict.pt",
+        "weights_format": "torch_state_dict",
+        "metadata_path": "metadata.json",
+        "license": "See upstream timm model card/license terms",
+        "citation_key": "he2016resnet;ronneberger2015unet",
+        "citation": f"{RESNET_CITATION} {UNET_CITATION}",
+        "citation_url": "https://arxiv.org/abs/1512.03385;https://arxiv.org/abs/1505.04597",
+        "notes": "unet_binary partial warm-start bundle derived from ResNet18 features for offline transfer learning.",
+        "files": files,
+    }
+
+
+def _resize_conv_kernel(src, target_hw: tuple[int, int]):
+    import torch.nn.functional as F
+
+    if src.ndim != 4:
+        raise ValueError("conv kernel resize expects 4D tensor")
+    out_ch, in_ch, h, w = src.shape
+    if (h, w) == target_hw:
+        return src
+    flat = src.reshape(out_ch * in_ch, 1, h, w)
+    resized = F.interpolate(flat, size=target_hw, mode="bilinear", align_corners=False)
+    return resized.reshape(out_ch, in_ch, target_hw[0], target_hw[1])
+
+
+def _fit_tensor(src, target):
+    import torch
+
+    out = src.detach().clone()
+    if out.ndim == 4 and target.ndim == 4:
+        out = _resize_conv_kernel(out, (int(target.shape[-2]), int(target.shape[-1])))
+    slices: list[slice] = []
+    for dim, want in enumerate(target.shape):
+        have = int(out.shape[dim])
+        if have >= int(want):
+            slices.append(slice(0, int(want)))
+        else:
+            slices.append(slice(0, have))
+    cropped = out[tuple(slices)]
+    if tuple(int(v) for v in cropped.shape) == tuple(int(v) for v in target.shape):
+        return cropped.to(dtype=target.dtype)
+    padded = torch.zeros_like(target)
+    copy_slices = tuple(slice(0, int(v)) for v in cropped.shape)
+    padded[copy_slices] = cropped.to(dtype=target.dtype)
+    return padded
+
+
+def _map_vit_block_to_transformer(state: dict[str, Any], vit_state: dict[str, Any], *, layer_idx: int, prefix: str) -> None:
+    qkv_w = vit_state[f"blocks.{layer_idx}.attn.qkv.weight"]
+    qkv_b = vit_state[f"blocks.{layer_idx}.attn.qkv.bias"]
+    proj_w = vit_state[f"blocks.{layer_idx}.attn.proj.weight"]
+    proj_b = vit_state[f"blocks.{layer_idx}.attn.proj.bias"]
+    fc1_w = vit_state[f"blocks.{layer_idx}.mlp.fc1.weight"]
+    fc1_b = vit_state[f"blocks.{layer_idx}.mlp.fc1.bias"]
+    fc2_w = vit_state[f"blocks.{layer_idx}.mlp.fc2.weight"]
+    fc2_b = vit_state[f"blocks.{layer_idx}.mlp.fc2.bias"]
+    n1_w = vit_state[f"blocks.{layer_idx}.norm1.weight"]
+    n1_b = vit_state[f"blocks.{layer_idx}.norm1.bias"]
+    n2_w = vit_state[f"blocks.{layer_idx}.norm2.weight"]
+    n2_b = vit_state[f"blocks.{layer_idx}.norm2.bias"]
+
+    key = f"{prefix}.self_attn.in_proj_weight"
+    state[key] = _fit_tensor(qkv_w, state[key])
+    key = f"{prefix}.self_attn.in_proj_bias"
+    state[key] = _fit_tensor(qkv_b, state[key])
+    key = f"{prefix}.self_attn.out_proj.weight"
+    state[key] = _fit_tensor(proj_w, state[key])
+    key = f"{prefix}.self_attn.out_proj.bias"
+    state[key] = _fit_tensor(proj_b, state[key])
+    key = f"{prefix}.linear1.weight"
+    state[key] = _fit_tensor(fc1_w, state[key])
+    key = f"{prefix}.linear1.bias"
+    state[key] = _fit_tensor(fc1_b, state[key])
+    key = f"{prefix}.linear2.weight"
+    state[key] = _fit_tensor(fc2_w, state[key])
+    key = f"{prefix}.linear2.bias"
+    state[key] = _fit_tensor(fc2_b, state[key])
+    key = f"{prefix}.norm1.weight"
+    state[key] = _fit_tensor(n1_w, state[key])
+    key = f"{prefix}.norm1.bias"
+    state[key] = _fit_tensor(n1_b, state[key])
+    key = f"{prefix}.norm2.weight"
+    state[key] = _fit_tensor(n2_w, state[key])
+    key = f"{prefix}.norm2.bias"
+    state[key] = _fit_tensor(n2_b, state[key])
+
+
+def _build_internal_transformer_bootstrap_bundle(
+    spec: dict[str, str],
+    bundle_root: Path,
+    *,
+    force: bool,
+) -> dict[str, Any]:
+    import torch
+    import timm
+
+    from src.microseg.training.unet_binary import _build_binary_model
+
+    model_id = str(spec["model_id"])
+    architecture = str(spec["architecture"])
+    source_model = str(spec["source_model"])
+    bundle_dir = bundle_root / model_id
+    weights_dir = bundle_dir / "weights"
+    weights_path = weights_dir / f"{model_id}_state_dict.pt"
+    metadata_path = bundle_dir / "metadata.json"
+
+    if bundle_dir.exists() and force:
+        shutil.rmtree(bundle_dir)
+    weights_dir.mkdir(parents=True, exist_ok=True)
+
+    target_model = _build_binary_model(
+        architecture=architecture,
+        base_channels=16,
+        transformer_depth=2,
+        transformer_num_heads=4,
+        transformer_mlp_ratio=2.0,
+        transformer_dropout=0.0,
+        segformer_patch_size=4,
+        pretrained_bundle=None,
+        pretrained_strict=False,
+        pretrained_ignore_mismatched_sizes=True,
+    )
+    state = target_model.state_dict()
+    vit = timm.create_model(source_model, pretrained=True)
+    vit_state = vit.state_dict()
+
+    if architecture == "segformer_mini":
+        state["patch_embed.weight"] = _fit_tensor(vit_state["patch_embed.proj.weight"], state["patch_embed.weight"])
+        if "patch_embed.bias" in state:
+            state["patch_embed.bias"] = _fit_tensor(vit_state["patch_embed.proj.bias"], state["patch_embed.bias"])
+        if "patch_norm.weight" in state:
+            state["patch_norm.weight"] = _fit_tensor(vit_state["norm.weight"], state["patch_norm.weight"])
+        if "patch_norm.bias" in state:
+            state["patch_norm.bias"] = _fit_tensor(vit_state["norm.bias"], state["patch_norm.bias"])
+        for idx in range(2):
+            _map_vit_block_to_transformer(state, vit_state, layer_idx=idx, prefix=f"transformer.layers.{idx}")
+    elif architecture == "transunet_tiny":
+        for idx in range(2):
+            _map_vit_block_to_transformer(state, vit_state, layer_idx=idx, prefix=f"transformer.layers.{idx}")
+    else:
+        raise ValueError(f"unsupported internal transformer bootstrap architecture: {architecture}")
+
+    torch.save({"model_state_dict": state}, weights_path)
+
+    source = f"timm:{source_model}"
+    source_revision = f"timm={getattr(timm, '__version__', 'unknown')};torch={getattr(torch, '__version__', 'unknown')}"
+    metadata = {
+        "schema_version": BUNDLE_SCHEMA,
+        "created_utc": _utc_now(),
+        "model_id": model_id,
+        "architecture": architecture,
+        "framework": "torch",
+        "weights_format": "torch_state_dict",
+        "source": source,
+        "source_url": f"https://huggingface.co/timm/{source_model}.augreg_in21k_ft_in1k",
+        "source_revision": source_revision,
+        "license": "See upstream timm model card/license terms",
+        "citation_key": "dosovitskiy2020vit",
+        "citation": VIT_CITATION,
+        "citation_url": "https://arxiv.org/abs/2010.11929",
+        "notes": (
+            "Partial warm-start bundle: maps ViT-tiny patch16 weights into internal architecture tensor shapes "
+            "using channel slicing and kernel resizing. Transformer layers are initialized from first two ViT blocks; "
+            "remaining layers stay at default init where unmatched."
+        ),
+        "creators": "Ross Wightman (timm) and original ViT authors",
+        "bootstrap_mapping": {
+            "source_model": source_model,
+            "target_architecture": architecture,
+            "mapped_components": (
+                ["transformer.layers.0", "transformer.layers.1", "patch_embed (segformer_mini only)"]
+                if architecture == "segformer_mini"
+                else ["transformer.layers.0", "transformer.layers.1"]
+            ),
+            "target_defaults": {
+                "model_base_channels": 16,
+                "transformer_depth": 2,
+                "transformer_num_heads": 4,
+                "transformer_mlp_ratio": 2.0,
+                "segformer_patch_size": 4,
+            },
+        },
+    }
+    _write_json(metadata_path, metadata)
+    files = _collect_files(bundle_dir)
+    _write_json(bundle_dir / "SHA256SUMS.json", {"schema_version": "microseg.sha256.v1", "files": files})
+
+    return {
+        "model_id": model_id,
+        "architecture": architecture,
+        "framework": "torch",
+        "source": source,
+        "source_url": f"https://huggingface.co/timm/{source_model}.augreg_in21k_ft_in1k",
+        "source_revision": source_revision,
+        "bundle_dir": model_id,
+        "weights_path": f"weights/{model_id}_state_dict.pt",
+        "weights_format": "torch_state_dict",
+        "metadata_path": "metadata.json",
+        "license": "See upstream timm model card/license terms",
+        "citation_key": "dosovitskiy2020vit",
+        "citation": VIT_CITATION,
+        "citation_url": "https://arxiv.org/abs/2010.11929",
+        "notes": (
+            f"{architecture} partial warm-start bundle derived from {source_model} "
+            "for offline transfer-learning experiments."
+        ),
+        "files": files,
+    }
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Download/stage pretrained bundles for air-gapped transfer.")
     parser.add_argument(
@@ -288,11 +652,29 @@ def main() -> None:
     requested = _resolve_requested_targets(str(args.targets))
     records: list[dict[str, Any]] = []
     for target in requested:
+        if target in UNET_BINARY_BOOTSTRAP_TARGETS:
+            records.append(
+                _build_unet_binary_resnet18_bootstrap_bundle(
+                    UNET_BINARY_BOOTSTRAP_TARGETS[target],
+                    out_root,
+                    force=bool(args.force),
+                )
+            )
+            continue
         if target in HF_SEGFORMER_TARGETS:
             records.append(_download_hf_segformer_bundle(HF_SEGFORMER_TARGETS[target], out_root, force=bool(args.force)))
             continue
         if target in SMP_UNET_TARGETS:
             records.append(_build_smp_unet_bundle(SMP_UNET_TARGETS[target], out_root, force=bool(args.force)))
+            continue
+        if target in INTERNAL_TRANSFORMER_BOOTSTRAP_TARGETS:
+            records.append(
+                _build_internal_transformer_bootstrap_bundle(
+                    INTERNAL_TRANSFORMER_BOOTSTRAP_TARGETS[target],
+                    out_root,
+                    force=bool(args.force),
+                )
+            )
             continue
         raise ValueError(f"unsupported target: {target}")
 

@@ -16,7 +16,7 @@ Implemented:
 - Torch-based baseline training/evaluation with opt-in GPU runtime and CPU fallback
 - UNet binary training backend with checkpoint/resume lifecycle controls
 - Transformer segmentation backends for trials (`hf_segformer_b0/b2/b5` scratch-init, `transunet_tiny`, `segformer_mini`)
-- Local pretrained transfer-learning path for `smp_unet_resnet18` and HF SegFormer (`hf_segformer_b0/b2/b5`) via air-gap-friendly `pre_trained_weights/` bundles
+- Local pretrained transfer-learning path for `unet_binary`, `smp_unet_resnet18`, HF SegFormer (`hf_segformer_b0/b2/b5`), `transunet_tiny`, and `segformer_mini` via air-gap-friendly `pre_trained_weights/` bundles
 - Frozen checkpoint metadata registry with GUI/CLI model guidance
 - Tiny smoke-checkpoint generation for local pipeline sanity checks without large model binaries
 - Frozen-checkpoint lifecycle folders (`smoke`, `candidates`, `promoted`) with metadata-only tracking
@@ -32,6 +32,7 @@ Implemented:
 - Feedback-aware HPC GA planning mode with kNN fitness estimation and report summarization (`hpc-ga-feedback-report`)
 - HPC GA pretrained-init hardening (`scratch/auto/local` modes, backend-to-model mapping, and explicit backend/model_architecture script overrides)
 - Single-script top-5 hydride benchmark orchestration with consolidated JSON/CSV/HTML summary outputs
+- Single dashboard benchmark analytics now includes tracked validation sample IoU summaries and panel galleries
 
 ## Remaining Gaps To World-Class Target
 
@@ -61,7 +62,7 @@ Medium-priority gaps:
 
 ## Latest Health Audit Snapshot
 
-- Full tests pass (`72 passed`).
+- Full tests pass (`76 passed`).
 - Strict phase gate pass confirmed (`Airgap Pretrained HPC Hardening`).
 - API validation warnings removed (Pydantic v2 validators and image-type probing modernization).
 - Detailed audit record: `repo_health_audit.md`.

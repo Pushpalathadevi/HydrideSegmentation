@@ -243,6 +243,29 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
     epoch_done = _safe_int(progress.get("epochs_completed")) or len(history)
 
     avg_epoch_runtime = (sum(epoch_runtime) / len(epoch_runtime)) if epoch_runtime else _safe_float(report.get("runtime_seconds"))
+    tracked_samples_raw = report.get("latest_tracked_samples", [])
+    tracked_samples: list[dict[str, Any]] = []
+    tracked_ious: list[float] = []
+    if isinstance(tracked_samples_raw, list):
+        for item in tracked_samples_raw:
+            if not isinstance(item, dict):
+                continue
+            iou = _safe_float(item.get("iou"))
+            if iou is not None:
+                tracked_ious.append(float(iou))
+            sample_name = str(item.get("sample_name", "")).strip()
+            panel_rel = str(item.get("panel", "")).strip()
+            pred_rel = str(item.get("pred", "")).strip()
+            gt_rel = str(item.get("gt", "")).strip()
+            tracked_samples.append(
+                {
+                    "sample_name": sample_name,
+                    "iou": iou,
+                    "panel_png": str((train_dir / panel_rel).resolve()) if panel_rel else "",
+                    "pred_png": str((train_dir / pred_rel).resolve()) if pred_rel else "",
+                    "gt_png": str((train_dir / gt_rel).resolve()) if gt_rel else "",
+                }
+            )
 
     return {
         "training_status": str(report.get("status", "")),
@@ -262,6 +285,11 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
         "loss_curve_png": str(loss_curve) if loss_curve.exists() else "",
         "accuracy_curve_png": str(acc_curve) if acc_curve.exists() else "",
         "iou_curve_png": str(iou_curve) if iou_curve.exists() else "",
+        "tracked_samples_count": len(tracked_samples),
+        "tracked_samples_mean_iou": (sum(tracked_ious) / len(tracked_ious)) if tracked_ious else None,
+        "tracked_samples_min_iou": min(tracked_ious) if tracked_ious else None,
+        "tracked_samples_max_iou": max(tracked_ious) if tracked_ious else None,
+        "tracked_samples": tracked_samples,
     }
 
 
@@ -289,6 +317,7 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         mean_val_acc, _ = _mean_and_std(items, "last_val_accuracy")
         mean_train_iou, _ = _mean_and_std(items, "last_train_iou")
         mean_val_iou, _ = _mean_and_std(items, "last_val_iou")
+        mean_tracked_iou, _ = _mean_and_std(items, "tracked_samples_mean_iou")
         out.append(
             {
                 "model": model,
@@ -315,6 +344,7 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "mean_last_val_accuracy": mean_val_acc,
                 "mean_last_train_iou": mean_train_iou,
                 "mean_last_val_iou": mean_val_iou,
+                "mean_tracked_samples_iou": mean_tracked_iou,
             }
         )
     return out
@@ -336,7 +366,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         "<h1>Hydride Benchmark Dashboard</h1>",
         "<h2>Model Summary</h2>",
         "<table border='1' cellpadding='6' cellspacing='0'>",
-        "<tr><th>Model</th><th>Runs</th><th>OK</th><th>Failed</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params (mean)</th><th>Model Size MB (mean)</th></tr>",
+        "<tr><th>Model</th><th>Runs</th><th>OK</th><th>Failed</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Tracked Val Sample IoU (mean)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params (mean)</th><th>Model Size MB (mean)</th></tr>",
     ]
     for item in agg:
         lines.append(
@@ -348,6 +378,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{float(item.get('mean_pixel_accuracy', 0.0)):.6f} ± {float(item.get('std_pixel_accuracy', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_macro_f1', 0.0)):.6f} ± {float(item.get('std_macro_f1', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_mean_iou', 0.0)):.6f} ± {float(item.get('std_mean_iou', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_tracked_samples_iou', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_eval_runtime_seconds', 0.0)):.2f}</td>"
             f"<td>{float(item.get('mean_training_runtime_seconds', 0.0)):.2f}</td>"
             f"<td>{float(item.get('mean_total_runtime_seconds', 0.0)):.2f}</td>"
@@ -360,7 +391,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             "</table>",
             "<h2>Run-Level Results</h2>",
             "<table border='1' cellpadding='6' cellspacing='0'>",
-            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Backend</th><th>Architecture</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params</th><th>Model Size MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
+            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Backend</th><th>Architecture</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Tracked Val Sample IoU</th><th>Tracked Sample Count</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params</th><th>Model Size MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
         ]
     )
     for row in rows:
@@ -380,6 +411,8 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{_safe_float(row.get('pixel_accuracy')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('macro_f1')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('mean_iou')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('tracked_samples_mean_iou')) or 0.0:.6f}</td>"
+            f"<td>{_safe_int(row.get('tracked_samples_count')) or 0}</td>"
             f"<td>{_safe_float(row.get('runtime_seconds')) or 0.0:.2f}</td>"
             f"<td>{_safe_float(row.get('training_runtime_seconds')) or 0.0:.2f}</td>"
             f"<td>{_safe_float(row.get('total_runtime_seconds')) or 0.0:.2f}</td>"
@@ -418,6 +451,32 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             lines.append(
                 "<div><div><b>IoU vs Epoch</b></div>"
                 f"<img src='{html.escape(iou_curve)}' style='max-width:520px;border:1px solid #333;'></div>"
+            )
+        lines.append("</div>")
+    lines.extend(["<h2>Validation Sample Panels</h2>"])
+    for row in rows:
+        tracked_samples = row.get("tracked_samples")
+        if not isinstance(tracked_samples, list) or not tracked_samples:
+            continue
+        title = f"{row.get('model', '')} seed {row.get('seed', '')}"
+        lines.append(f"<h3>{html.escape(title)}</h3>")
+        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;'>")
+        for sample in tracked_samples:
+            if not isinstance(sample, dict):
+                continue
+            panel_png = str(sample.get("panel_png", "")).strip()
+            sample_name = str(sample.get("sample_name", "")).strip()
+            sample_iou = _safe_float(sample.get("iou"))
+            if not panel_png:
+                continue
+            iou_text = f" (IoU: {float(sample_iou):.6f})" if sample_iou is not None else ""
+            lines.append(
+                "<div><div><b>"
+                + html.escape(sample_name or "tracked_sample")
+                + "</b>"
+                + iou_text
+                + "</div>"
+                + f"<img src='{html.escape(panel_png)}' style='max-width:520px;border:1px solid #333;'></div>"
             )
         lines.append("</div>")
     lines.extend(["</body></html>"])
@@ -623,6 +682,11 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "loss_curve_png": train_meta.get("loss_curve_png"),
                 "accuracy_curve_png": train_meta.get("accuracy_curve_png"),
                 "iou_curve_png": train_meta.get("iou_curve_png"),
+                "tracked_samples_count": train_meta.get("tracked_samples_count"),
+                "tracked_samples_mean_iou": train_meta.get("tracked_samples_mean_iou"),
+                "tracked_samples_min_iou": train_meta.get("tracked_samples_min_iou"),
+                "tracked_samples_max_iou": train_meta.get("tracked_samples_max_iou"),
+                "tracked_samples": train_meta.get("tracked_samples"),
                 "train_overrides": "|".join(train_overrides),
                 "eval_overrides": "|".join(eval_overrides),
             }
@@ -677,6 +741,10 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "last_train_iou",
             "last_val_iou",
             "avg_epoch_runtime_seconds",
+            "tracked_samples_count",
+            "tracked_samples_mean_iou",
+            "tracked_samples_min_iou",
+            "tracked_samples_max_iou",
             "model_artifact_path",
             "model_artifact_size_bytes",
             "model_artifact_size_mb",
@@ -732,6 +800,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "mean_last_val_accuracy",
             "mean_last_train_iou",
             "mean_last_val_iou",
+            "mean_tracked_samples_iou",
         ],
     )
     _write_dashboard(dashboard_html, rows, agg)

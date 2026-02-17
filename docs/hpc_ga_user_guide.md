@@ -74,6 +74,22 @@ microseg-cli hpc-ga-generate \
   --output-dir outputs/hpc_ga_bundle_airgap_pretrained
 ```
 
+Top-5 scratch profile:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.top5_scratch.default.yml \
+  --dataset-dir outputs/prepared_dataset_hydride_v1 \
+  --output-dir outputs/hpc_ga_bundle_top5_scratch
+```
+
+Top-5 air-gapped local-pretrained profile:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.top5_airgap_pretrained.default.yml \
+  --dataset-dir outputs/prepared_dataset_hydride_v1 \
+  --output-dir outputs/hpc_ga_bundle_top5_airgap_pretrained
+```
+
 Feedback summary from prior bundles:
 ```bash
 microseg-cli hpc-ga-feedback-report \

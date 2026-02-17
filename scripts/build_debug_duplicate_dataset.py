@@ -33,6 +33,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=str, default="outputs/debug_pretrained_dataset")
     parser.add_argument("--train-count", type=int, default=4)
     parser.add_argument("--val-count", type=int, default=2)
+    parser.add_argument("--resize-width", type=int, default=0, help="Optional output image width for debug speed.")
+    parser.add_argument("--resize-height", type=int, default=0, help="Optional output image height for debug speed.")
     parser.add_argument(
         "--threshold",
         type=int,
@@ -55,7 +57,16 @@ def main() -> None:
         output_dir = (ROOT / output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    gray = np.asarray(Image.open(image_path).convert("L"), dtype=np.uint8)
+    resize_width = int(args.resize_width)
+    resize_height = int(args.resize_height)
+    if (resize_width > 0 and resize_height <= 0) or (resize_height > 0 and resize_width <= 0):
+        raise ValueError("resize-width and resize-height must be provided together when resizing is enabled")
+
+    image_gray = Image.open(image_path).convert("L")
+    if resize_width > 0 and resize_height > 0:
+        image_gray = image_gray.resize((resize_width, resize_height), Image.BILINEAR)
+
+    gray = np.asarray(image_gray, dtype=np.uint8)
     rgb = np.stack([gray, gray, gray], axis=2)
     mask = (gray > int(args.threshold)).astype(np.uint8)
 
@@ -83,6 +94,8 @@ def main() -> None:
         "threshold": int(args.threshold),
         "train_count": int(args.train_count),
         "val_count": int(args.val_count),
+        "resize_width": resize_width,
+        "resize_height": resize_height,
     }
     (output_dir / "debug_dataset_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 

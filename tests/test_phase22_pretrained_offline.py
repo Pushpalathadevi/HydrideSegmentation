@@ -16,6 +16,7 @@ from src.microseg.plugins import (
     validate_pretrained_registry,
 )
 from src.microseg.training import UNetBinaryTrainer, UNetBinaryTrainingConfig
+from src.microseg.training.unet_binary import _build_binary_model
 
 
 def _sha256(path: Path) -> str:
@@ -275,3 +276,89 @@ def test_phase22_smp_local_pretrained_init(tmp_path: Path) -> None:
         )
     )
     assert result["model_initialization"] == "local_pretrained"
+
+
+@pytest.mark.parametrize(
+    "architecture,model_id",
+    [
+        ("unet_binary", "toy_unet_binary"),
+        ("transunet_tiny", "toy_transunet_tiny"),
+        ("segformer_mini", "toy_segformer_mini"),
+    ],
+)
+def test_phase22_internal_local_torch_pretrained_init(
+    tmp_path: Path,
+    architecture: str,
+    model_id: str,
+) -> None:
+    import torch
+
+    ds = _tiny_dataset(tmp_path)
+    out = tmp_path / f"train_{architecture}"
+
+    bundle_root = tmp_path / "pre_trained_weights"
+    bundle = bundle_root / model_id
+    bundle.mkdir(parents=True, exist_ok=True)
+    weights_path = bundle / "weights.pt"
+
+    model = _build_binary_model(
+        architecture=architecture,
+        base_channels=16,
+        transformer_depth=2,
+        transformer_num_heads=4,
+        transformer_mlp_ratio=2.0,
+        transformer_dropout=0.0,
+        segformer_patch_size=4,
+        pretrained_bundle=None,
+        pretrained_strict=False,
+        pretrained_ignore_mismatched_sizes=True,
+    )
+    torch.save({"model_state_dict": model.state_dict()}, weights_path)
+
+    registry = bundle_root / "registry.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "schema_version": "microseg.pretrained_weights_registry.v1",
+                "models": [
+                    {
+                        "model_id": model_id,
+                        "architecture": architecture,
+                        "framework": "torch",
+                        "source": "toy",
+                        "source_revision": "r1",
+                        "bundle_dir": model_id,
+                        "weights_path": "weights.pt",
+                        "weights_format": "torch_state_dict",
+                        "metadata_path": "",
+                        "files": [],
+                    }
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    result = UNetBinaryTrainer().train(
+        UNetBinaryTrainingConfig(
+            dataset_dir=str(ds),
+            output_dir=str(out),
+            epochs=1,
+            batch_size=1,
+            learning_rate=1e-3,
+            seed=22,
+            enable_gpu=False,
+            device_policy="cpu",
+            early_stopping_patience=1,
+            checkpoint_every=1,
+            model_architecture=architecture,
+            backend_label=f"{architecture}_local",
+            pretrained_init_mode="local",
+            pretrained_model_id=model_id,
+            pretrained_registry_path=str(registry),
+            pretrained_verify_sha256=False,
+        )
+    )
+    assert result["model_initialization"] == "local_pretrained"
+    assert str(result.get("pretrained_init", {}).get("model_id", "")) == model_id

@@ -75,6 +75,8 @@ pre_trained_weights/**
 !pre_trained_weights/.gitkeep
 !pre_trained_weights/README.md
 !pre_trained_weights/registry.template.json
+!pre_trained_weights/metadata/
+!pre_trained_weights/metadata/*.json
 
 # Local development
 .env.local

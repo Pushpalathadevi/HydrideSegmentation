@@ -1,0 +1,34 @@
+# Copy this file and edit only the marked fields for a real-data run.
+# Produces one combined dashboard containing both scratch and local-pretrained runs.
+
+dataset_dir: /path/to/real_dataset_root
+output_root: /path/to/hpc_outputs/top5_suite_scratch_vs_pretrained
+eval_config: configs/hydride/evaluate.hydride.yml
+eval_split: test
+python_executable: python
+
+# Start with one seed for first HPC validation run; expand to [42, 43, 44] for full study.
+seeds: [42]
+benchmark_mode: false
+
+experiments:
+  - name: unet_binary_scratch
+    train_config: configs/hydride/train.unet_binary.baseline.yml
+  - name: hf_segformer_b0_scratch
+    train_config: configs/hydride/train.hf_segformer_b0_scratch.yml
+  - name: hf_segformer_b2_scratch
+    train_config: configs/hydride/train.hf_segformer_b2_scratch.yml
+  - name: transunet_tiny_scratch
+    train_config: configs/hydride/train.transunet_tiny.yml
+  - name: segformer_mini_scratch
+    train_config: configs/hydride/train.segformer_mini.yml
+  - name: unet_binary_local_pretrained
+    train_config: configs/hydride/train.unet_binary_local_pretrained.yml
+  - name: hf_segformer_b0_local_pretrained
+    train_config: configs/hydride/train.hf_segformer_b0_local_pretrained.yml
+  - name: hf_segformer_b2_local_pretrained
+    train_config: configs/hydride/train.hf_segformer_b2_local_pretrained.yml
+  - name: transunet_tiny_local_pretrained
+    train_config: configs/hydride/train.transunet_tiny_local_pretrained.yml
+  - name: segformer_mini_local_pretrained
+    train_config: configs/hydride/train.segformer_mini_local_pretrained.yml

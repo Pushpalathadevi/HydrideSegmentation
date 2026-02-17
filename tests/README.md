@@ -30,7 +30,7 @@ Current phase coverage includes:
 - `test_phase19_hf_transformer_backends.py` Hugging Face SegFormer transformer backend smoke training/evaluation from scratch (no pretrained weights)
 - `test_phase20_benchmark_suite_script.py` hydride benchmark suite single-script dry-run orchestration + summary artifact generation
 - `test_phase21_benchmark_dashboard_enrichment.py` benchmark dashboard enrichment with training curves, training-history metrics, and aggregate comparison fields
-- `test_phase22_pretrained_offline.py` offline local pretrained registry validation, checksum verification, and local-bundle initialization smoke tests for `hf_segformer_b0` and `smp_unet_resnet18`
+- `test_phase22_pretrained_offline.py` offline local pretrained registry validation, checksum verification, and local-bundle initialization smoke tests for `unet_binary`, `smp_unet_resnet18`, `hf_segformer_b0`, `transunet_tiny`, and `segformer_mini`
 
 - `test_mask_binary_normalization.py` binary-mask auto-normalization option (`two_value_zero_background`) for 2-value indexed masks
 - `test_service.py` legacy Flask service request validation for model selection, parameter parsing, and response behavior

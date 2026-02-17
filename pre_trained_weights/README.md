@@ -4,10 +4,13 @@ This folder is reserved for local transfer-learning bundles copied into offline 
 
 - Use `python scripts/download_pretrained_weights.py` on a connected machine.
 - Default `--targets=all` stages all currently supported local-pretrained bundles:
+  - `unet_binary_resnet18_imagenet_partial`
   - `hf_segformer_b0_ade20k`
   - `hf_segformer_b2_ade20k`
   - `hf_segformer_b5_ade20k`
   - `smp_unet_resnet18_imagenet`
+  - `transunet_tiny_vit_tiny_patch16_imagenet`
+  - `segformer_mini_vit_tiny_patch16_imagenet`
 - Copy the whole `pre_trained_weights/` folder to air-gapped systems.
 - Validate before training:
   - `microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict`
@@ -18,7 +21,8 @@ Registry metadata standards:
 - `license`
 - `citation_key` + `citation` (+ optional `citation_url`)
 - `files` checksums for integrity verification
+- curated tracked metadata records live under `pre_trained_weights/metadata/*.meta.json`
 
 Git policy:
 - Binary model artifacts and downloaded model directories in this folder are ignored by git.
-- Keep only lightweight templates/docs tracked in git.
+- Keep only lightweight templates/docs/metadata tracked in git.

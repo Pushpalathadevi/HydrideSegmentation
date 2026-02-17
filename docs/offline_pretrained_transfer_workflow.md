@@ -6,11 +6,14 @@ Enable transfer learning on air-gapped systems using locally staged pretrained b
 
 This workflow supports the following local-pretrained backends:
 - U-Net:
+  - `unet_binary` (local torch state dict bootstrap bundle)
   - `smp_unet_resnet18` (local pretrained state dict)
 - Transformers:
   - `hf_segformer_b0` (local Hugging Face model directory)
   - `hf_segformer_b2` (local Hugging Face model directory)
   - `hf_segformer_b5` (local Hugging Face model directory)
+  - `transunet_tiny` (local torch state dict bootstrap bundle)
+  - `segformer_mini` (local torch state dict bootstrap bundle)
 
 ## Storage Contract
 
@@ -27,6 +30,8 @@ Each model bundle contains:
 - `metadata.json` with source/revision/framework details
 - model artifacts (ignored by git)
 - `SHA256SUMS.json` with file checksums
+- tracked metadata companion files for reporting:
+  - `pre_trained_weights/metadata/*.meta.json`
 
 Validation command:
 ```bash
@@ -54,10 +59,13 @@ python scripts/download_pretrained_weights.py --targets all --force
 ```
 
 This materializes:
+- `pre_trained_weights/unet_binary_resnet18_imagenet_partial/`
 - `pre_trained_weights/hf_segformer_b0_ade20k/`
 - `pre_trained_weights/hf_segformer_b2_ade20k/`
 - `pre_trained_weights/hf_segformer_b5_ade20k/`
 - `pre_trained_weights/smp_unet_resnet18_imagenet/`
+- `pre_trained_weights/transunet_tiny_vit_tiny_patch16_imagenet/`
+- `pre_trained_weights/segformer_mini_vit_tiny_patch16_imagenet/`
 - `pre_trained_weights/registry.json`
 
 3. Validate staged artifacts:
@@ -74,10 +82,13 @@ microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.js
 ```
 3. Run training with local-pretrained initialization:
 ```bash
+microseg-cli train --config configs/hydride/train.unet_binary_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.smp_unet_resnet18_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b0_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b2_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b5_local_pretrained.debug.yml
+microseg-cli train --config configs/hydride/train.transunet_tiny_local_pretrained.debug.yml
+microseg-cli train --config configs/hydride/train.segformer_mini_local_pretrained.debug.yml
 ```
 
 ## Debug End-To-End Integrity Run
@@ -87,20 +98,33 @@ Build tiny split dataset by duplicating one repository test image:
 python scripts/build_debug_duplicate_dataset.py \
   --image-path test_data/syntheticHydrides.png \
   --output-dir outputs/debug_pretrained_dataset \
+  --resize-width 64 \
+  --resize-height 64 \
   --train-count 4 \
   --val-count 2
 ```
 
 Train local-pretrained debug configs:
 ```bash
+microseg-cli train --config configs/hydride/train.unet_binary_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.smp_unet_resnet18_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b0_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b2_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b5_local_pretrained.debug.yml
+microseg-cli train --config configs/hydride/train.transunet_tiny_local_pretrained.debug.yml
+microseg-cli train --config configs/hydride/train.segformer_mini_local_pretrained.debug.yml
 ```
 
 Evaluate each run:
 ```bash
+microseg-cli evaluate \
+  --config configs/evaluate.default.yml \
+  --dataset-dir outputs/debug_pretrained_dataset \
+  --model-path outputs/debug_runs/unet_binary_local/best_checkpoint.pt \
+  --split val \
+  --output-path outputs/debug_runs/unet_binary_local/eval_val.json \
+  --no-auto-prepare-dataset
+
 microseg-cli evaluate \
   --config configs/evaluate.default.yml \
   --dataset-dir outputs/debug_pretrained_dataset \
@@ -132,6 +156,29 @@ microseg-cli evaluate \
   --split val \
   --output-path outputs/debug_runs/hf_segformer_b5_local/eval_val.json \
   --no-auto-prepare-dataset
+
+microseg-cli evaluate \
+  --config configs/evaluate.default.yml \
+  --dataset-dir outputs/debug_pretrained_dataset \
+  --model-path outputs/debug_runs/transunet_tiny_local/best_checkpoint.pt \
+  --split val \
+  --output-path outputs/debug_runs/transunet_tiny_local/eval_val.json \
+  --no-auto-prepare-dataset
+
+microseg-cli evaluate \
+  --config configs/evaluate.default.yml \
+  --dataset-dir outputs/debug_pretrained_dataset \
+  --model-path outputs/debug_runs/segformer_mini_local/best_checkpoint.pt \
+  --split val \
+  --output-path outputs/debug_runs/segformer_mini_local/eval_val.json \
+  --no-auto-prepare-dataset
+```
+
+Single-command local-pretrained top-5 debug dashboard:
+```bash
+python scripts/hydride_benchmark_suite.py \
+  --config configs/hydride/benchmark_suite.top5_local_pretrained.debug.yml \
+  --strict
 ```
 
 ## Low-Friction HPC Sweep (Air-Gapped)
@@ -139,9 +186,9 @@ microseg-cli evaluate \
 Use the dedicated config with backend-to-model mapping pre-filled:
 ```bash
 microseg-cli hpc-ga-generate \
-  --config configs/hpc_ga.airgap_pretrained.default.yml \
+  --config configs/hpc_ga.top5_airgap_pretrained.default.yml \
   --dataset-dir outputs/prepared_dataset \
-  --output-dir outputs/hpc_ga_bundle_airgap_pretrained
+  --output-dir outputs/hpc_ga_bundle_top5_airgap_pretrained
 ```
 
 Pretrained modes:
@@ -163,6 +210,11 @@ Generated HPC job scripts now set:
 - `pretrained_strict`: strict state-dict loading for torch checkpoints
 - `pretrained_ignore_mismatched_sizes`: HF load option (classifier-head mismatch handling)
 - `pretrained_verify_sha256`: validate checksums before training startup
+
+Bootstrap note for internal models:
+- `unet_binary` pretrained bundle is a partial warm-start mapping from ResNet18 features.
+- `transunet_tiny` and `segformer_mini` pretrained bundles are partial warm-start mappings from ViT-tiny checkpoints.
+- Metadata includes mapped/unmapped components; see `pre_trained_weights/metadata/*.meta.json`.
 
 HPC GA config keys for low-friction air-gap runs:
 - `pretrained_init_mode`: `scratch`, `auto`, or `local`

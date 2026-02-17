@@ -33,7 +33,7 @@ See `docs/mission_statement.md`.
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
 - GPU-compatible training/inference/evaluation with CPU default + safe fallback
 - UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5`, `smp_unet_resnet18`, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
-- Air-gapped local transfer-learning support via `pre_trained_weights/` registry + bundle validation (`smp_unet_resnet18`, `hf_segformer_b0/b2/b5`)
+- Air-gapped local transfer-learning support via `pre_trained_weights/` registry + bundle validation (`unet_binary`, `smp_unet_resnet18`, `hf_segformer_b0/b2/b5`, `transunet_tiny`, `segformer_mini`)
 - JSON + HTML run reports for training and evaluation
 - Frozen checkpoint metadata registry for model selection guidance
 
@@ -187,6 +187,22 @@ microseg-cli hpc-ga-generate \
   --output-dir outputs/hpc_ga_bundle_airgap_pretrained
 ```
 
+Top-5 scratch HPC sweep profile:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.top5_scratch.default.yml \
+  --dataset-dir outputs/prepared_dataset_hydride_v1 \
+  --output-dir outputs/hpc_ga_bundle_top5_scratch
+```
+
+Top-5 local-pretrained HPC sweep profile:
+```bash
+microseg-cli hpc-ga-generate \
+  --config configs/hpc_ga.top5_airgap_pretrained.default.yml \
+  --dataset-dir outputs/prepared_dataset_hydride_v1 \
+  --output-dir outputs/hpc_ga_bundle_top5_airgap_pretrained
+```
+
 HPC GA feedback summary report:
 ```bash
 microseg-cli hpc-ga-feedback-report \
@@ -200,7 +216,7 @@ Single-script top-5 hydride benchmark run + dashboard:
 python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_suite.top5.yml --strict
 ```
 - Benchmark mode now supports hard-fail dataset freeze checks (`expected_dataset_manifest_sha256`, `expected_split_id_file`).
-- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch), model size, parameter count, runtime effort metrics, and evaluation scientific metrics.
+- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch), tracked validation sample panels/IoU summaries, model size, parameter count, runtime effort metrics, and evaluation scientific metrics.
 
 ## Beginner End-To-End Workflow
 
@@ -246,6 +262,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Phase 19 SOTA HF transformer integration status: `docs/phase19_hf_sota_transformers.md`
 - Phase 20 benchmark suite orchestration status: `docs/phase20_benchmark_suite_orchestration.md`
 - Offline pretrained transfer workflow: `docs/offline_pretrained_transfer_workflow.md`
+- Single-file HPC real-data runbook (scratch + local-pretrained + dashboard): `docs/hpc_airgap_top5_realdata_runbook.md`
 - Pretrained model catalog + citations: `docs/pretrained_model_catalog.md`
 - Pretrained citation BibTeX: `docs/pretrained_model_citations.bib`
 - Configuration workflow: `docs/configuration_workflow.md`

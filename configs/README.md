@@ -25,3 +25,5 @@ Additional workflow config:
   - includes feedback-hybrid planning controls and metric/runtime fitness weights
 - `hpc_ga.airgap_pretrained.default.yml` for low-friction air-gapped HPC sweeps
   - enables `pretrained_init_mode=auto` with backend-to-model mapping from `pre_trained_weights/registry.json`
+- `hpc_ga.top5_scratch.default.yml` for the canonical top-5 scratch-only hydride sweep
+- `hpc_ga.top5_airgap_pretrained.default.yml` for the canonical top-5 air-gapped local-pretrained sweep

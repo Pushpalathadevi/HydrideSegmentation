@@ -235,6 +235,8 @@ def _validate_config(cfg: HpcGaPlanConfig) -> None:
 
 def _architecture_supports_pretrained(architecture: str) -> bool:
     arch = str(architecture).strip().lower()
+    if arch in {"unet_binary", "transunet_tiny", "segformer_mini"}:
+        return True
     return arch.startswith("hf_segformer_") or arch.startswith("smp_unet_")
 
 
