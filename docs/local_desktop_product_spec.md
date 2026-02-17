@@ -50,9 +50,10 @@ A local installable desktop application for microstructural segmentation workflo
 - GPU-compatible runtime for train/infer/eval with explicit enable switch and fallback
 - Offline usability
 - Reproducible outputs
+- Metadata-first checkpoint lifecycle (`smoke`, `candidate`, `promoted`) with binaries local by default
 - Cross-platform packaging target (macOS, Linux, Windows)
 
-## Current Implementation Snapshot (Phase 12)
+## Current Implementation Snapshot (Phase 15)
 
 Implemented now:
 - Registry-backed model selector in GUI
@@ -73,12 +74,15 @@ Implemented now:
 - Validation sample tracking controls for training (fixed + random)
 - Training/evaluation JSON + HTML report generation
 - Dynamic model help from frozen checkpoint metadata registry
+- Tiny smoke-checkpoint generator for fast model-path sanity checks on fresh systems
 - Phase-gate closeout automation for test pass + stocktake + docs synchronization
 - Leakage-aware correction split planner and packaged dataset QA checks
 - Deterministic unsplit source/masks to train/val/test preparation with ID-mapped filenames
 - Workflow Hub Dataset Prep + QA tab with searchable preview table and class histogram summary
 - Optional training preflight gate to block launches when dataset QA fails
 - YAML workflow profile save/load for dataset-prepare, training, and evaluation panes
+- Run Review tab for loading and comparing training/evaluation reports with metric deltas
+- HPC GA Planner tab for generating scheduler-ready multi-candidate experiment bundles
 
 Pending:
 - Advanced correction ergonomics (shape libraries, smarter snapping, uncertainty-driven guidance)

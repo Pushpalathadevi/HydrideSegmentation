@@ -13,5 +13,6 @@ PySide6
 torch
 segmentation-models-pytorch
 Flask
+pydantic
 pytest
 PyYAML

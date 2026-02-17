@@ -66,6 +66,9 @@ frozen_checkpoints/**/*.pt
 frozen_checkpoints/**/*.pth
 frozen_checkpoints/**/*.ckpt
 frozen_checkpoints/**/*.onnx
+frozen_checkpoints/smoke/*.meta.json
+# Keep lifecycle folders tracked, but never track checkpoint binaries by default.
+!frozen_checkpoints/**/.gitkeep
 
 # Local development
 .env.local

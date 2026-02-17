@@ -81,3 +81,41 @@ def test_phase5_torch_train_and_eval_with_gpu_enabled_falls_back_on_cpu(tmp_path
     assert payload["backend"] == "torch_pixel"
     assert payload["runtime_device"] in {"cpu", "cuda", "mps"}
     assert payload["metrics"]["pixel_accuracy"] >= 0.6
+
+
+def test_phase5_evaluate_accepts_pth_suffix_for_torch_checkpoints(tmp_path: Path) -> None:
+    ds = _build_dataset(tmp_path)
+    out = tmp_path / "training"
+
+    trained = TorchPixelClassifierTrainer().train(
+        TorchPixelTrainingConfig(
+            dataset_dir=str(ds),
+            output_dir=str(out),
+            train_split="train",
+            max_samples=800,
+            epochs=2,
+            batch_size=256,
+            learning_rate=0.03,
+            seed=11,
+            enable_gpu=False,
+            device_policy="cpu",
+        )
+    )
+
+    model_pt = Path(trained["model_path"])
+    model_pth = model_pt.with_suffix(".pth")
+    model_pth.write_bytes(model_pt.read_bytes())
+
+    report_path = tmp_path / "eval_pth" / "report.json"
+    payload = PixelModelEvaluator().evaluate(
+        PixelEvaluationConfig(
+            dataset_dir=str(ds),
+            model_path=str(model_pth),
+            split="val",
+            output_path=str(report_path),
+            enable_gpu=False,
+            device_policy="cpu",
+        )
+    )
+    assert report_path.exists()
+    assert payload["backend"] == "torch_pixel"

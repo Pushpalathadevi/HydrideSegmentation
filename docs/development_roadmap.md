@@ -272,3 +272,87 @@ Status:
 
 Exit criteria:
 - users can preview, prepare, QA-check, and gate training from GUI without ad hoc CLI steps
+
+## Phase 13 - Run Review And E2E QA Hardening (Implemented)
+
+Goals:
+- Add GUI-native training/evaluation report review and comparison.
+- Strengthen testable backend support for report analytics and workflow profile persistence.
+- Increase automated coverage for high-value post-run inspection workflows.
+
+Deliverables:
+- Run Review tab in `hydride_segmentation/qt/main_window.py`
+- report summary/compare module: `src/microseg/app/report_review.py`
+- workflow profile module: `src/microseg/app/workflow_profiles.py`
+- tests: `tests/test_phase13_report_review.py`
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- report review/comparison and profile roundtrip workflows are code-complete, documented, and test-covered
+
+## Phase 14 - Checkpoint Lifecycle And Smoke Artifact Baseline (Implemented)
+
+Goals:
+- Enable tiny deterministic checkpoint generation for quick pipeline debugging on clean machines.
+- Formalize checkpoint lifecycle folders without committing heavy binaries.
+- Improve ML checkpoint path resolution through metadata hints.
+
+Deliverables:
+- smoke checkpoint generator: `scripts/generate_smoke_checkpoint.py`
+- lifecycle folders: `frozen_checkpoints/smoke`, `frozen_checkpoints/candidates`, `frozen_checkpoints/promoted`
+- registry metadata extension with optional lifecycle/provenance fields
+- evaluator support for `.pt`/`.pth`/`.ckpt` torch checkpoint suffixes
+- hydride ML predictor auto-resolution of weights via `checkpoint_path_hint` when local file exists
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- local smoke checkpoint can be generated and loaded by evaluation pipeline
+- frozen checkpoint registry validates with lifecycle metadata fields
+- docs and workflow guidance reflect metadata-first, binary-outside-git policy
+
+## Phase 15 - GA HPC Orchestration Bundle (Implemented)
+
+Goals:
+- Provide GUI/CLI-driven generation of HPC job bundles for multi-candidate model sweeps.
+- Support architecture/hyperparameter comparisons with deterministic GA-based candidate synthesis.
+- Produce one launcher script to submit all jobs on Slurm/PBS/local environments.
+
+Deliverables:
+- planner + bundle module: `src/microseg/app/hpc_ga.py`
+- CLI command: `microseg-cli hpc-ga-generate`
+- GUI Workflow Hub tab: `HPC GA Planner`
+- config template: `configs/hpc_ga.default.yml`
+- user/dev docs for end-to-end HPC bundle workflow
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- users can generate and inspect scheduler-ready bundle from GUI and CLI
+- profile save/load supports `hpc_ga` scope
+- tests and docs updated in the same phase change
+
+## Phase 16 - Repository Health Hardening Pass (Implemented)
+
+Goals:
+- Run end-to-end health audit over code, tests, and documentation policy.
+- Resolve concrete deprecation and dependency risks.
+- Publish explicit audit findings and remaining strategic gaps.
+
+Deliverables:
+- full test + strict phase-gate validation pass
+- API validator modernization (`@field_validator`) and deprecated `imghdr` replacement
+- dependency alignment (`pydantic` in `requirements.txt`)
+- audit report doc: `docs/repo_health_audit.md`
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- no failing tests
+- no known deprecation warnings from repository test run
+- audit findings documented with clear next hardening step

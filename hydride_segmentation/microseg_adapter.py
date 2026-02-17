@@ -44,6 +44,9 @@ def get_gui_model_specs() -> list[dict[str, str]]:
             "application_remarks": frozen[spec.model_id].application_remarks if spec.model_id in frozen else "",
             "short_description": frozen[spec.model_id].short_description if spec.model_id in frozen else "",
             "detailed_description": frozen[spec.model_id].detailed_description if spec.model_id in frozen else "",
+            "artifact_stage": frozen[spec.model_id].artifact_stage if spec.model_id in frozen else "",
+            "source_run_manifest": frozen[spec.model_id].source_run_manifest if spec.model_id in frozen else "",
+            "quality_report_path": frozen[spec.model_id].quality_report_path if spec.model_id in frozen else "",
         }
         for spec in specs
     ]

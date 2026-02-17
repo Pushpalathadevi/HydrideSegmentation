@@ -19,5 +19,8 @@ Current scripts:
   - `dataset-prepare` uses leakage-aware auto-split by default and optionally supports RGB mask conversion via configurable colormap.
   - `dataset-qa` runs packaged dataset quality checks.
   - `phase-gate` command runs mandatory end-of-phase checks and writes closeout artifacts.
+  - `hpc-ga-generate` creates GA-planned Slurm/PBS/local script bundles for multi-candidate GPU HPC sweeps.
 - `run_phase_gate.py` standalone wrapper for phase closeout checks/stocktake reporting.
   - installed console entry point: `microseg-phase-gate`
+- `generate_smoke_checkpoint.py` creates deterministic tiny random-weight `.pth` checkpoints for
+  smoke-testing model loading/evaluation paths without large binary artifacts.

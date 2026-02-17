@@ -23,7 +23,13 @@ Core planning and governance docs:
 - Phase 10 training dataset auto-prepare status: `phase10_training_dataset_autoprepare.md`
 - Phase 11 dataset policy alignment status: `phase11_dataset_policy_alignment.md`
 - Phase 12 GUI dataset workspace status: `phase12_gui_dataset_workspace.md`
+- Phase 13 run review and e2e QA status: `phase13_run_review_and_e2e_qa.md`
+- Phase 14 checkpoint lifecycle and smoke artifact status: `phase14_checkpoint_lifecycle_and_smoke.md`
+- Phase 15 GA-based HPC orchestration status: `phase15_hpc_ga_hpc_bundle.md`
+- Repository health audit: `repo_health_audit.md`
 - Frozen checkpoint registry guide: `frozen_checkpoint_registry.md`
+- HPC GA user guide: `hpc_ga_user_guide.md`
+- HPC GA developer guide: `hpc_ga_developer_guide.md`
 - Training data requirements: `training_data_requirements.md`
 - GUI usage guide: `gui_user_guide.md`
 - Configuration workflow: `configuration_workflow.md`

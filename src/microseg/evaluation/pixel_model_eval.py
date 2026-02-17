@@ -190,7 +190,7 @@ class PixelModelEvaluator:
         samples_dir.mkdir(parents=True, exist_ok=True)
 
         model_path = Path(config.model_path)
-        if model_path.suffix == ".pt":
+        if model_path.suffix.lower() in {".pt", ".pth", ".ckpt"}:
             import torch
 
             ckpt = torch.load(model_path, map_location="cpu")

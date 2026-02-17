@@ -26,6 +26,7 @@ The repository must evolve toward:
 In-scope (current):
 - Local desktop GUI and local CLI workflows
 - Inference, correction, export, packaging, training, and evaluation orchestration
+- HPC script-bundle generation for offloaded GPU training/evaluation runs
 - Config-driven execution (`.yml` + `--set` overrides)
 - Session/project save and resume
 - Frozen-checkpoint metadata registry for dynamic user guidance
@@ -93,6 +94,10 @@ Each entry must include:
 - application suitability remarks
 
 Binary weights (`.pt`, `.pth`, `.ckpt`, `.onnx`) are not tracked in git.
+Model lifecycle folders must be used consistently:
+- `frozen_checkpoints/smoke` for tiny debug-only checkpoints
+- `frozen_checkpoints/candidates` for non-approved evaluation checkpoints
+- `frozen_checkpoints/promoted` for approved deployment checkpoints
 
 ## 7. Annotation And Correction Standards
 

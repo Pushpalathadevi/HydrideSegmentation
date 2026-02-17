@@ -25,20 +25,31 @@ Recommended additional fields:
 - `short_description`
 - `detailed_description`
 - `classes` (index/name/color)
+- `artifact_stage` (`smoke`, `candidate`, `promoted`, `builtin`, `deprecated`)
+- `source_run_manifest` (repo-relative path when applicable)
+- `quality_report_path` (repo-relative path when applicable)
+- `file_sha256`
+- `file_size_bytes`
 
 ## Typical Update Flow
 
-1. Add local checkpoint file outside git tracking.
-2. Update `frozen_checkpoints/model_registry.json`.
-3. Verify with:
+1. For smoke tests, generate a tiny deterministic local checkpoint:
+```bash
+python scripts/generate_smoke_checkpoint.py --force
+```
+2. Add or update local checkpoint file under lifecycle folders (`frozen_checkpoints/smoke`, `frozen_checkpoints/candidates`, `frozen_checkpoints/promoted`), outside git tracking.
+3. Update `frozen_checkpoints/model_registry.json`.
+4. Verify with:
 ```bash
 microseg-cli models --details
+microseg-cli validate-registry --config configs/registry_validation.default.yml --strict
 ```
-4. Open GUI and confirm model help text updates.
+5. Open GUI and confirm model help text updates.
 
 ## Design Rules
 
 - Do not hardcode absolute local filesystem paths.
 - Keep `checkpoint_path_hint` repository-relative.
+- Keep `source_run_manifest` and `quality_report_path` repository-relative when provided.
 - Keep descriptions concise, user-oriented, and scientifically specific.
 - Keep metadata stable and versioned for reproducibility.

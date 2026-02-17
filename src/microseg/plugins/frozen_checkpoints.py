@@ -26,6 +26,11 @@ class FrozenCheckpointRecord:
     short_description: str = ""
     detailed_description: str = ""
     classes: tuple[dict[str, Any], ...] = ()
+    artifact_stage: str = ""
+    source_run_manifest: str = ""
+    quality_report_path: str = ""
+    file_sha256: str = ""
+    file_size_bytes: int | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> FrozenCheckpointRecord:
@@ -50,6 +55,8 @@ class FrozenCheckpointRecord:
         if not isinstance(classes, list):
             raise ValueError("classes must be a list of objects")
         cls_payload["classes"] = tuple(dict(item) for item in classes)
+        if "file_size_bytes" in cls_payload and cls_payload["file_size_bytes"] not in (None, ""):
+            cls_payload["file_size_bytes"] = int(cls_payload["file_size_bytes"])
         return cls(**cls_payload)
 
 

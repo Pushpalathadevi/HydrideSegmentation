@@ -1,6 +1,6 @@
 # HydrideSegmentation -> MicroSeg Platform (Transition)
 
-Current release version: `0.15.0`
+Current release version: `0.17.0`
 
 This repository is transitioning from a hydride-specific toolkit into a general local platform for microstructural segmentation.
 Hydride segmentation is the first validated workflow.
@@ -26,6 +26,8 @@ See `docs/mission_statement.md`.
   - split-view synchronized zoom/pan and layer transparency
   - project/session save-load
   - Dataset Prep + QA workspace (preview, prepare, QA, training gate)
+  - Run Review workspace for report summary + metric-delta comparison
+  - HPC GA Planner for scheduler-ready multi-candidate bundle generation
 - Correction export schema `microseg.correction.v1`
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
@@ -130,11 +132,35 @@ Phase closeout gate:
 microseg-cli phase-gate --phase-label "Phase N" --strict
 ```
 
+HPC GA bundle generation:
+```bash
+microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
+```
+
+## Beginner End-To-End Workflow
+
+1. Prepare data:
+- Start with `docs/training_data_requirements.md`.
+- Use GUI `Dataset Prep + QA` tab or CLI `dataset-prepare` / `dataset-qa`.
+2. Run baseline inference:
+- GUI `Input` + `Run Segmentation` or CLI `microseg-cli infer`.
+3. Correct masks:
+- Use GUI correction tools and export corrected samples.
+4. Train and evaluate:
+- Use GUI `Training` + `Evaluation` tabs or CLI `train` + `evaluate`.
+5. Compare runs:
+- Use GUI `Run Review` tab for metric deltas.
+6. Scale on HPC:
+- Use GUI `HPC GA Planner` or CLI `hpc-ga-generate`.
+- Upload bundle and run `submit_all.sh` on scheduler environment.
+
 ## Frozen Checkpoints
 
 - Metadata registry: `frozen_checkpoints/model_registry.json`
 - Guidance: `docs/frozen_checkpoint_registry.md`
 - Binary weights are intentionally excluded from git tracking.
+- Tiny smoke-checkpoint generator: `python scripts/generate_smoke_checkpoint.py --force`
+- Lifecycle folders: `frozen_checkpoints/smoke`, `frozen_checkpoints/candidates`, `frozen_checkpoints/promoted`
 
 ## Documentation
 
@@ -143,8 +169,11 @@ microseg-cli phase-gate --phase-label "Phase N" --strict
 - Phase roadmap: `docs/development_roadmap.md`
 - Foundation strategy: `docs/foundation_strategy.md`
 - Current gap analysis: `docs/current_state_gap_analysis.md`
+- Repository health audit: `docs/repo_health_audit.md`
 - Training data requirements: `docs/training_data_requirements.md`
 - GUI user guide: `docs/gui_user_guide.md`
+- HPC GA user guide: `docs/hpc_ga_user_guide.md`
+- HPC GA developer guide: `docs/hpc_ga_developer_guide.md`
 - Configuration workflow: `docs/configuration_workflow.md`
 - Development workflow + phase closeout gate: `docs/development_workflow.md`
 - Developer guide: `developer_guide.md`

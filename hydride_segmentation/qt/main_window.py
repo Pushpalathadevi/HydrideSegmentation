@@ -42,7 +42,15 @@ from PySide6.QtWidgets import (
 )
 
 from hydride_segmentation.version import __version__
-from src.microseg.app import OrchestrationCommandBuilder, ProjectSaveRequest, ProjectStateStore
+from src.microseg.app import (
+    OrchestrationCommandBuilder,
+    ProjectSaveRequest,
+    ProjectStateStore,
+    compare_run_reports,
+    read_workflow_profile,
+    summarize_run_report,
+    write_workflow_profile,
+)
 from src.microseg.app.desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
 from src.microseg.corrections import (
     DEFAULT_CLASS_MAP,
@@ -376,6 +384,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self._dataset_preview_split_counts: dict[str, int] = {}
         self._last_dataset_qa_ok: bool | None = None
         self._last_dataset_qa_dir: str = ""
+        self._review_summary_a = None
+        self._review_summary_b = None
         self.state = _UiState()
         self._model_specs = {spec["display_name"]: spec for spec in self.workflow.model_specs()}
 
@@ -957,9 +967,220 @@ class QtSegmentationMainWindow(QMainWindow):
         prep_root.addWidget(self.dataset_preview_table, stretch=1)
         self.workflow_tabs.addTab(prep_tab, "Dataset Prep + QA")
 
+        review_tab = QWidget()
+        review_root = QVBoxLayout(review_tab)
+        review_form = QFormLayout()
+        self.review_report_a_edit = QLineEdit("outputs/training/report.json")
+        self.review_report_b_edit = QLineEdit("outputs/evaluation/pixel_eval_report.json")
+        pick_a_row = QWidget()
+        pick_a_layout = QHBoxLayout(pick_a_row)
+        pick_a_layout.setContentsMargins(0, 0, 0, 0)
+        pick_a_layout.addWidget(self.review_report_a_edit)
+        self.btn_review_pick_a = QPushButton("Browse")
+        self.btn_review_pick_a.clicked.connect(self.on_pick_review_report_a)
+        pick_a_layout.addWidget(self.btn_review_pick_a)
+        pick_b_row = QWidget()
+        pick_b_layout = QHBoxLayout(pick_b_row)
+        pick_b_layout.setContentsMargins(0, 0, 0, 0)
+        pick_b_layout.addWidget(self.review_report_b_edit)
+        self.btn_review_pick_b = QPushButton("Browse")
+        self.btn_review_pick_b.clicked.connect(self.on_pick_review_report_b)
+        pick_b_layout.addWidget(self.btn_review_pick_b)
+        review_form.addRow("Baseline Report", pick_a_row)
+        review_form.addRow("Candidate Report", pick_b_row)
+        review_root.addLayout(review_form)
+
+        review_actions = QHBoxLayout()
+        self.btn_review_load_a = QPushButton("Load Baseline Summary")
+        self.btn_review_load_a.clicked.connect(self.on_load_review_report_a)
+        self.btn_review_load_b = QPushButton("Load Candidate Summary")
+        self.btn_review_load_b.clicked.connect(self.on_load_review_report_b)
+        self.btn_review_compare = QPushButton("Compare Reports")
+        self.btn_review_compare.clicked.connect(self.on_compare_review_reports)
+        review_actions.addWidget(self.btn_review_load_a)
+        review_actions.addWidget(self.btn_review_load_b)
+        review_actions.addWidget(self.btn_review_compare)
+        review_actions.addStretch(1)
+        review_root.addLayout(review_actions)
+
+        self.review_compare_meta = QLabel("Comparison: not computed")
+        review_root.addWidget(self.review_compare_meta)
+
+        review_split = QSplitter(Qt.Horizontal)
+        self.review_summary_a_text = QPlainTextEdit()
+        self.review_summary_a_text.setReadOnly(True)
+        self.review_summary_b_text = QPlainTextEdit()
+        self.review_summary_b_text.setReadOnly(True)
+        review_split.addWidget(self.review_summary_a_text)
+        review_split.addWidget(self.review_summary_b_text)
+        review_split.setSizes([800, 800])
+        review_root.addWidget(review_split, stretch=1)
+
+        self.review_compare_table = QTableWidget(0, 5)
+        self.review_compare_table.setHorizontalHeaderLabels(["Metric", "Baseline", "Candidate", "Delta", "Delta %"])
+        self.review_compare_table.horizontalHeader().setStretchLastSection(True)
+        self.review_compare_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.review_compare_table.setAlternatingRowColors(True)
+        review_root.addWidget(self.review_compare_table, stretch=1)
+        self.workflow_tabs.addTab(review_tab, "Run Review")
+
+        hpc_tab = QWidget()
+        self.workflow_hpc_tab = hpc_tab
+        hpc_root = QVBoxLayout(hpc_tab)
+        hpc_form = QFormLayout()
+        self.orch_hpc_config_edit = QLineEdit("configs/hpc_ga.default.yml")
+        self.orch_hpc_set_edit = QLineEdit()
+        self.orch_hpc_set_edit.setPlaceholderText("key=value,key2=value2")
+        self.orch_hpc_dataset_edit = QLineEdit("outputs/prepared_dataset")
+        self.orch_hpc_output_edit = QLineEdit("outputs/hpc_ga_bundle")
+        self.orch_hpc_experiment_name = QLineEdit("microseg_hpc_ga_sweep")
+        self.orch_hpc_scheduler_combo = QComboBox()
+        self.orch_hpc_scheduler_combo.addItems(["slurm", "pbs", "local"])
+        self.orch_hpc_scheduler_combo.setCurrentText("slurm")
+        self.orch_hpc_run_mode_combo = QComboBox()
+        self.orch_hpc_run_mode_combo.addItems(["train_eval", "train_only"])
+        self.orch_hpc_run_mode_combo.setCurrentText("train_eval")
+        self.orch_hpc_architectures_edit = QLineEdit("unet_binary,torch_pixel")
+        self.orch_hpc_num_candidates = QSpinBox()
+        self.orch_hpc_num_candidates.setRange(1, 128)
+        self.orch_hpc_num_candidates.setValue(8)
+        self.orch_hpc_population = QSpinBox()
+        self.orch_hpc_population.setRange(2, 512)
+        self.orch_hpc_population.setValue(24)
+        self.orch_hpc_generations = QSpinBox()
+        self.orch_hpc_generations.setRange(1, 100)
+        self.orch_hpc_generations.setValue(8)
+        self.orch_hpc_mutation = QDoubleSpinBox()
+        self.orch_hpc_mutation.setRange(0.0, 1.0)
+        self.orch_hpc_mutation.setDecimals(3)
+        self.orch_hpc_mutation.setValue(0.2)
+        self.orch_hpc_crossover = QDoubleSpinBox()
+        self.orch_hpc_crossover.setRange(0.0, 1.0)
+        self.orch_hpc_crossover.setDecimals(3)
+        self.orch_hpc_crossover.setValue(0.7)
+        self.orch_hpc_seed = QSpinBox()
+        self.orch_hpc_seed.setRange(0, 1000000)
+        self.orch_hpc_seed.setValue(42)
+        self.orch_hpc_lr_min = QDoubleSpinBox()
+        self.orch_hpc_lr_min.setDecimals(8)
+        self.orch_hpc_lr_min.setRange(0.0000001, 1.0)
+        self.orch_hpc_lr_min.setValue(0.0001)
+        self.orch_hpc_lr_max = QDoubleSpinBox()
+        self.orch_hpc_lr_max.setDecimals(8)
+        self.orch_hpc_lr_max.setRange(0.0000001, 1.0)
+        self.orch_hpc_lr_max.setValue(0.01)
+        self.orch_hpc_batch_sizes = QLineEdit("4,8,16,32")
+        self.orch_hpc_epochs_min = QSpinBox()
+        self.orch_hpc_epochs_min.setRange(1, 1000)
+        self.orch_hpc_epochs_min.setValue(8)
+        self.orch_hpc_epochs_max = QSpinBox()
+        self.orch_hpc_epochs_max.setRange(1, 1000)
+        self.orch_hpc_epochs_max.setValue(40)
+        self.orch_hpc_wd_min = QDoubleSpinBox()
+        self.orch_hpc_wd_min.setDecimals(8)
+        self.orch_hpc_wd_min.setRange(0.000000001, 1.0)
+        self.orch_hpc_wd_min.setValue(0.000001)
+        self.orch_hpc_wd_max = QDoubleSpinBox()
+        self.orch_hpc_wd_max.setDecimals(8)
+        self.orch_hpc_wd_max.setRange(0.000000001, 1.0)
+        self.orch_hpc_wd_max.setValue(0.001)
+        self.orch_hpc_ms_min = QSpinBox()
+        self.orch_hpc_ms_min.setRange(1, 1000000000)
+        self.orch_hpc_ms_min.setValue(50000)
+        self.orch_hpc_ms_max = QSpinBox()
+        self.orch_hpc_ms_max.setRange(1, 1000000000)
+        self.orch_hpc_ms_max.setValue(250000)
+        self.orch_hpc_enable_gpu = QCheckBox("Enable GPU")
+        self.orch_hpc_enable_gpu.setChecked(True)
+        self.orch_hpc_device_policy = QComboBox()
+        self.orch_hpc_device_policy.addItems(["auto", "cpu", "cuda", "mps"])
+        self.orch_hpc_device_policy.setCurrentText("auto")
+        self.orch_hpc_queue = QLineEdit()
+        self.orch_hpc_queue.setPlaceholderText("partition/queue (optional)")
+        self.orch_hpc_account = QLineEdit()
+        self.orch_hpc_account.setPlaceholderText("project/account (optional)")
+        self.orch_hpc_qos = QLineEdit()
+        self.orch_hpc_qos.setPlaceholderText("QoS (optional)")
+        self.orch_hpc_gpus = QSpinBox()
+        self.orch_hpc_gpus.setRange(0, 16)
+        self.orch_hpc_gpus.setValue(1)
+        self.orch_hpc_cpus = QSpinBox()
+        self.orch_hpc_cpus.setRange(1, 512)
+        self.orch_hpc_cpus.setValue(8)
+        self.orch_hpc_mem = QSpinBox()
+        self.orch_hpc_mem.setRange(1, 4096)
+        self.orch_hpc_mem.setValue(32)
+        self.orch_hpc_time = QLineEdit("08:00:00")
+        self.orch_hpc_job_prefix = QLineEdit("microseg")
+        self.orch_hpc_python = QLineEdit("python")
+        self.orch_hpc_cli_path = QLineEdit("scripts/microseg_cli.py")
+        self.orch_hpc_base_train = QLineEdit("configs/train.default.yml")
+        self.orch_hpc_base_eval = QLineEdit("configs/evaluate.default.yml")
+        self.orch_hpc_eval_split = QComboBox()
+        self.orch_hpc_eval_split.addItems(["val", "test", "train"])
+        self.orch_hpc_eval_split.setCurrentText("val")
+
+        hpc_form.addRow("Config", self.orch_hpc_config_edit)
+        hpc_form.addRow("Overrides", self.orch_hpc_set_edit)
+        hpc_form.addRow("Dataset Dir", self.orch_hpc_dataset_edit)
+        hpc_form.addRow("Bundle Output Dir", self.orch_hpc_output_edit)
+        hpc_form.addRow("Experiment Name", self.orch_hpc_experiment_name)
+        hpc_form.addRow("Scheduler", self.orch_hpc_scheduler_combo)
+        hpc_form.addRow("Run Mode", self.orch_hpc_run_mode_combo)
+        hpc_form.addRow("Architectures", self.orch_hpc_architectures_edit)
+        hpc_form.addRow("# Candidates", self.orch_hpc_num_candidates)
+        hpc_form.addRow("Population Size", self.orch_hpc_population)
+        hpc_form.addRow("Generations", self.orch_hpc_generations)
+        hpc_form.addRow("Mutation Rate", self.orch_hpc_mutation)
+        hpc_form.addRow("Crossover Rate", self.orch_hpc_crossover)
+        hpc_form.addRow("Seed", self.orch_hpc_seed)
+        hpc_form.addRow("Learning Rate Min", self.orch_hpc_lr_min)
+        hpc_form.addRow("Learning Rate Max", self.orch_hpc_lr_max)
+        hpc_form.addRow("Batch Size Choices", self.orch_hpc_batch_sizes)
+        hpc_form.addRow("Epochs Min", self.orch_hpc_epochs_min)
+        hpc_form.addRow("Epochs Max", self.orch_hpc_epochs_max)
+        hpc_form.addRow("Weight Decay Min", self.orch_hpc_wd_min)
+        hpc_form.addRow("Weight Decay Max", self.orch_hpc_wd_max)
+        hpc_form.addRow("Max Samples Min", self.orch_hpc_ms_min)
+        hpc_form.addRow("Max Samples Max", self.orch_hpc_ms_max)
+        hpc_form.addRow(self.orch_hpc_enable_gpu, self.orch_hpc_device_policy)
+        hpc_form.addRow("Queue/Partition", self.orch_hpc_queue)
+        hpc_form.addRow("Account", self.orch_hpc_account)
+        hpc_form.addRow("QoS", self.orch_hpc_qos)
+        hpc_form.addRow("GPUs per Job", self.orch_hpc_gpus)
+        hpc_form.addRow("CPUs per Task", self.orch_hpc_cpus)
+        hpc_form.addRow("Memory (GB)", self.orch_hpc_mem)
+        hpc_form.addRow("Time Limit", self.orch_hpc_time)
+        hpc_form.addRow("Job Prefix", self.orch_hpc_job_prefix)
+        hpc_form.addRow("Python Executable", self.orch_hpc_python)
+        hpc_form.addRow("microseg_cli.py Path", self.orch_hpc_cli_path)
+        hpc_form.addRow("Base Train Config", self.orch_hpc_base_train)
+        hpc_form.addRow("Base Eval Config", self.orch_hpc_base_eval)
+        hpc_form.addRow("Eval Split", self.orch_hpc_eval_split)
+        hpc_root.addLayout(hpc_form)
+
+        hpc_actions = QHBoxLayout()
+        self.btn_orch_hpc_generate = QPushButton("Generate HPC GA Bundle")
+        self.btn_orch_hpc_generate.clicked.connect(self.on_orchestrate_hpc_ga)
+        hpc_actions.addWidget(self.btn_orch_hpc_generate)
+        hpc_actions.addStretch(1)
+        hpc_root.addLayout(hpc_actions)
+
+        self.orch_hpc_preview = QPlainTextEdit()
+        self.orch_hpc_preview.setReadOnly(True)
+        self.orch_hpc_preview.setMaximumBlockCount(800)
+        self.orch_hpc_preview.setPlainText(
+            "HPC GA Planner\n"
+            "- Configure architectures + GA search ranges.\n"
+            "- Click 'Generate HPC GA Bundle' to write scheduler scripts.\n"
+            "- Upload the bundle to HPC and run submit_all.sh."
+        )
+        hpc_root.addWidget(self.orch_hpc_preview)
+        self.workflow_tabs.addTab(hpc_tab, "HPC GA Planner")
+
         profile_bar = QHBoxLayout()
         self.workflow_profile_scope = QComboBox()
-        self.workflow_profile_scope.addItems(["dataset_prepare", "training", "evaluation"])
+        self.workflow_profile_scope.addItems(["dataset_prepare", "training", "evaluation", "hpc_ga"])
         self.btn_workflow_profile_save = QPushButton("Save Workflow Profile")
         self.btn_workflow_profile_save.clicked.connect(self.on_save_workflow_profile)
         self.btn_workflow_profile_load = QPushButton("Load Workflow Profile")
@@ -979,7 +1200,9 @@ class QtSegmentationMainWindow(QMainWindow):
             "- Commands run through scripts/microseg_cli.py\\n"
             "- Use YAML config + overrides for reproducibility.\\n"
             "- GPU is opt-in; fallback to CPU is automatic if unavailable.\\n"
-            "- Dataset Prep + QA tab supports preview, prepare, QA gating, and profile save/load."
+            "- Dataset Prep + QA tab supports preview, prepare, QA gating, and profile save/load.\\n"
+            "- Run Review tab supports report loading and metric-delta comparison.\\n"
+            "- HPC GA Planner generates multi-candidate scheduler bundles for HPC runs."
         )
         wf_root.addWidget(self.workflow_notes)
 
@@ -1160,10 +1383,14 @@ class QtSegmentationMainWindow(QMainWindow):
             )
         if spec.get("checkpoint_path_hint"):
             lines.append(f"<b>Checkpoint hint:</b> {spec.get('checkpoint_path_hint')}")
+        if spec.get("artifact_stage"):
+            lines.append(f"<b>Stage:</b> {spec.get('artifact_stage')}")
         if spec.get("application_remarks"):
             lines.append(f"<b>Application:</b> {spec.get('application_remarks')}")
         if spec.get("short_description"):
             lines.append(f"<b>User tip:</b> {spec.get('short_description')}")
+        if spec.get("quality_report_path") and str(spec.get("quality_report_path")).lower() != "n/a":
+            lines.append(f"<b>Quality report:</b> {spec.get('quality_report_path')}")
         self.model_desc.setText("<br>".join([line for line in lines if line]))
 
     def _on_class_changed(self, class_label: str) -> None:
@@ -1450,6 +1677,110 @@ class QtSegmentationMainWindow(QMainWindow):
             QMessageBox.critical(self, "Training Dataset Gate Error", str(exc))
             return None
 
+    @staticmethod
+    def _report_summary_text(summary) -> str:
+        lines = [
+            f"path: {summary.path}",
+            f"kind: {summary.report_kind}",
+            f"schema: {summary.schema_version}",
+            f"backend: {summary.backend}",
+            f"status: {summary.status}",
+            f"runtime: {summary.runtime_human or summary.runtime_seconds}",
+            f"device: {summary.device}",
+            f"config_sha256: {summary.config_sha256}",
+            f"samples_evaluated: {summary.samples_evaluated}",
+            f"tracked_samples: {summary.tracked_samples}",
+            f"html_report_path: {summary.html_report_path}",
+            "",
+            "metrics:",
+        ]
+        if summary.metrics:
+            for key in sorted(summary.metrics.keys()):
+                lines.append(f"  - {key}: {summary.metrics[key]:.6f}")
+        else:
+            lines.append("  - (none)")
+        return "\n".join(lines)
+
+    def on_pick_review_report_a(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Select baseline report JSON", "", "JSON (*.json)")
+        if path:
+            self.review_report_a_edit.setText(path)
+
+    def on_pick_review_report_b(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Select candidate report JSON", "", "JSON (*.json)")
+        if path:
+            self.review_report_b_edit.setText(path)
+
+    def on_load_review_report_a(self) -> None:
+        path = self.review_report_a_edit.text().strip()
+        if not path:
+            QMessageBox.warning(self, "Missing report", "Set Baseline Report path.")
+            return
+        try:
+            summary = summarize_run_report(path)
+            self._review_summary_a = summary
+            self.review_summary_a_text.setPlainText(self._report_summary_text(summary))
+            self.workflow_notes.append(f"[Run Review] Loaded baseline summary: {path}")
+        except Exception as exc:
+            self.logger.exception("Failed to load baseline report summary")
+            QMessageBox.critical(self, "Run Review Error", str(exc))
+
+    def on_load_review_report_b(self) -> None:
+        path = self.review_report_b_edit.text().strip()
+        if not path:
+            QMessageBox.warning(self, "Missing report", "Set Candidate Report path.")
+            return
+        try:
+            summary = summarize_run_report(path)
+            self._review_summary_b = summary
+            self.review_summary_b_text.setPlainText(self._report_summary_text(summary))
+            self.workflow_notes.append(f"[Run Review] Loaded candidate summary: {path}")
+        except Exception as exc:
+            self.logger.exception("Failed to load candidate report summary")
+            QMessageBox.critical(self, "Run Review Error", str(exc))
+
+    def on_compare_review_reports(self) -> None:
+        if self._review_summary_a is None:
+            self.on_load_review_report_a()
+        if self._review_summary_b is None:
+            self.on_load_review_report_b()
+        if self._review_summary_a is None or self._review_summary_b is None:
+            return
+        comparison = compare_run_reports(self._review_summary_a, self._review_summary_b)
+        rows = comparison.get("rows", [])
+        self.review_compare_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            metric = str(row.get("metric", ""))
+            baseline = row.get("baseline")
+            candidate = row.get("candidate")
+            delta = row.get("delta")
+            delta_pct = row.get("delta_pct")
+            vals = [
+                metric,
+                "" if baseline is None else f"{float(baseline):.6f}",
+                "" if candidate is None else f"{float(candidate):.6f}",
+                "" if delta is None else f"{float(delta):+.6f}",
+                "" if delta_pct is None else f"{float(delta_pct):+.2f}%",
+            ]
+            for c, value in enumerate(vals):
+                self.review_compare_table.setItem(r, c, QTableWidgetItem(value))
+
+        self.review_compare_meta.setText(
+            "Comparison | same_kind={} same_schema={} same_backend={} same_config={}".format(
+                comparison.get("same_kind"),
+                comparison.get("same_schema"),
+                comparison.get("same_backend"),
+                comparison.get("same_config_sha256"),
+            )
+        )
+        self.workflow_notes.append(
+            "[Run Review] Compared reports | same_kind={} same_schema={} metrics={}".format(
+                comparison.get("same_kind"),
+                comparison.get("same_schema"),
+                len(rows),
+            )
+        )
+
     def _collect_workflow_profile(self, scope: str) -> dict[str, object]:
         if scope == "dataset_prepare":
             return {
@@ -1512,6 +1843,47 @@ class QtSegmentationMainWindow(QMainWindow):
                 "tracking_samples": int(self.orch_eval_tracking_samples.value()),
                 "tracking_seed": int(self.orch_eval_tracking_seed.value()),
                 "write_html_report": bool(self.orch_eval_write_html_report.isChecked()),
+            }
+        if scope == "hpc_ga":
+            return {
+                "config": self.orch_hpc_config_edit.text().strip(),
+                "overrides": self.orch_hpc_set_edit.text().strip(),
+                "dataset_dir": self.orch_hpc_dataset_edit.text().strip(),
+                "output_dir": self.orch_hpc_output_edit.text().strip(),
+                "experiment_name": self.orch_hpc_experiment_name.text().strip(),
+                "scheduler": self.orch_hpc_scheduler_combo.currentText(),
+                "run_mode": self.orch_hpc_run_mode_combo.currentText(),
+                "architectures": self.orch_hpc_architectures_edit.text().strip(),
+                "num_candidates": int(self.orch_hpc_num_candidates.value()),
+                "population_size": int(self.orch_hpc_population.value()),
+                "generations": int(self.orch_hpc_generations.value()),
+                "mutation_rate": float(self.orch_hpc_mutation.value()),
+                "crossover_rate": float(self.orch_hpc_crossover.value()),
+                "seed": int(self.orch_hpc_seed.value()),
+                "learning_rate_min": float(self.orch_hpc_lr_min.value()),
+                "learning_rate_max": float(self.orch_hpc_lr_max.value()),
+                "batch_size_choices": self.orch_hpc_batch_sizes.text().strip(),
+                "epochs_min": int(self.orch_hpc_epochs_min.value()),
+                "epochs_max": int(self.orch_hpc_epochs_max.value()),
+                "weight_decay_min": float(self.orch_hpc_wd_min.value()),
+                "weight_decay_max": float(self.orch_hpc_wd_max.value()),
+                "max_samples_min": int(self.orch_hpc_ms_min.value()),
+                "max_samples_max": int(self.orch_hpc_ms_max.value()),
+                "enable_gpu": bool(self.orch_hpc_enable_gpu.isChecked()),
+                "device_policy": self.orch_hpc_device_policy.currentText(),
+                "queue": self.orch_hpc_queue.text().strip(),
+                "account": self.orch_hpc_account.text().strip(),
+                "qos": self.orch_hpc_qos.text().strip(),
+                "gpus_per_job": int(self.orch_hpc_gpus.value()),
+                "cpus_per_task": int(self.orch_hpc_cpus.value()),
+                "mem_gb": int(self.orch_hpc_mem.value()),
+                "time_limit": self.orch_hpc_time.text().strip(),
+                "job_prefix": self.orch_hpc_job_prefix.text().strip(),
+                "python_executable": self.orch_hpc_python.text().strip(),
+                "microseg_cli_path": self.orch_hpc_cli_path.text().strip(),
+                "base_train_config": self.orch_hpc_base_train.text().strip(),
+                "base_eval_config": self.orch_hpc_base_eval.text().strip(),
+                "eval_split": self.orch_hpc_eval_split.currentText(),
             }
         raise ValueError(f"Unsupported profile scope: {scope}")
 
@@ -1578,6 +1950,47 @@ class QtSegmentationMainWindow(QMainWindow):
             self.orch_eval_write_html_report.setChecked(bool(values.get("write_html_report", self.orch_eval_write_html_report.isChecked())))
             self.workflow_tabs.setCurrentIndex(2)
             return
+        if scope == "hpc_ga":
+            self.orch_hpc_config_edit.setText(str(values.get("config", self.orch_hpc_config_edit.text())))
+            self.orch_hpc_set_edit.setText(str(values.get("overrides", self.orch_hpc_set_edit.text())))
+            self.orch_hpc_dataset_edit.setText(str(values.get("dataset_dir", self.orch_hpc_dataset_edit.text())))
+            self.orch_hpc_output_edit.setText(str(values.get("output_dir", self.orch_hpc_output_edit.text())))
+            self.orch_hpc_experiment_name.setText(str(values.get("experiment_name", self.orch_hpc_experiment_name.text())))
+            self.orch_hpc_scheduler_combo.setCurrentText(str(values.get("scheduler", self.orch_hpc_scheduler_combo.currentText())))
+            self.orch_hpc_run_mode_combo.setCurrentText(str(values.get("run_mode", self.orch_hpc_run_mode_combo.currentText())))
+            self.orch_hpc_architectures_edit.setText(str(values.get("architectures", self.orch_hpc_architectures_edit.text())))
+            self.orch_hpc_num_candidates.setValue(int(values.get("num_candidates", self.orch_hpc_num_candidates.value())))
+            self.orch_hpc_population.setValue(int(values.get("population_size", self.orch_hpc_population.value())))
+            self.orch_hpc_generations.setValue(int(values.get("generations", self.orch_hpc_generations.value())))
+            self.orch_hpc_mutation.setValue(float(values.get("mutation_rate", self.orch_hpc_mutation.value())))
+            self.orch_hpc_crossover.setValue(float(values.get("crossover_rate", self.orch_hpc_crossover.value())))
+            self.orch_hpc_seed.setValue(int(values.get("seed", self.orch_hpc_seed.value())))
+            self.orch_hpc_lr_min.setValue(float(values.get("learning_rate_min", self.orch_hpc_lr_min.value())))
+            self.orch_hpc_lr_max.setValue(float(values.get("learning_rate_max", self.orch_hpc_lr_max.value())))
+            self.orch_hpc_batch_sizes.setText(str(values.get("batch_size_choices", self.orch_hpc_batch_sizes.text())))
+            self.orch_hpc_epochs_min.setValue(int(values.get("epochs_min", self.orch_hpc_epochs_min.value())))
+            self.orch_hpc_epochs_max.setValue(int(values.get("epochs_max", self.orch_hpc_epochs_max.value())))
+            self.orch_hpc_wd_min.setValue(float(values.get("weight_decay_min", self.orch_hpc_wd_min.value())))
+            self.orch_hpc_wd_max.setValue(float(values.get("weight_decay_max", self.orch_hpc_wd_max.value())))
+            self.orch_hpc_ms_min.setValue(int(values.get("max_samples_min", self.orch_hpc_ms_min.value())))
+            self.orch_hpc_ms_max.setValue(int(values.get("max_samples_max", self.orch_hpc_ms_max.value())))
+            self.orch_hpc_enable_gpu.setChecked(bool(values.get("enable_gpu", self.orch_hpc_enable_gpu.isChecked())))
+            self.orch_hpc_device_policy.setCurrentText(str(values.get("device_policy", self.orch_hpc_device_policy.currentText())))
+            self.orch_hpc_queue.setText(str(values.get("queue", self.orch_hpc_queue.text())))
+            self.orch_hpc_account.setText(str(values.get("account", self.orch_hpc_account.text())))
+            self.orch_hpc_qos.setText(str(values.get("qos", self.orch_hpc_qos.text())))
+            self.orch_hpc_gpus.setValue(int(values.get("gpus_per_job", self.orch_hpc_gpus.value())))
+            self.orch_hpc_cpus.setValue(int(values.get("cpus_per_task", self.orch_hpc_cpus.value())))
+            self.orch_hpc_mem.setValue(int(values.get("mem_gb", self.orch_hpc_mem.value())))
+            self.orch_hpc_time.setText(str(values.get("time_limit", self.orch_hpc_time.text())))
+            self.orch_hpc_job_prefix.setText(str(values.get("job_prefix", self.orch_hpc_job_prefix.text())))
+            self.orch_hpc_python.setText(str(values.get("python_executable", self.orch_hpc_python.text())))
+            self.orch_hpc_cli_path.setText(str(values.get("microseg_cli_path", self.orch_hpc_cli_path.text())))
+            self.orch_hpc_base_train.setText(str(values.get("base_train_config", self.orch_hpc_base_train.text())))
+            self.orch_hpc_base_eval.setText(str(values.get("base_eval_config", self.orch_hpc_base_eval.text())))
+            self.orch_hpc_eval_split.setCurrentText(str(values.get("eval_split", self.orch_hpc_eval_split.currentText())))
+            self.workflow_tabs.setCurrentIndex(self.workflow_tabs.indexOf(self.workflow_hpc_tab))
+            return
         raise ValueError(f"Unsupported profile scope: {scope}")
 
     def on_save_workflow_profile(self) -> None:
@@ -1585,15 +1998,8 @@ class QtSegmentationMainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Save workflow profile", "", "YAML (*.yml *.yaml)")
         if not path:
             return
-        payload = {
-            "schema_version": "microseg.workflow_profile.v1",
-            "scope": scope,
-            "values": self._collect_workflow_profile(scope),
-        }
         try:
-            import yaml
-
-            Path(path).write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+            write_workflow_profile(path, scope=scope, values=self._collect_workflow_profile(scope))
             self.workflow_notes.append(f"[Profile] Saved {scope} profile to {path}")
             QMessageBox.information(self, "Profile Saved", f"Saved profile:\n{path}")
         except Exception as exc:
@@ -1605,9 +2011,7 @@ class QtSegmentationMainWindow(QMainWindow):
         if not path:
             return
         try:
-            import yaml
-
-            payload = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+            payload = read_workflow_profile(path)
             scope = str(payload.get("scope", self.workflow_profile_scope.currentText()))
             values = payload.get("values", {})
             if not isinstance(values, dict):
@@ -1711,6 +2115,61 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         self._start_orchestration_job(command, "Evaluation")
 
+    def on_orchestrate_hpc_ga(self) -> None:
+        dataset_dir = self.orch_hpc_dataset_edit.text().strip()
+        output_dir = self.orch_hpc_output_edit.text().strip()
+        if not dataset_dir or not output_dir:
+            QMessageBox.warning(self, "Missing Paths", "Dataset Dir and Bundle Output Dir are required.")
+            return
+
+        overrides = self._parse_override_text(self.orch_hpc_set_edit.text())
+        overrides.extend(
+            [
+                f"experiment_name={self.orch_hpc_experiment_name.text().strip()}",
+                f"scheduler={self.orch_hpc_scheduler_combo.currentText()}",
+                f"run_mode={self.orch_hpc_run_mode_combo.currentText()}",
+                f"architectures={self.orch_hpc_architectures_edit.text().strip()}",
+                f"num_candidates={int(self.orch_hpc_num_candidates.value())}",
+                f"population_size={int(self.orch_hpc_population.value())}",
+                f"generations={int(self.orch_hpc_generations.value())}",
+                f"mutation_rate={float(self.orch_hpc_mutation.value())}",
+                f"crossover_rate={float(self.orch_hpc_crossover.value())}",
+                f"seed={int(self.orch_hpc_seed.value())}",
+                f"learning_rate_min={float(self.orch_hpc_lr_min.value())}",
+                f"learning_rate_max={float(self.orch_hpc_lr_max.value())}",
+                f"batch_size_choices={self.orch_hpc_batch_sizes.text().strip()}",
+                f"epochs_min={int(self.orch_hpc_epochs_min.value())}",
+                f"epochs_max={int(self.orch_hpc_epochs_max.value())}",
+                f"weight_decay_min={float(self.orch_hpc_wd_min.value())}",
+                f"weight_decay_max={float(self.orch_hpc_wd_max.value())}",
+                f"max_samples_min={int(self.orch_hpc_ms_min.value())}",
+                f"max_samples_max={int(self.orch_hpc_ms_max.value())}",
+                f"enable_gpu={str(self.orch_hpc_enable_gpu.isChecked()).lower()}",
+                f"device_policy={self.orch_hpc_device_policy.currentText()}",
+                f"queue={self.orch_hpc_queue.text().strip()}",
+                f"account={self.orch_hpc_account.text().strip()}",
+                f"qos={self.orch_hpc_qos.text().strip()}",
+                f"gpus_per_job={int(self.orch_hpc_gpus.value())}",
+                f"cpus_per_task={int(self.orch_hpc_cpus.value())}",
+                f"mem_gb={int(self.orch_hpc_mem.value())}",
+                f"time_limit={self.orch_hpc_time.text().strip()}",
+                f"job_prefix={self.orch_hpc_job_prefix.text().strip()}",
+                f"python_executable={self.orch_hpc_python.text().strip()}",
+                f"microseg_cli_path={self.orch_hpc_cli_path.text().strip()}",
+                f"base_train_config={self.orch_hpc_base_train.text().strip()}",
+                f"base_eval_config={self.orch_hpc_base_eval.text().strip()}",
+                f"eval_split={self.orch_hpc_eval_split.currentText()}",
+            ]
+        )
+        command = self.orchestrator.hpc_ga_generate(
+            config=self.orch_hpc_config_edit.text().strip() or None,
+            overrides=overrides,
+            dataset_dir=dataset_dir,
+            output_dir=output_dir,
+        )
+        self.orch_hpc_preview.appendPlainText("$ " + " ".join(command))
+        self._start_orchestration_job(command, "HPC-GA-Bundle")
+
     def on_edit_classes(self) -> None:
         dlg = QDialog(self)
         dlg.setWindowTitle("Edit Class Map")
@@ -1798,7 +2257,9 @@ class QtSegmentationMainWindow(QMainWindow):
             "5. Redraw with brush/polygon/lasso in add mode.\n"
             "6. Tune layer transparency and export indexed/color/npy masks.\n"
             "7. Use Workflow Hub for train/infer/evaluate/package orchestration jobs.\n"
-            "8. Use Dataset Prep + QA for split preview, colormap conversion, and QA gating.",
+            "8. Use Dataset Prep + QA for split preview, colormap conversion, and QA gating.\n"
+            "9. Use Run Review to compare training/evaluation reports.\n"
+            "10. Use HPC GA Planner to generate Slurm/PBS/local job bundles.",
         )
 
     def on_show_about(self) -> None:

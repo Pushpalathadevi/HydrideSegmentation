@@ -23,6 +23,7 @@
 - Fixed + random validation sample tracking during training
 - Leakage-aware deterministic split planning and dataset QA gates
 - Deterministic auto-prepare path for unsplit source/masks datasets
+- GA-driven HPC bundle generation for scalable multi-candidate GPU experiments
 
 ## Desirable Capabilities
 

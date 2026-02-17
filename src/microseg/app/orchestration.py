@@ -158,3 +158,21 @@ class OrchestrationCommandBuilder:
         if strict:
             args.append("--strict")
         return args
+
+    def hpc_ga_generate(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        dataset_dir: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["hpc-ga-generate"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if dataset_dir:
+            args.extend(["--dataset-dir", dataset_dir])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args

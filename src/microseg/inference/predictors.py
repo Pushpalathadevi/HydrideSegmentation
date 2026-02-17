@@ -3,12 +3,46 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import logging
+from pathlib import Path
 
 from hydride_segmentation.segmentation_mask_creation import run_model as run_conv_model
 from hydride_segmentation.legacy_api import DEFAULT_CONVENTIONAL_PARAMS
 
 from src.microseg.domain import ModelSpec, SegmentationOutput
+from src.microseg.plugins import find_repo_root, frozen_checkpoint_map
 from src.microseg.plugins import ModelRegistry
+
+
+_logger = logging.getLogger(__name__)
+
+
+def _resolve_registry_weights_path(model_id: str) -> str | None:
+    """Resolve model checkpoint path from frozen-checkpoint metadata if available."""
+
+    try:
+        records = frozen_checkpoint_map()
+    except Exception as exc:
+        _logger.debug("Could not load frozen checkpoint registry: %s", exc)
+        return None
+
+    rec = records.get(model_id)
+    if rec is None:
+        return None
+    hint = str(rec.checkpoint_path_hint).strip()
+    if not hint or hint.lower().startswith("n/a"):
+        return None
+
+    hinted_path = Path(hint)
+    if hinted_path.is_absolute():
+        return str(hinted_path) if hinted_path.exists() else None
+
+    try:
+        root = find_repo_root(Path(__file__))
+    except Exception:
+        root = Path.cwd()
+    resolved = (root / hinted_path).resolve()
+    return str(resolved) if resolved.exists() else None
 
 
 class HydrideConventionalPredictor:
@@ -33,8 +67,14 @@ class HydrideMLPredictor:
         # Lazy import keeps non-ML paths usable without ML-only dependencies.
         from hydride_segmentation.inference import run_model as run_ml_model
 
-        params = params or {}
-        weights_path = params.get("weights_path")
+        params = dict(params or {})
+        weights_path = str(params.get("weights_path", "")).strip()
+        if not weights_path:
+            reg_path = _resolve_registry_weights_path(self.model_id)
+            if reg_path:
+                params["weights_path"] = reg_path
+                weights_path = reg_path
+                _logger.info("Hydride ML resolved checkpoint from frozen registry: %s", reg_path)
         image, mask = run_ml_model(image_path, params=params, weights_path=weights_path) if weights_path else run_ml_model(image_path, params=params)
         return SegmentationOutput(image=image, mask=mask)
 

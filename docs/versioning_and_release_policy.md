@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- Software version: `0.15.0`
+- Software version: `0.17.0`
 - Version source of truth:
   - `hydride_segmentation/version.py`
   - `pyproject.toml`
@@ -42,7 +42,9 @@ Before release:
 - Validate resolved configuration artifacts for CLI workflows
 - Validate training report artifacts (`microseg.training_report.v1`, `microseg.training_manifest.v2`)
 - Validate evaluation report artifacts (`microseg.pixel_eval.v2`) and optional HTML summary output
+- Validate frozen model metadata (`microseg-cli validate-registry --config configs/registry_validation.default.yml --strict`)
+- Keep checkpoint binaries out of git; track only metadata and promotion evidence paths
 
 ## Deployment Guidance
 
-Field deployments should pin explicit versions (for example `hydride-segmentation==0.15.0`) and avoid floating upgrades.
+Field deployments should pin explicit versions (for example `hydride-segmentation==0.17.0`) and avoid floating upgrades.

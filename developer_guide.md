@@ -39,6 +39,16 @@ microseg-cli models --details
 microseg-cli validate-registry --config configs/registry_validation.default.yml --strict
 ```
 
+Smoke checkpoint generation (tiny random-weight `.pth` for pipeline debugging):
+```bash
+python scripts/generate_smoke_checkpoint.py --force
+```
+
+HPC GA bundle generation:
+```bash
+microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
+```
+
 Phase closeout gate:
 ```bash
 microseg-cli phase-gate --phase-label "Phase N" --strict
@@ -104,3 +114,13 @@ Phase 12 GUI dataset workspace additions:
 - In-app dataset preview API usage with searchable mapping table and class histogram
 - Optional training launch gate requiring dataset QA pass
 - YAML workflow profiles for `dataset_prepare`, `training`, and `evaluation`
+
+Phase 13 run review additions:
+- Workflow Hub `Run Review` tab for report loading and metric comparison
+- Report analytics module: `src/microseg/app/report_review.py`
+- Workflow profile persistence module: `src/microseg/app/workflow_profiles.py`
+
+Phase 15 HPC GA additions:
+- Workflow Hub `HPC GA Planner` tab for one-click script-bundle generation
+- Planner module: `src/microseg/app/hpc_ga.py`
+- CLI command: `microseg-cli hpc-ga-generate`

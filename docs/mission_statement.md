@@ -23,8 +23,10 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Config-driven execution with YAML and command-line overrides
 - Reproducibility logging and schema-versioned outputs
 - Frozen-checkpoint metadata registry for model selection and guidance
+- Checkpoint lifecycle management (`smoke`, `candidate`, `promoted`) with git-tracked metadata and git-ignored binaries
 - Human-readable + machine-readable run reporting (`json` + `html`)
 - Mandatory end-of-phase quality gates (tests + stocktake + gap review + docs sync)
+- HPC-ready orchestration artifact generation (scheduler scripts + manifests) for GPU environments
 
 ## Non-Goals (Current Phases)
 
@@ -47,6 +49,9 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 11. Enforce strict model metadata validation and leakage-aware dataset split/QA checks before training cycles.
 12. Support explicit split datasets and unsplit source/masks datasets through deterministic auto-prepare workflows, including optional RGB-mask colormap conversion.
 13. Provide GUI-native dataset onboarding with preview-first split planning and optional QA-gated training launch controls.
+14. Provide GUI-native run review and report comparison to support evidence-based model iteration decisions.
+15. Maintain a deterministic tiny smoke-checkpoint path to validate model plumbing on fresh systems without large artifacts.
+16. Provide GUI/CLI generation of multi-candidate HPC script bundles from architecture/hyperparameter search definitions.
 
 ## Success Criteria
 
@@ -56,5 +61,6 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - YAML configs and `--set` overrides are consistently applied in CLI and GUI workflows.
 - Training and evaluation runs emit progress/ETA logs, interruption-safe reports, and HTML summaries.
 - Model registry metadata validates cleanly and packaged datasets pass QA gates before training.
+- Tiny smoke checkpoint generation remains available for quick pipeline sanity checks.
 - Saved project sessions can be reopened and resumed without data loss.
 - Hydride workflows remain stable while generalization is implemented.

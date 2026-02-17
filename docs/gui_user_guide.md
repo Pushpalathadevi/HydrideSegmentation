@@ -52,6 +52,8 @@ The `Workflow Hub` tab includes orchestration sub-tabs:
 - `Evaluation`: launches `microseg-cli evaluate`
 - `Packaging`: launches `microseg-cli package`
 - `Dataset Prep + QA`: preview/prepare dataset layouts and run dataset QA checks
+- `Run Review`: inspect and compare training/evaluation report JSON files
+- `HPC GA Planner`: generate scheduler-ready multi-candidate bundles for HPC training/evaluation runs
 
 Operational behavior:
 - one active orchestration job at a time
@@ -83,7 +85,25 @@ Workflow profiles:
   - `dataset_prepare`
   - `training`
   - `evaluation`
+  - `hpc_ga`
 - profile schema: `microseg.workflow_profile.v1`
+
+Run Review tab highlights:
+- load baseline/candidate report JSON files
+- auto summarize report metadata and key metrics
+- compare metric deltas in table form (`baseline`, `candidate`, `delta`, `delta %`)
+- includes schema/backend/config-consistency indicators for safe run comparisons
+
+HPC GA Planner highlights:
+- architecture list + hyperparameter range controls
+- novelty-oriented GA candidate synthesis for diverse first-pass sweeps
+- scheduler mode selection (`slurm`, `pbs`, `local`)
+- one-click generation of:
+  - `submit_all.sh`
+  - per-candidate job scripts
+  - candidate parameter files (`json` + `yml`)
+  - plan manifest (`ga_plan_manifest.json`)
+- supports profile save/load scope `hpc_ga`
 
 ## Model Guidance Panel
 
@@ -91,7 +111,10 @@ The model description area now includes metadata pulled from `frozen_checkpoints
 - model nickname and type
 - expected input dimensions
 - checkpoint path hint
+- lifecycle stage (`smoke`, `candidate`, `promoted`, `builtin`)
 - application suitability remarks
 - short user tips
+- optional quality report path
 
 This helps users select the right model for optical/TEM or other microstructural contexts.
+Smoke-stage models are debug-only and are not intended for scientific reporting.

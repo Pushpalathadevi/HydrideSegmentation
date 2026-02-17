@@ -51,3 +51,7 @@ microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict
 
 - `tests/test_phase9_registry_validation.py`
 - `tests/test_phase9_dataops.py`
+
+## Follow-On (Phase 14 Extension)
+
+Model-lifecycle metadata was extended with optional artifact provenance fields (`artifact_stage`, source/quality report paths, hash/size hints), plus smoke/candidate/promoted folder conventions and tiny smoke-checkpoint generation workflow.

@@ -32,6 +32,7 @@ _REQUIRED_MODEL_FIELDS = (
     "checkpoint_path_hint",
     "application_remarks",
 )
+_ALLOWED_ARTIFACT_STAGES = {"", "smoke", "candidate", "promoted", "builtin", "deprecated"}
 
 
 def _is_absolute_hint(value: str) -> bool:
@@ -98,6 +99,31 @@ def validate_frozen_registry(path: str | Path | None = None) -> RegistryValidati
         hint = str(item.get("checkpoint_path_hint", "")).strip()
         if hint and hint.lower() != "n/a" and _is_absolute_hint(hint):
             report.errors.append(f"model '{model_id}' uses absolute checkpoint_path_hint; use repo-relative path")
+
+        artifact_stage = str(item.get("artifact_stage", "")).strip().lower()
+        if artifact_stage not in _ALLOWED_ARTIFACT_STAGES:
+            report.errors.append(
+                f"model '{model_id}' has unsupported artifact_stage={artifact_stage!r}; "
+                f"allowed={sorted(_ALLOWED_ARTIFACT_STAGES)}"
+            )
+
+        source_run_manifest = str(item.get("source_run_manifest", "")).strip()
+        if source_run_manifest and _is_absolute_hint(source_run_manifest):
+            report.errors.append(f"model '{model_id}' uses absolute source_run_manifest path; use repo-relative path")
+
+        quality_report_path = str(item.get("quality_report_path", "")).strip()
+        if quality_report_path and _is_absolute_hint(quality_report_path):
+            report.errors.append(f"model '{model_id}' uses absolute quality_report_path; use repo-relative path")
+
+        size_value = item.get("file_size_bytes")
+        if size_value not in (None, ""):
+            try:
+                size_int = int(size_value)
+            except Exception:
+                report.errors.append(f"model '{model_id}' file_size_bytes must be an integer when provided")
+            else:
+                if size_int <= 0:
+                    report.errors.append(f"model '{model_id}' file_size_bytes must be > 0 when provided")
 
         classes = item.get("classes", [])
         if not isinstance(classes, list):

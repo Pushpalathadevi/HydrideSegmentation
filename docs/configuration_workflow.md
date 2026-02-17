@@ -16,6 +16,7 @@ Reference templates:
 - `configs/dataset_split.default.yml`
 - `configs/dataset_qa.default.yml`
 - `configs/dataset_prepare.default.yml`
+- `configs/hpc_ga.default.yml`
 
 ## CLI Usage
 
@@ -83,6 +84,7 @@ Evaluation:
 ```bash
 microseg-cli evaluate --config configs/evaluate.default.yml --set split=test
 ```
+Evaluation accepts torch checkpoints with `.pt`, `.pth`, or `.ckpt` suffixes.
 
 Evaluation HTML + tracked sample panel example:
 ```bash
@@ -100,6 +102,16 @@ microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict
 Frozen registry validation:
 ```bash
 microseg-cli validate-registry --config configs/registry_validation.default.yml --strict
+```
+
+Generate tiny smoke checkpoint for pipeline sanity checks:
+```bash
+python scripts/generate_smoke_checkpoint.py --force
+```
+
+HPC GA bundle generation:
+```bash
+microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
 ```
 
 GPU-enabled runs (auto policy with CPU fallback):

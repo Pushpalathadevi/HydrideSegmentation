@@ -23,3 +23,6 @@ Current phase coverage includes:
 - `test_phase9_registry_validation.py` strict frozen model registry validation rules
 - `test_phase9_dataops.py` leakage-aware split planner and dataset QA checks
 - `test_phase10_dataset_prepare.py` unsplit source/masks auto-prepare with leakage-aware grouping, global IDs, optional RGB-colormap conversion, and preview contract checks
+- `test_phase13_report_review.py` run-report summary/compare and workflow profile persistence roundtrips
+- `test_phase14_checkpoint_lifecycle.py` checkpoint lifecycle metadata validation and registry-hint checkpoint resolution
+- `test_phase15_hpc_ga_planner.py` GA candidate planning, HPC script-bundle generation, and HPC workflow-profile scope roundtrips

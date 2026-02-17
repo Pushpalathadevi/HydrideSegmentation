@@ -1,8 +1,10 @@
 """Request handlers for the segmentation API."""
 from __future__ import annotations
 
-import imghdr
+from io import BytesIO
 from typing import Dict
+
+from PIL import Image, UnidentifiedImageError
 
 from .schema import SegmentParams
 from hydride_segmentation.core.utils import (
@@ -16,6 +18,22 @@ ALLOWED_EXTS = {"png", "jpg", "jpeg", "tif", "tiff", "bmp"}
 MAX_SIZE_MB = 20
 
 
+def _detect_image_kind(data: bytes) -> str:
+    """Detect image kind from file bytes using Pillow decoder."""
+
+    try:
+        with Image.open(BytesIO(data)) as img:
+            fmt = str(img.format or "").strip().lower()
+    except UnidentifiedImageError as exc:
+        raise ValueError("unsupported file type") from exc
+
+    if fmt == "tif":
+        fmt = "tiff"
+    if fmt == "jpeg":
+        fmt = "jpg"
+    return fmt
+
+
 def _validate_and_read_file(file_storage) -> bytes:
     if file_storage is None or file_storage.filename == "":
         raise ValueError("file is required")
@@ -26,7 +44,7 @@ def _validate_and_read_file(file_storage) -> bytes:
     data = file_storage.read()
     if len(data) > MAX_SIZE_MB * 1024 * 1024:
         raise ValueError("file too large")
-    kind = imghdr.what(None, h=data)
+    kind = _detect_image_kind(data)
     if kind not in ALLOWED_EXTS:
         raise ValueError("unsupported file type")
     return data

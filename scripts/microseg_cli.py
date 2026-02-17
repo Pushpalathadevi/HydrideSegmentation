@@ -12,6 +12,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.microseg.app.desktop_workflow import DesktopWorkflowManager
+from src.microseg.app.hpc_ga import (
+    HpcGaPlanConfig,
+    generate_hpc_ga_bundle,
+    parse_architectures,
+    parse_batch_sizes,
+)
 from src.microseg.corrections import CorrectionDatasetPackager
 from src.microseg.dataops import (
     CorrectionSplitConfig,
@@ -465,6 +471,68 @@ def _dataset_prepare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _hpc_ga_generate(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    dataset_dir = args.dataset_dir or cfg.get("dataset_dir")
+    if not dataset_dir:
+        raise ValueError("dataset directory is required (--dataset-dir or config:dataset_dir)")
+    output_dir = args.output_dir or cfg.get("output_dir") or "outputs/hpc_ga_bundle"
+
+    architectures = parse_architectures(cfg.get("architectures", args.architectures))
+    if not architectures:
+        architectures = parse_architectures(args.architectures)
+    batch_sizes = parse_batch_sizes(cfg.get("batch_size_choices", args.batch_size_choices))
+    if not batch_sizes:
+        batch_sizes = parse_batch_sizes(args.batch_size_choices)
+
+    result = generate_hpc_ga_bundle(
+        HpcGaPlanConfig(
+            dataset_dir=str(dataset_dir),
+            output_dir=str(output_dir),
+            experiment_name=str(cfg.get("experiment_name", args.experiment_name)),
+            base_train_config=str(cfg.get("base_train_config", args.base_train_config)),
+            base_eval_config=str(cfg.get("base_eval_config", args.base_eval_config)),
+            run_mode=str(cfg.get("run_mode", args.run_mode)),
+            eval_split=str(cfg.get("eval_split", args.eval_split)),
+            architectures=architectures,
+            num_candidates=int(cfg.get("num_candidates", args.num_candidates)),
+            population_size=int(cfg.get("population_size", args.population_size)),
+            generations=int(cfg.get("generations", args.generations)),
+            mutation_rate=float(cfg.get("mutation_rate", args.mutation_rate)),
+            crossover_rate=float(cfg.get("crossover_rate", args.crossover_rate)),
+            seed=int(cfg.get("seed", args.seed)),
+            learning_rate_min=float(cfg.get("learning_rate_min", args.learning_rate_min)),
+            learning_rate_max=float(cfg.get("learning_rate_max", args.learning_rate_max)),
+            batch_size_choices=batch_sizes,
+            epochs_min=int(cfg.get("epochs_min", args.epochs_min)),
+            epochs_max=int(cfg.get("epochs_max", args.epochs_max)),
+            weight_decay_min=float(cfg.get("weight_decay_min", args.weight_decay_min)),
+            weight_decay_max=float(cfg.get("weight_decay_max", args.weight_decay_max)),
+            max_samples_min=int(cfg.get("max_samples_min", args.max_samples_min)),
+            max_samples_max=int(cfg.get("max_samples_max", args.max_samples_max)),
+            enable_gpu=bool(cfg.get("enable_gpu", args.enable_gpu)),
+            device_policy=str(cfg.get("device_policy", args.device_policy)),
+            scheduler=str(cfg.get("scheduler", args.scheduler)),
+            queue=str(cfg.get("queue", args.queue)),
+            account=str(cfg.get("account", args.account)),
+            qos=str(cfg.get("qos", args.qos)),
+            gpus_per_job=int(cfg.get("gpus_per_job", args.gpus_per_job)),
+            cpus_per_task=int(cfg.get("cpus_per_task", args.cpus_per_task)),
+            mem_gb=int(cfg.get("mem_gb", args.mem_gb)),
+            time_limit=str(cfg.get("time_limit", args.time_limit)),
+            job_prefix=str(cfg.get("job_prefix", args.job_prefix)),
+            python_executable=str(cfg.get("python_executable", args.python_executable)),
+            microseg_cli_path=str(cfg.get("microseg_cli_path", args.microseg_cli_path)),
+        )
+    )
+
+    print(f"hpc-ga bundle: {result.bundle_dir}")
+    print(f"manifest: {result.manifest_path}")
+    print(f"submit script: {result.submit_script}")
+    print(f"candidates: {len(result.candidates)}")
+    return 0
+
+
 def _package(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     input_dir = Path(args.input_dir or cfg.get("input_dir"))
@@ -641,6 +709,47 @@ def _build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--mask-colormap-json", type=str, default="")
     prep.add_argument("--mask-colormap-strict", action=argparse.BooleanOptionalAction, default=True)
     prep.set_defaults(handler=_dataset_prepare)
+
+    hpc_ga = sub.add_parser("hpc-ga-generate", help="Generate GA-planned HPC job bundle")
+    hpc_ga.add_argument("--config", type=str, help="YAML config path")
+    hpc_ga.add_argument("--set", action="append", default=[], help="Override key=value (supports dotted keys)")
+    hpc_ga.add_argument("--dataset-dir", type=str, help="Dataset directory for train/eval jobs")
+    hpc_ga.add_argument("--output-dir", type=str, help="Bundle output directory")
+    hpc_ga.add_argument("--experiment-name", type=str, default="microseg_hpc_ga_sweep")
+    hpc_ga.add_argument("--base-train-config", type=str, default="configs/train.default.yml")
+    hpc_ga.add_argument("--base-eval-config", type=str, default="configs/evaluate.default.yml")
+    hpc_ga.add_argument("--run-mode", choices=["train_only", "train_eval"], default="train_eval")
+    hpc_ga.add_argument("--eval-split", type=str, default="val")
+    hpc_ga.add_argument("--architectures", type=str, default="unet_binary,torch_pixel")
+    hpc_ga.add_argument("--num-candidates", type=int, default=8)
+    hpc_ga.add_argument("--population-size", type=int, default=24)
+    hpc_ga.add_argument("--generations", type=int, default=8)
+    hpc_ga.add_argument("--mutation-rate", type=float, default=0.2)
+    hpc_ga.add_argument("--crossover-rate", type=float, default=0.7)
+    hpc_ga.add_argument("--seed", type=int, default=42)
+    hpc_ga.add_argument("--learning-rate-min", type=float, default=1e-4)
+    hpc_ga.add_argument("--learning-rate-max", type=float, default=1e-2)
+    hpc_ga.add_argument("--batch-size-choices", type=str, default="4,8,16,32")
+    hpc_ga.add_argument("--epochs-min", type=int, default=8)
+    hpc_ga.add_argument("--epochs-max", type=int, default=40)
+    hpc_ga.add_argument("--weight-decay-min", type=float, default=1e-6)
+    hpc_ga.add_argument("--weight-decay-max", type=float, default=1e-3)
+    hpc_ga.add_argument("--max-samples-min", type=int, default=50000)
+    hpc_ga.add_argument("--max-samples-max", type=int, default=250000)
+    hpc_ga.add_argument("--enable-gpu", action=argparse.BooleanOptionalAction, default=True)
+    hpc_ga.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="auto")
+    hpc_ga.add_argument("--scheduler", choices=["slurm", "pbs", "local"], default="slurm")
+    hpc_ga.add_argument("--queue", type=str, default="")
+    hpc_ga.add_argument("--account", type=str, default="")
+    hpc_ga.add_argument("--qos", type=str, default="")
+    hpc_ga.add_argument("--gpus-per-job", type=int, default=1)
+    hpc_ga.add_argument("--cpus-per-task", type=int, default=8)
+    hpc_ga.add_argument("--mem-gb", type=int, default=32)
+    hpc_ga.add_argument("--time-limit", type=str, default="08:00:00")
+    hpc_ga.add_argument("--job-prefix", type=str, default="microseg")
+    hpc_ga.add_argument("--python-executable", type=str, default="python")
+    hpc_ga.add_argument("--microseg-cli-path", type=str, default="scripts/microseg_cli.py")
+    hpc_ga.set_defaults(handler=_hpc_ga_generate)
 
     pack = sub.add_parser("package", help="Package correction exports into dataset splits")
     pack.add_argument("--config", type=str, help="YAML config path")

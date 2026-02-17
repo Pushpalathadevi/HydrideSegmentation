@@ -42,4 +42,13 @@ Current status:
 - Phase 12 GUI dataset workspace foundation implemented:
   - `dataops/training_dataset.py` preview API (`preview_training_dataset_layout`)
   - `app/orchestration.py` dataset-prepare and dataset-qa command builders
+- Phase 13 run review and profile hardening implemented:
+  - `app/report_review.py` training/evaluation report summary + comparison utilities
+  - `app/workflow_profiles.py` schema-validated YAML profile persistence helpers
+- Phase 14 checkpoint lifecycle baseline implemented:
+  - `evaluation/pixel_model_eval.py` torch checkpoint loading supports `.pt`, `.pth`, `.ckpt`
+  - `inference/predictors.py` hydride ML checkpoint auto-resolution via frozen registry hints
+- Phase 15 HPC automation foundation implemented:
+  - `app/hpc_ga.py` GA-based candidate planner + Slurm/PBS/local bundle generator
+  - `app/orchestration.py` command builder support for `hpc-ga-generate`
 - Existing implementation still remains under `hydride_segmentation/` for backward compatibility.

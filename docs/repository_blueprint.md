@@ -49,6 +49,9 @@ HydrideSegmentation/
     weights/
   frozen_checkpoints/
     model_registry.json
+    smoke/
+    candidates/
+    promoted/
   scripts/
   tests/
     unit/
