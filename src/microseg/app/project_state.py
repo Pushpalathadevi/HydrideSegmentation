@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from hydride_segmentation.version import __version__
+from src.microseg.version import __version__
 from src.microseg.app.desktop_workflow import DesktopRunRecord
 from src.microseg.corrections import DEFAULT_CLASS_MAP, SegmentationClassMap, to_index_mask
 

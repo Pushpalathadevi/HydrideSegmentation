@@ -173,3 +173,25 @@ def test_phase10_preview_reports_unsplit_mapping_and_histogram(tmp_path: Path) -
     assert preview.class_histogram["1"] > 0
     assert preview.class_histogram["2"] > 0
     assert all(rec["source_group"] == "s1" for rec in preview.mapping)
+
+
+def test_phase10_prepare_binary_mask_normalization_two_value_zero_background(tmp_path: Path) -> None:
+    root = tmp_path / "raw"
+    img = np.zeros((10, 10, 3), dtype=np.uint8)
+    mask = np.zeros((10, 10), dtype=np.uint8)
+    mask[:, 5:] = 255
+    _write(root / "source" / "sample.png", img)
+    _write(root / "masks" / "sample.png", mask)
+
+    out = tmp_path / "prepared"
+    prepare_training_dataset_layout(
+        DatasetPrepareConfig(
+            dataset_dir=str(root),
+            output_dir=str(out),
+            binary_mask_normalization="two_value_zero_background",
+        )
+    )
+
+    out_mask = next(out.glob("*/masks/sample_*.png"))
+    arr = np.asarray(Image.open(out_mask).convert("L"), dtype=np.uint8)
+    assert set(np.unique(arr).tolist()) == {0, 1}

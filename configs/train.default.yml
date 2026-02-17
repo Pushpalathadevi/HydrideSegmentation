@@ -17,6 +17,7 @@ leakage_group_regex: ""
 mask_input_type: indexed
 mask_colormap: {}
 mask_colormap_strict: true
+binary_mask_normalization: off
 epochs: 8
 batch_size: 8
 learning_rate: 0.001
@@ -41,3 +42,9 @@ backend_label: unet_binary
 seed: 42
 enable_gpu: false
 device_policy: cpu
+amp_enabled: false
+grad_accum_steps: 1
+num_workers: 0
+pin_memory: false
+persistent_workers: false
+deterministic: true

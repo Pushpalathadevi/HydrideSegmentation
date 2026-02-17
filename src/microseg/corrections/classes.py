@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -111,6 +112,42 @@ def to_index_mask(mask: np.ndarray) -> np.ndarray:
     if uniq.issubset({0, 255}):
         return (arr > 0).astype(np.uint8)
     return arr
+
+
+def normalize_binary_index_mask(
+    mask: np.ndarray,
+    *,
+    mode: Literal["off", "two_value_zero_background"] = "off",
+) -> np.ndarray:
+    """Normalize binary masks with configurable auto-discovery behavior.
+
+    Parameters
+    ----------
+    mask:
+        Input 2D mask image array.
+    mode:
+        Binary normalization mode:
+        - ``off``: keep indexed values unchanged except canonical ``{0,255}`` -> ``{0,1}`` via
+          :func:`to_index_mask`.
+        - ``two_value_zero_background``: if mask has exactly two unique values and one is
+          background ``0``, map all non-zero pixels to class ``1``.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized uint8 indexed mask.
+    """
+
+    idx = to_index_mask(mask)
+    if mode == "off":
+        return idx
+    if mode != "two_value_zero_background":
+        raise ValueError(f"unsupported binary mask normalization mode: {mode}")
+
+    unique_vals = np.unique(idx)
+    if unique_vals.size == 2 and int(unique_vals.min()) == 0 and int(unique_vals.max()) != 1:
+        return (idx > 0).astype(np.uint8)
+    return idx
 
 
 def colorize_index_mask(mask: np.ndarray, class_map: SegmentationClassMap) -> np.ndarray:

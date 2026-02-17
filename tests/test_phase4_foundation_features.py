@@ -15,6 +15,7 @@ from src.microseg.corrections import (
     SegmentationClass,
     SegmentationClassMap,
     colorize_index_mask,
+    normalize_binary_index_mask,
     to_index_mask,
 )
 from src.microseg.corrections.session import CorrectionSession
@@ -117,3 +118,14 @@ def test_phase4_project_state_roundtrip(tmp_path: Path) -> None:
     assert loaded.annotator == "qa"
     assert loaded.notes == "roundtrip"
     assert np.array_equal(loaded.corrected_mask, sess.current_mask)
+
+
+def test_phase4_binary_mask_normalization_option() -> None:
+    src = np.zeros((8, 8), dtype=np.uint8)
+    src[:, 3:] = 7
+
+    preserved = normalize_binary_index_mask(src, mode="off")
+    normalized = normalize_binary_index_mask(src, mode="two_value_zero_background")
+
+    assert set(np.unique(preserved).tolist()) == {0, 7}
+    assert set(np.unique(normalized).tolist()) == {0, 1}

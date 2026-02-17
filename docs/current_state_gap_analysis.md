@@ -63,3 +63,15 @@ Medium-priority gaps:
 - Strict phase gate pass confirmed (`Phase 20 Benchmark Suite Orchestration`).
 - API validation warnings removed (Pydantic v2 validators and image-type probing modernization).
 - Detailed audit record: `repo_health_audit.md`.
+
+## 2026-02 HPC-readiness hardening update
+
+Addressed gaps:
+- Reduced core MicroSeg coupling to legacy package for version/encoding/analysis pathways.
+- Added profile-based dependency strategy and pinned lock baseline for reproducibility.
+- Added AMP, gradient accumulation, deterministic mode, and dataloader runtime knobs to UNet training.
+- Expanded evaluation outputs with hydride-scientific distribution/error metrics.
+- Added benchmark-mode hard-fail checks for dataset manifest freeze and split-ID consistency.
+
+Remaining intentional gap:
+- Native MicroSeg inference adapters still include compatibility imports from `hydride_segmentation` for conventional/legacy ML paths.

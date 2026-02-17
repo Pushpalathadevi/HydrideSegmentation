@@ -12,14 +12,13 @@ license = {text = "MIT"}
 dependencies = [
     "numpy",
     "matplotlib",
-    "opencv-python",
+    "opencv-python-headless",
     "scikit-image",
     "scikit-learn",
     "pillow",
     "albumentations",
     "tqdm",
     "scipy",
-    "tkinterdnd2",
     "torch",
     "segmentation-models-pytorch",
     "transformers",
@@ -30,7 +29,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gui-qt = ["PySide6"]
+core = [
+    "opencv-python-headless",
+]
+gui = [
+    "PySide6",
+]
+transformers = [
+    "transformers",
+    "huggingface_hub",
+]
 
 [project.scripts]
 hydride-gui = "hydride_segmentation.gui:main"

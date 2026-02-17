@@ -17,13 +17,14 @@ import numpy as np
 from PIL import Image
 from sklearn.metrics import f1_score
 
-from src.microseg.corrections.classes import to_index_mask
+from src.microseg.corrections.classes import normalize_binary_index_mask
 from src.microseg.training.pixel_classifier import load_pixel_classifier, predict_index_mask
 from src.microseg.training.torch_pixel_classifier import (
     load_torch_pixel_classifier,
     predict_index_mask_torch,
 )
 from src.microseg.training.unet_binary import load_unet_binary_model, predict_unet_binary_mask
+from src.microseg.evaluation.hydride_metrics import scientific_distance_metrics
 
 
 def _utc_now() -> str:
@@ -58,7 +59,7 @@ def _to_rel(path: Path, root: Path) -> str:
 
 def _code_version() -> str:
     try:
-        from hydride_segmentation.version import __version__
+        from src.microseg.version import __version__
 
         return str(__version__)
     except Exception:
@@ -114,6 +115,7 @@ def _binary_panel(image: np.ndarray, gt: np.ndarray, pred: np.ndarray) -> np.nda
 
 def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
     metrics = payload.get("metrics", {})
+    scientific = payload.get("scientific_metrics", {})
     samples = payload.get("tracked_samples", [])
     rows = []
     for sample in samples:
@@ -148,6 +150,13 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         f"<li>Macro F1: {float(metrics.get('macro_f1', 0.0)):.6f}</li>"
         f"<li>Mean IoU: {float(metrics.get('mean_iou', 0.0)):.6f}</li>"
         "</ul>"
+        "<h2>Scientific Metrics (Mean across evaluated samples)</h2>"
+        "<ul>"
+        f"<li>Area Fraction Abs Error: {float(scientific.get('mask_area_fraction_abs_error', 0.0)):.6f}</li>"
+        f"<li>Hydride Count Abs Error: {float(scientific.get('hydride_count_abs_error', 0.0)):.6f}</li>"
+        f"<li>Size Wasserstein: {float(scientific.get('hydride_size_wasserstein', 0.0)):.6f}</li>"
+        f"<li>Orientation Wasserstein: {float(scientific.get('hydride_orientation_wasserstein', 0.0)):.6f}</li>"
+        "</ul>"
         "<h2>Tracked Sample Metrics</h2>"
         "<table border='1' cellpadding='6' cellspacing='0'>"
         "<tr><th>Sample</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th></tr>"
@@ -173,6 +182,7 @@ class PixelEvaluationConfig:
     write_html_report: bool = True
     tracking_samples: int = 8
     tracking_seed: int = 17
+    binary_mask_normalization: str = "off"
 
 
 class PixelModelEvaluator:
@@ -243,6 +253,7 @@ class PixelModelEvaluator:
         y_true_blocks: list[np.ndarray] = []
         y_pred_blocks: list[np.ndarray] = []
         sample_metrics: list[dict[str, Any]] = []
+        scientific_rows: list[dict[str, float]] = []
         tracked_set: set[str] = set()
         if int(config.tracking_samples) > 0:
             rng = random.Random(int(config.tracking_seed))
@@ -251,7 +262,10 @@ class PixelModelEvaluator:
 
         for idx, (img_path, mask_path) in enumerate(pairs, start=1):
             image = np.asarray(Image.open(img_path).convert("RGB"), dtype=np.uint8)
-            gt = to_index_mask(np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8))
+            gt = normalize_binary_index_mask(
+                np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8),
+                mode=str(config.binary_mask_normalization),
+            )
             pred = predictor(image)
             if gt.shape != pred.shape:
                 raise ValueError(f"shape mismatch during evaluation: {img_path}")
@@ -272,6 +286,9 @@ class PixelModelEvaluator:
                 "macro_f1": f1_local,
                 "mean_iou": iou_local,
             }
+            sci = scientific_distance_metrics((gt > 0).astype(np.uint8), (pred > 0).astype(np.uint8))
+            sample_item.update(sci)
+            scientific_rows.append(sci)
             if img_path.name in tracked_set:
                 panel = _binary_panel(image, (gt > 0).astype(np.uint8), (pred > 0).astype(np.uint8))
                 panel_path = samples_dir / f"{img_path.stem}_panel.png"
@@ -300,9 +317,16 @@ class PixelModelEvaluator:
         mean_iou, per_class_iou = _mean_iou(y_true, y_pred, labels)
 
         runtime_seconds = time.perf_counter() - run_start
+        scientific_metrics: dict[str, float] = {}
+        if scientific_rows:
+            sci_keys = scientific_rows[0].keys()
+            scientific_metrics = {
+                key: float(np.mean([float(r.get(key, 0.0)) for r in scientific_rows])) for key in sci_keys
+            }
+
         config_payload = asdict(config)
         payload = {
-            "schema_version": "microseg.pixel_eval.v2",
+            "schema_version": "microseg.pixel_eval.v3",
             "created_utc": _utc_now(),
             "started_utc": started_utc,
             "config": config_payload,
@@ -321,6 +345,7 @@ class PixelModelEvaluator:
                 "mean_iou": mean_iou,
             },
             "per_class_iou": per_class_iou,
+            "scientific_metrics": scientific_metrics,
             "tracked_samples": [s for s in sample_metrics if "panel" in s],
             "sample_metrics": sample_metrics,
         }

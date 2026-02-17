@@ -30,3 +30,5 @@ Current phase coverage includes:
 - `test_phase19_hf_transformer_backends.py` Hugging Face SegFormer transformer backend smoke training/evaluation from scratch (no pretrained weights)
 - `test_phase20_benchmark_suite_script.py` hydride benchmark suite single-script dry-run orchestration + summary artifact generation
 - `test_phase21_benchmark_dashboard_enrichment.py` benchmark dashboard enrichment with training curves, training-history metrics, and aggregate comparison fields
+
+- `test_mask_binary_normalization.py` binary-mask auto-normalization option (`two_value_zero_background`) for 2-value indexed masks

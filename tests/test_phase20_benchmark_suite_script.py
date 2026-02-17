@@ -20,6 +20,7 @@ def test_phase20_benchmark_suite_dry_run(tmp_path: Path) -> None:
         "eval_split": "test",
         "python_executable": sys.executable,
         "seeds": [42],
+        "benchmark_mode": False,
         "experiments": [
             {
                 "name": "unet_binary",

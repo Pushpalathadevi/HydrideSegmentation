@@ -45,8 +45,14 @@ annotation, correction, and deployment needs.
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-core.txt
 pip install -e .
+
+# Desktop GUI profile
+pip install -r requirements-gui.txt
+
+# Fully pinned CPU-first reproducible baseline
+pip install -r envs/microseg-core.lock.txt
 ```
 
 Qt GUI dependency:
@@ -79,6 +85,17 @@ microseg-cli infer --config configs/inference.default.yml --set params.area_thre
 Training (UNet):
 ```bash
 microseg-cli train --config configs/train.default.yml --set epochs=20
+```
+
+Training with AMP + gradient accumulation + deterministic controls:
+```bash
+microseg-cli train --config configs/train.default.yml \
+  --set amp_enabled=true \
+  --set grad_accum_steps=2 \
+  --set num_workers=4 \
+  --set pin_memory=true \
+  --set persistent_workers=true \
+  --set deterministic=true
 ```
 
 Training with tracked validation samples:
@@ -117,6 +134,13 @@ microseg-cli dataset-prepare \
   --set 'mask_colormap={"0":[0,0,0],"1":[255,0,0]}'
 ```
 
+Binary mask auto-normalization (optional, converts two-value masks like 0/255 or 0/7 into 0/1):
+```bash
+microseg-cli dataset-prepare \
+  --config configs/dataset_prepare.default.yml \
+  --set binary_mask_normalization=two_value_zero_background
+```
+
 Dataset QA:
 ```bash
 microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict
@@ -149,7 +173,8 @@ Single-script top-5 hydride benchmark run + dashboard:
 ```bash
 python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_suite.top5.yml --strict
 ```
-- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch), model size, parameter count, and runtime effort metrics.
+- Benchmark mode now supports hard-fail dataset freeze checks (`expected_dataset_manifest_sha256`, `expected_split_id_file`).
+- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch), model size, parameter count, runtime effort metrics, and evaluation scientific metrics.
 
 ## Beginner End-To-End Workflow
 

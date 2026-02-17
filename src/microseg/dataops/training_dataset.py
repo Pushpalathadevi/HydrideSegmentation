@@ -13,7 +13,7 @@ from typing import Literal
 import numpy as np
 from PIL import Image
 
-from src.microseg.corrections.classes import to_index_mask
+from src.microseg.corrections.classes import normalize_binary_index_mask
 
 
 SUPPORTED_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
@@ -89,6 +89,7 @@ class DatasetPrepareConfig:
     mask_input_type: Literal["indexed", "rgb_colormap", "auto"] = "indexed"
     mask_colormap: dict[str, object] = field(default_factory=dict)
     mask_colormap_strict: bool = True
+    binary_mask_normalization: Literal["off", "two_value_zero_background"] = "off"
 
 
 @dataclass
@@ -301,7 +302,10 @@ def _mask_to_index(mask_path: Path, config: DatasetPrepareConfig) -> np.ndarray:
             raise ValueError(
                 f"mask_input_type=rgb_colormap expects RGB masks, got 2D mask for {mask_path}"
             )
-        return to_index_mask(mask_raw.astype(np.uint8))
+        return normalize_binary_index_mask(
+            mask_raw.astype(np.uint8),
+            mode=str(config.binary_mask_normalization),
+        )
 
     if mask_raw.ndim == 3:
         if mask_raw.shape[2] == 4:

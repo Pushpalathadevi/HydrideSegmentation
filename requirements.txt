@@ -1,20 +1,2 @@
-numpy
-matplotlib
-opencv-python
-scikit-image
-scikit-learn
-pillow
-albumentations
-tqdm
-
-scipy
-tkinterdnd2
-PySide6
-torch
-segmentation-models-pytorch
-transformers
-huggingface_hub
-Flask
-pydantic
+-r requirements-gui.txt
 pytest
-PyYAML

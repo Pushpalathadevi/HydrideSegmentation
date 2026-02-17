@@ -103,6 +103,9 @@ def _build_dataset_prepare_config(
             field_name="mask_colormap",
         ),
         mask_colormap_strict=bool(cfg.get("mask_colormap_strict", args.mask_colormap_strict)),
+        binary_mask_normalization=str(
+            cfg.get("binary_mask_normalization", args.binary_mask_normalization)
+        ),
     )
 
 
@@ -181,6 +184,9 @@ def _train(args: argparse.Namespace) -> int:
                 seed=seed,
                 enable_gpu=enable_gpu,
                 device_policy=device_policy,
+                binary_mask_normalization=str(
+                    cfg.get("binary_mask_normalization", args.binary_mask_normalization)
+                ),
             )
         )
     elif backend in {
@@ -222,6 +228,15 @@ def _train(args: argparse.Namespace) -> int:
                 transformer_dropout=float(cfg.get("transformer_dropout", args.transformer_dropout)),
                 segformer_patch_size=int(cfg.get("segformer_patch_size", args.segformer_patch_size)),
                 backend_label=str(cfg.get("backend_label", backend)),
+                amp_enabled=bool(cfg.get("amp_enabled", args.amp_enabled)),
+                grad_accum_steps=int(cfg.get("grad_accum_steps", args.grad_accum_steps)),
+                num_workers=int(cfg.get("num_workers", args.num_workers)),
+                pin_memory=bool(cfg.get("pin_memory", args.pin_memory)),
+                persistent_workers=bool(cfg.get("persistent_workers", args.persistent_workers)),
+                deterministic=bool(cfg.get("deterministic", args.deterministic)),
+                binary_mask_normalization=str(
+                    cfg.get("binary_mask_normalization", args.binary_mask_normalization)
+                ),
             )
         )
     else:
@@ -234,6 +249,9 @@ def _train(args: argparse.Namespace) -> int:
                 max_samples=int(cfg.get("max_samples", args.max_samples)),
                 max_iter=int(cfg.get("max_iter", args.max_iter)),
                 seed=seed,
+                binary_mask_normalization=str(
+                    cfg.get("binary_mask_normalization", args.binary_mask_normalization)
+                ),
             )
         )
 
@@ -314,6 +332,9 @@ def _evaluate(args: argparse.Namespace) -> int:
             write_html_report=bool(cfg.get("write_html_report", args.write_html_report)),
             tracking_samples=int(cfg.get("tracking_samples", args.tracking_samples)),
             tracking_seed=int(cfg.get("tracking_seed", args.tracking_seed)),
+            binary_mask_normalization=str(
+                cfg.get("binary_mask_normalization", args.binary_mask_normalization)
+            ),
         )
     )
     cfg_out = dict(cfg)
@@ -731,6 +752,13 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--transformer-mlp-ratio", type=float, default=2.0)
     train.add_argument("--transformer-dropout", type=float, default=0.0)
     train.add_argument("--segformer-patch-size", type=int, default=4)
+    train.add_argument("--amp-enabled", action=argparse.BooleanOptionalAction, default=False)
+    train.add_argument("--grad-accum-steps", type=int, default=1)
+    train.add_argument("--num-workers", type=int, default=0)
+    train.add_argument("--pin-memory", action=argparse.BooleanOptionalAction, default=False)
+    train.add_argument("--persistent-workers", action=argparse.BooleanOptionalAction, default=False)
+    train.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
+    train.add_argument("--binary-mask-normalization", choices=["off", "two_value_zero_background"], default="off")
     train.add_argument("--max-iter", type=int, default=500)
     train.add_argument("--seed", type=int, default=42)
     train.add_argument("--auto-prepare-dataset", action=argparse.BooleanOptionalAction, default=True)
@@ -775,6 +803,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--mask-input-type", choices=["indexed", "rgb_colormap", "auto"], default="indexed")
     ev.add_argument("--mask-colormap-json", type=str, default="")
     ev.add_argument("--mask-colormap-strict", action=argparse.BooleanOptionalAction, default=True)
+    ev.add_argument("--binary-mask-normalization", choices=["off", "two_value_zero_background"], default="off")
     ev.set_defaults(handler=_evaluate)
 
     models = sub.add_parser("models", help="List available GUI/CLI models and frozen-checkpoint metadata")
@@ -826,6 +855,7 @@ def _build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--mask-input-type", choices=["indexed", "rgb_colormap", "auto"], default="indexed")
     prep.add_argument("--mask-colormap-json", type=str, default="")
     prep.add_argument("--mask-colormap-strict", action=argparse.BooleanOptionalAction, default=True)
+    prep.add_argument("--binary-mask-normalization", choices=["off", "two_value_zero_background"], default="off")
     prep.set_defaults(handler=_dataset_prepare)
 
     hpc_ga = sub.add_parser("hpc-ga-generate", help="Generate GA-planned HPC job bundle")

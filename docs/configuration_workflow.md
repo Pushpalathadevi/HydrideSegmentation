@@ -83,6 +83,11 @@ microseg-cli train \
   --set model_architecture=hf_segformer_b0
 ```
 
+Binary mask normalization override example:
+```bash
+microseg-cli train --config configs/train.default.yml --set binary_mask_normalization=two_value_zero_background
+```
+
 UNet validation tracking + reporting example:
 ```bash
 microseg-cli train \

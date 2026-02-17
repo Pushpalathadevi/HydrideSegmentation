@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hydride_segmentation.core.utils import image_to_png_base64
 
 from src.microseg.domain import PipelineResult, SegmentationRequest, utc_timestamp
 from src.microseg.evaluation import HydrideAnalyzer
 from src.microseg.inference import build_hydride_registry
 from src.microseg.plugins import ModelRegistry
-from src.microseg.utils import mask_overlay
+from src.microseg.utils import image_to_png_base64, mask_overlay
 
 
 @dataclass

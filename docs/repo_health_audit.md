@@ -1,55 +1,48 @@
-# Repository Health Audit (2026-02-17)
+# Repository Health Audit (Updated)
 
-## Scope
+## High-priority architecture actions completed
 
-This audit focused on codebase robustness, documentation consistency, and test reliability after the recent platform expansion phases.
+- MicroSeg now owns its own versioning and image-encoding utilities (`src/microseg/version.py`, `src/microseg/utils/encoding.py`), reducing internal dependence on `hydride_segmentation` for core orchestration and reporting code paths.
+- Hydride analysis helpers were formalized in `src/microseg/evaluation/hydride_metrics.py` and are consumed by the MicroSeg analyzer/evaluation pipeline.
+- Remaining `hydride_segmentation` imports in `src/microseg/inference/predictors.py` are explicitly treated as legacy model adapters; future work can replace them with native `src/microseg/inference` implementations.
 
-## Checks Run
+## Dependency and packaging hardening
 
-1. Full test suite:
-```bash
-PYTHONPATH=. pytest -q
-```
-Result: `57 passed`.
+- Introduced profile-based requirements:
+  - `requirements-core.txt` (headless/HPC default, uses `opencv-python-headless`)
+  - `requirements-gui.txt` (desktop GUI stack)
+  - `requirements.txt` now points to GUI profile + test extras.
+- `pyproject.toml` now uses `opencv-python-headless` and exposes optional extras (`core`, `gui`, `transformers`).
+- Added pinned reproducibility baseline lock file: `envs/microseg-core.lock.txt`.
 
-2. Strict phase gate:
-```bash
-microseg-cli phase-gate --config configs/phase_gate.default.yml --phase-label "Repo Health Hardening" --strict
-```
-Result: `pass`.
+## Training harness upgrades (benchmark-grade foundations)
 
-3. Documentation policy scan:
-- no absolute local markdown link usage found in repository docs and top-level guides
-- docs index links updated for new phase/user/developer guides
+`UNetBinaryTrainingConfig` and trainer now support:
 
-## Issues Identified And Fixed
+- mixed precision (`amp_enabled`)
+- gradient accumulation (`grad_accum_steps`)
+- controlled dataloader behavior (`num_workers`, `pin_memory`, `persistent_workers`)
+- deterministic mode (`deterministic`)
 
-1. Pydantic v2 deprecation warnings in API schema validators
-- File: `hydride_segmentation/api/schema.py`
-- Fix: migrated from `@validator` to `@field_validator` (v2 style).
+These settings are exposed in `microseg-cli train` and included in resolved configs/reports.
 
-2. Python deprecation warning for `imghdr`
-- File: `hydride_segmentation/api/handlers.py`
-- Fix: replaced `imghdr` probing with Pillow-based format validation using decoded image headers.
+## Evaluation scientific metrics expansion
 
-3. Dependency mismatch risk (`setup.py` uses `requirements.txt`)
-- File: `requirements.txt`
-- Fix: explicitly added `pydantic` to align with runtime imports.
+`PixelModelEvaluator` now reports scientific summary metrics (mean across evaluated samples):
 
-## Current Robustness Status
+- area-fraction GT/pred and absolute error
+- hydride count GT/pred and absolute error
+- size distribution distances (Wasserstein, KS)
+- orientation distribution distances (Wasserstein, KS)
 
-- Core platform tests are green.
-- Phase gate strict pass confirmed.
-- HPC GA planner is integrated in GUI + CLI with tests and docs.
-- HPC GA now supports feedback-hybrid ranking and report generation from prior bundles.
-- Checkpoint lifecycle policy and registry validation are active.
+Report schema is bumped to `microseg.pixel_eval.v3`.
 
-## Remaining Strategic Gaps (Not Failures)
+## Dataset freeze enforcement in benchmark mode
 
-- Full Pareto-front multi-objective optimization (current feedback mode is weighted scalar fitness).
-- Broader model-family defaults beyond hydride-focused presets.
-- Installer-grade deployment pipeline for field distribution.
+`scripts/hydride_benchmark_suite.py` now supports benchmark hard-fail checks:
 
-## Next Recommended Hardening Step
+- requires `dataset_manifest.json` when `benchmark_mode=true`
+- optional strict manifest hash check via `expected_dataset_manifest_sha256`
+- optional strict split-ID membership check via `expected_split_id_file`
 
-Implement Pareto-front candidate optimization and scheduler array-job emission for larger HPC sweeps.
+This hardens split reproducibility and leakage-guard assumptions for HPC sweeps.
