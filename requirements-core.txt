@@ -1,0 +1,16 @@
+numpy
+matplotlib
+opencv-python-headless
+scikit-image
+scikit-learn
+pillow
+albumentations
+tqdm
+scipy
+torch
+segmentation-models-pytorch
+transformers
+huggingface_hub
+flask
+pydantic
+PyYAML

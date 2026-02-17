@@ -1,3 +1,5 @@
 """Project version metadata."""
 
-__version__ = "0.22.0"
+from src.microseg.version import __version__
+
+__all__ = ["__version__"]

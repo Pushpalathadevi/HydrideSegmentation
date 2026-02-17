@@ -86,6 +86,18 @@ def _read_json(path: Path) -> dict[str, Any]:
     return {}
 
 
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _safe_int(v: object) -> int | None:
     try:
         return int(v)
@@ -421,8 +433,35 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
     python_exe = str(cfg.get("python_executable", sys.executable)).strip() or sys.executable
     seeds = [int(v) for v in _ensure_list(cfg.get("seeds", [42]))]
     experiments = _ensure_list(cfg.get("experiments", []))
+    benchmark_mode = bool(cfg.get("benchmark_mode", True))
+    expected_manifest_sha = str(cfg.get("expected_dataset_manifest_sha256", "")).strip().lower()
+    expected_split_id_file = str(cfg.get("expected_split_id_file", "")).strip()
+
     if not dataset_dir:
         raise ValueError("dataset_dir is required in suite config")
+
+    dataset_manifest = Path(dataset_dir) / "dataset_manifest.json"
+
+    if benchmark_mode:
+        if not dataset_manifest.exists():
+            raise FileNotFoundError(f"benchmark_mode requires dataset_manifest.json: {dataset_manifest}")
+        if expected_manifest_sha:
+            observed_sha = _sha256_file(dataset_manifest).lower()
+            if observed_sha != expected_manifest_sha:
+                raise RuntimeError(
+                    "dataset manifest hash mismatch in benchmark mode: "
+                    f"expected={expected_manifest_sha} observed={observed_sha}"
+                )
+        if expected_split_id_file:
+            split_file = Path(expected_split_id_file)
+            if not split_file.exists():
+                raise FileNotFoundError(f"expected_split_id_file missing: {split_file}")
+            expected_ids = [line.strip() for line in split_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+            manifest = _read_json(dataset_manifest)
+            observed_ids = sorted((manifest.get("sample_to_split") or {}).keys())
+            if sorted(expected_ids) != observed_ids:
+                raise RuntimeError("dataset split IDs do not match expected_split_id_file in benchmark_mode")
+
     if not experiments:
         raise ValueError("suite config must include experiments")
 
@@ -601,6 +640,8 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
         "dataset_dir": dataset_dir,
         "output_root": str(output_root),
         "eval_split": eval_split,
+        "benchmark_mode": benchmark_mode,
+        "expected_dataset_manifest_sha256": expected_manifest_sha,
         "run_count": len(rows),
         "failure_count": failures,
         "rows": rows,

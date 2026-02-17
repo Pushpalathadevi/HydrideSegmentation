@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image
 
 from src.microseg.core import resolve_torch_device
-from src.microseg.corrections.classes import to_index_mask
+from src.microseg.corrections.classes import normalize_binary_index_mask
 
 
 def _utc_now() -> str:
@@ -41,8 +41,11 @@ def _load_rgb(path: Path) -> np.ndarray:
     return np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
 
 
-def _load_mask(path: Path) -> np.ndarray:
-    return to_index_mask(np.asarray(Image.open(path).convert("L"), dtype=np.uint8))
+def _load_mask(path: Path, *, binary_mask_normalization: str) -> np.ndarray:
+    return normalize_binary_index_mask(
+        np.asarray(Image.open(path).convert("L"), dtype=np.uint8),
+        mode=str(binary_mask_normalization),
+    )
 
 
 def _build_samples(
@@ -50,6 +53,7 @@ def _build_samples(
     *,
     max_samples: int,
     seed: int,
+    binary_mask_normalization: str,
 ) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
     per_pair = max(1, int(max_samples // max(1, len(pairs))))
@@ -59,7 +63,7 @@ def _build_samples(
 
     for img_path, mask_path in pairs:
         img = _load_rgb(img_path)
-        mask = _load_mask(mask_path)
+        mask = _load_mask(mask_path, binary_mask_normalization=binary_mask_normalization)
         if mask.shape != img.shape[:2]:
             raise ValueError(f"shape mismatch: {img_path} vs {mask_path}")
 
@@ -96,6 +100,7 @@ class TorchPixelTrainingConfig:
     seed: int = 42
     enable_gpu: bool = False
     device_policy: str = "cpu"
+    binary_mask_normalization: str = "off"
 
 
 class TorchPixelClassifierTrainer:
@@ -111,7 +116,12 @@ class TorchPixelClassifierTrainer:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         pairs = _collect_pairs(dataset_root / config.train_split)
-        x_np, y_raw = _build_samples(pairs, max_samples=config.max_samples, seed=config.seed)
+        x_np, y_raw = _build_samples(
+            pairs,
+            max_samples=config.max_samples,
+            seed=config.seed,
+            binary_mask_normalization=config.binary_mask_normalization,
+        )
 
         class_values = np.unique(y_raw)
         if class_values.size < 2:

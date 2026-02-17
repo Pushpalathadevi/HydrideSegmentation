@@ -62,6 +62,7 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
         "eval_split": "test",
         "python_executable": sys.executable,
         "seeds": [42],
+        "benchmark_mode": False,
         "experiments": [
             {
                 "name": "unet_binary",

@@ -18,7 +18,7 @@ import numpy as np
 from PIL import Image
 
 from src.microseg.core import resolve_torch_device
-from src.microseg.corrections.classes import to_index_mask
+from src.microseg.corrections.classes import normalize_binary_index_mask
 
 
 def _utc_now() -> str:
@@ -59,7 +59,7 @@ def _format_seconds(seconds: float) -> str:
 
 def _code_version() -> str:
     try:
-        from hydride_segmentation.version import __version__
+        from src.microseg.version import __version__
 
         return str(__version__)
     except Exception:
@@ -151,8 +151,9 @@ def _select_tracking_pairs(
 class _SegPairDataset:
     """Dataset of image/mask path pairs for binary segmentation."""
 
-    def __init__(self, pairs: list[tuple[Path, Path]]) -> None:
+    def __init__(self, pairs: list[tuple[Path, Path]], *, binary_mask_normalization: str) -> None:
         self.pairs = pairs
+        self.binary_mask_normalization = str(binary_mask_normalization)
 
     def __len__(self) -> int:
         return len(self.pairs)
@@ -162,7 +163,10 @@ class _SegPairDataset:
 
         img_path, mask_path = self.pairs[index]
         image = np.asarray(Image.open(img_path).convert("RGB"), dtype=np.float32) / 255.0
-        mask_idx = to_index_mask(np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8))
+        mask_idx = normalize_binary_index_mask(
+            np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8),
+            mode=self.binary_mask_normalization,
+        )
         mask = (mask_idx > 0).astype(np.float32)
 
         x = torch.from_numpy(image.transpose(2, 0, 1))
@@ -653,6 +657,13 @@ class UNetBinaryTrainingConfig:
     transformer_dropout: float = 0.0
     segformer_patch_size: int = 4
     backend_label: str = "unet_binary"
+    amp_enabled: bool = False
+    grad_accum_steps: int = 1
+    num_workers: int = 0
+    pin_memory: bool = False
+    persistent_workers: bool = False
+    deterministic: bool = True
+    binary_mask_normalization: str = "off"
 
 
 def _binary_iou_from_logits(logits, targets) -> float:  # noqa: ANN001
@@ -768,17 +779,25 @@ class UNetBinaryTrainer:
         val_pairs = _collect_pairs(dataset_root / config.val_split)
         fixed_sample_names = _normalize_fixed_samples(config.val_tracking_fixed_samples)
 
+        workers = max(0, int(config.num_workers))
+        use_persistent_workers = bool(config.persistent_workers) and workers > 0
+        pin_memory = bool(config.pin_memory)
+
         train_loader = DataLoader(
-            _SegPairDataset(train_pairs),
+            _SegPairDataset(train_pairs, binary_mask_normalization=config.binary_mask_normalization),
             batch_size=max(1, int(config.batch_size)),
             shuffle=True,
-            num_workers=0,
+            num_workers=workers,
+            pin_memory=pin_memory,
+            persistent_workers=use_persistent_workers,
         )
         val_loader = DataLoader(
-            _SegPairDataset(val_pairs),
+            _SegPairDataset(val_pairs, binary_mask_normalization=config.binary_mask_normalization),
             batch_size=max(1, int(config.batch_size)),
             shuffle=False,
-            num_workers=0,
+            num_workers=workers,
+            pin_memory=pin_memory,
+            persistent_workers=use_persistent_workers,
         )
 
         resolved = resolve_torch_device(enable_gpu=bool(config.enable_gpu), policy=str(config.device_policy))
@@ -801,6 +820,16 @@ class UNetBinaryTrainer:
             weight_decay=float(config.weight_decay),
         )
         criterion = torch.nn.BCEWithLogitsLoss()
+
+        if bool(config.deterministic):
+            torch.use_deterministic_algorithms(True, warn_only=True)
+            if hasattr(torch.backends, "cudnn"):
+                torch.backends.cudnn.deterministic = True
+                torch.backends.cudnn.benchmark = False
+
+        use_amp = bool(config.amp_enabled) and str(device).startswith("cuda")
+        scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+        grad_accum_steps = max(1, int(config.grad_accum_steps))
 
         start_epoch = 1
         best_val_loss = float("inf")
@@ -920,7 +949,10 @@ class UNetBinaryTrainer:
             with torch.no_grad():
                 for img_path, mask_path in selected_pairs:
                     image = np.asarray(Image.open(img_path).convert("RGB"), dtype=np.uint8)
-                    gt = to_index_mask(np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8))
+                    gt = normalize_binary_index_mask(
+                        np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8),
+                        mode=config.binary_mask_normalization,
+                    )
                     gt_bin = (gt > 0).astype(np.uint8)
 
                     x = torch.from_numpy((image.astype(np.float32) / 255.0).transpose(2, 0, 1)[None, ...]).to(device)
@@ -960,18 +992,25 @@ class UNetBinaryTrainer:
                 total_train_steps = max(1, len(train_loader))
                 log_every = max(1, int(total_train_steps * max(1, int(config.progress_log_interval_pct)) / 100))
 
+                optimizer.zero_grad(set_to_none=True)
                 for step, (x, y) in enumerate(train_loader, start=1):
-                    x = x.to(device)
-                    y = y.to(device)
+                    x = x.to(device, non_blocking=pin_memory)
+                    y = y.to(device, non_blocking=pin_memory)
 
-                    logits = model(x)
-                    loss = criterion(logits, y)
+                    with torch.amp.autocast("cuda", enabled=use_amp):
+                        logits = model(x)
+                        loss_raw = criterion(logits, y)
+                        loss = loss_raw / grad_accum_steps
 
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
+                    scaler.scale(loss).backward()
 
-                    train_loss_sum += float(loss.item())
+                    should_step = (step % grad_accum_steps == 0) or (step == total_train_steps)
+                    if should_step:
+                        scaler.step(optimizer)
+                        scaler.update()
+                        optimizer.zero_grad(set_to_none=True)
+
+                    train_loss_sum += float(loss_raw.item())
                     train_acc_sum += _binary_accuracy_from_logits(logits.detach(), y)
                     train_iou_sum += _binary_iou_from_logits(logits.detach(), y)
                     train_steps += 1
@@ -986,7 +1025,7 @@ class UNetBinaryTrainer:
                             step,
                             total_train_steps,
                             (100.0 * step) / total_train_steps,
-                            float(loss.item()),
+                            float(loss_raw.item()),
                             _format_seconds(step_eta),
                         )
                         remaining_epochs = max(0, int(config.epochs) - epoch)
@@ -1009,10 +1048,11 @@ class UNetBinaryTrainer:
                 val_steps = 0
                 with torch.no_grad():
                     for x, y in val_loader:
-                        x = x.to(device)
-                        y = y.to(device)
-                        logits = model(x)
-                        loss = criterion(logits, y)
+                        x = x.to(device, non_blocking=pin_memory)
+                        y = y.to(device, non_blocking=pin_memory)
+                        with torch.amp.autocast("cuda", enabled=use_amp):
+                            logits = model(x)
+                            loss = criterion(logits, y)
                         val_loss_sum += float(loss.item())
                         val_acc_sum += _binary_accuracy_from_logits(logits, y)
                         val_iou_sum += _binary_iou_from_logits(logits, y)

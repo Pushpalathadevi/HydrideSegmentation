@@ -18,6 +18,6 @@ Additional workflow config:
 - `dataset_split.default.yml` for leakage-aware split planning
 - `dataset_qa.default.yml` for packaged dataset QA checks
 - `dataset_prepare.default.yml` for unsplit source/masks -> split dataset preparation
-  - includes `split_strategy`, leakage-group controls, RGB `mask_input_type`, and `mask_colormap` options
+  - includes `split_strategy`, leakage-group controls, RGB `mask_input_type`, `mask_colormap`, and optional `binary_mask_normalization`
 - `hpc_ga.default.yml` for GA-based HPC multi-candidate script bundle generation
   - includes feedback-hybrid planning controls and metric/runtime fitness weights

@@ -154,3 +154,12 @@ Run dataset QA before training:
 ```bash
 microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict
 ```
+
+
+Enable optional binary auto-normalization:
+
+```bash
+microseg-cli dataset-prepare \
+  --config configs/dataset_prepare.default.yml \
+  --set binary_mask_normalization=two_value_zero_background
+```
