@@ -117,6 +117,10 @@ microseg-cli evaluate --config configs/evaluate.default.yml --enable-gpu --devic
   - YAML base
   - GUI override entries
   - runtime image path
+- Workflow Hub supports YAML profile save/load for:
+  - `dataset_prepare`
+  - `training`
+  - `evaluation`
 
 ## Override Conventions
 

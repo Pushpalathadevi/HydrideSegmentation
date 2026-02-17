@@ -49,12 +49,17 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     infer_cmd = builder.infer(config="configs/inference.default.yml", overrides=["a=1"], image="x.png")
     train_cmd = builder.train(config="configs/train.default.yml", dataset_dir="d", output_dir="o")
     eval_cmd = builder.evaluate(config="configs/evaluate.default.yml", model_path="m.joblib", dataset_dir="d")
+    prep_cmd = builder.dataset_prepare(config="configs/dataset_prepare.default.yml", dataset_dir="d", output_dir="o")
+    qa_cmd = builder.dataset_qa(config="configs/dataset_qa.default.yml", dataset_dir="d", strict=True)
 
     assert infer_cmd[0].endswith("python") or "python" in infer_cmd[0]
     assert infer_cmd[2] == "infer"
     assert "--set" in infer_cmd
     assert train_cmd[2] == "train"
     assert eval_cmd[2] == "evaluate"
+    assert prep_cmd[2] == "dataset-prepare"
+    assert qa_cmd[2] == "dataset-qa"
+    assert qa_cmd[-1] == "--strict"
 
 
 def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:

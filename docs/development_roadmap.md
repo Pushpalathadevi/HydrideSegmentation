@@ -252,3 +252,23 @@ Status:
 
 Exit criteria:
 - dataset auto-prepare policy decisions are code-complete, test-covered, and documented
+
+## Phase 12 - GUI Dataset Workspace And QA Gate (Implemented)
+
+Goals:
+- Bring dataset onboarding and validation fully into the Qt app workflow hub.
+- Provide preview-first controls for split planning and RGB mask conversion.
+- Enforce optional QA gate before launching training jobs.
+
+Deliverables:
+- dataset preview API in `src/microseg/dataops/training_dataset.py`
+- Workflow Hub `Dataset Prep + QA` tab in `hydride_segmentation/qt/main_window.py`
+- training preflight QA gate and launch blocking on critical dataset failures
+- YAML workflow profile save/load for dataset-prepare, training, and evaluation panes
+- orchestration builder support for dataset-prepare and dataset-qa command paths
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-16)
+
+Exit criteria:
+- users can preview, prepare, QA-check, and gate training from GUI without ad hoc CLI steps

@@ -22,6 +22,7 @@ Core planning and governance docs:
 - Phase 9 model lifecycle + dataset ops status: `phase9_model_lifecycle_dataops.md`
 - Phase 10 training dataset auto-prepare status: `phase10_training_dataset_autoprepare.md`
 - Phase 11 dataset policy alignment status: `phase11_dataset_policy_alignment.md`
+- Phase 12 GUI dataset workspace status: `phase12_gui_dataset_workspace.md`
 - Frozen checkpoint registry guide: `frozen_checkpoint_registry.md`
 - Training data requirements: `training_data_requirements.md`
 - GUI usage guide: `gui_user_guide.md`

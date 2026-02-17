@@ -106,6 +106,23 @@ class DatasetPrepareResult:
     manifest_path: str = ""
 
 
+@dataclass
+class DatasetPreparePreview:
+    """Preview summary for dataset preparation without writing output files."""
+
+    schema_version: str
+    created_utc: str
+    dataset_dir: str
+    output_dir: str
+    source_layout: str
+    used_existing_splits: bool
+    split_counts: dict[str, int] = field(default_factory=dict)
+    total_pairs: int = 0
+    leakage_groups: int = 0
+    class_histogram: dict[str, int] = field(default_factory=dict)
+    mapping: list[dict[str, object]] = field(default_factory=list)
+
+
 def _pairs_by_stem(images_dir: Path, masks_dir: Path) -> list[tuple[str, Path, Path]]:
     images = _collect_supported_files(images_dir)
     masks = _collect_supported_files(masks_dir)
@@ -397,6 +414,109 @@ def _plan_split_assignments(
     for idx in range(len(pairs)):
         split_by_pair_index[idx] = group_to_split[source_group_for_index[idx]]
     return split_by_pair_index, group_to_split, source_group_for_index
+
+
+def _mask_histogram(pairs: list[tuple[str, Path, Path]], config: DatasetPrepareConfig) -> dict[str, int]:
+    hist: dict[int, int] = {}
+    for _stem, _img_path, mask_path in pairs:
+        mask_idx = _mask_to_index(mask_path, config)
+        vals, counts = np.unique(mask_idx.reshape(-1), return_counts=True)
+        for v, c in zip(vals.tolist(), counts.tolist()):
+            hist[int(v)] = hist.get(int(v), 0) + int(c)
+    return {str(k): int(v) for k, v in sorted(hist.items())}
+
+
+def preview_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPreparePreview:
+    """Preview dataset preparation plan and class statistics without materialization."""
+
+    root = Path(config.dataset_dir)
+
+    if _has_explicit_split_layout(root):
+        split_counts: dict[str, int] = {}
+        mapping: list[dict[str, object]] = []
+        class_hist: dict[str, int] = {}
+        running_id = 0
+        for split in ["train", "val", "test"]:
+            images_dir = root / split / "images"
+            masks_dir = root / split / "masks"
+            if not images_dir.exists() or not masks_dir.exists():
+                split_counts[split] = 0
+                continue
+            split_pairs = _pairs_by_stem(images_dir, masks_dir)
+            split_counts[split] = len(split_pairs)
+            split_hist = _mask_histogram(split_pairs, config)
+            for key, value in split_hist.items():
+                class_hist[key] = class_hist.get(key, 0) + value
+            for stem, image_path, mask_path in split_pairs:
+                running_id += 1
+                global_id = f"{running_id:0{int(config.id_width)}d}"
+                mapping.append(
+                    {
+                        "id": global_id,
+                        "global_id": global_id,
+                        "original_stem": stem,
+                        "original_image_path": str(image_path),
+                        "original_mask_path": str(mask_path),
+                        "source_group": stem,
+                        "new_name": f"{stem}_{global_id}.png",
+                        "split": split,
+                    }
+                )
+        return DatasetPreparePreview(
+            schema_version="microseg.dataset_prepare_preview.v1",
+            created_utc=_utc_now(),
+            dataset_dir=str(root),
+            output_dir=str(Path(config.output_dir)),
+            source_layout="split_layout",
+            used_existing_splits=True,
+            split_counts=split_counts,
+            total_pairs=int(sum(split_counts.values())),
+            leakage_groups=0,
+            class_histogram={str(k): int(v) for k, v in sorted(class_hist.items(), key=lambda kv: int(kv[0]))},
+            mapping=mapping,
+        )
+
+    pair_dirs = _find_unsplit_dirs(root)
+    if pair_dirs is None:
+        raise FileNotFoundError(
+            f"dataset layout not recognized at {root}. "
+            "Expected either explicit split folders or unsplit source/masks folders."
+        )
+    images_dir, masks_dir = pair_dirs
+    pairs = _pairs_by_stem(images_dir, masks_dir)
+    split_by_pair_index, group_to_split, source_group_for_index = _plan_split_assignments(pairs, config)
+    split_counts = {"train": 0, "val": 0, "test": 0}
+    mapping: list[dict[str, object]] = []
+    for idx, (stem, image_path, mask_path) in enumerate(pairs, start=1):
+        split = split_by_pair_index[idx - 1]
+        global_id = f"{idx:0{int(config.id_width)}d}"
+        split_counts[split] += 1
+        mapping.append(
+            {
+                "id": global_id,
+                "global_id": global_id,
+                "original_stem": stem,
+                "original_image_path": str(image_path),
+                "original_mask_path": str(mask_path),
+                "source_group": source_group_for_index[idx - 1],
+                "new_name": f"{stem}_{global_id}.png",
+                "split": split,
+            }
+        )
+
+    return DatasetPreparePreview(
+        schema_version="microseg.dataset_prepare_preview.v1",
+        created_utc=_utc_now(),
+        dataset_dir=str(root),
+        output_dir=str(Path(config.output_dir)),
+        source_layout=f"unsplit:{images_dir.relative_to(root)}+{masks_dir.relative_to(root)}",
+        used_existing_splits=False,
+        split_counts=split_counts,
+        total_pairs=len(pairs),
+        leakage_groups=len(group_to_split),
+        class_histogram=_mask_histogram(pairs, config),
+        mapping=mapping,
+    )
 
 
 def prepare_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPrepareResult:

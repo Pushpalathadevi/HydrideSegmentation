@@ -1,4 +1,4 @@
-# Current State Gap Analysis (v0.14.0)
+# Current State Gap Analysis (v0.15.0)
 
 ## Baseline Status
 
@@ -22,6 +22,7 @@ Implemented:
 - Strict frozen registry validation and leakage-aware dataset split/QA tooling
 - Training dataset auto-prepare from unsplit source/masks with deterministic 80:10:10 default split
 - Leakage-aware auto-prepare grouping policies with optional RGB-colormap mask conversion and global IDs
+- GUI Dataset Prep + QA workspace with searchable preview table and optional training QA gate
 
 ## Remaining Gaps To World-Class Target
 

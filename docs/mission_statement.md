@@ -46,6 +46,7 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 10. Keep user-facing and developer-facing documentation beginner-friendly and synchronized with implementation.
 11. Enforce strict model metadata validation and leakage-aware dataset split/QA checks before training cycles.
 12. Support explicit split datasets and unsplit source/masks datasets through deterministic auto-prepare workflows, including optional RGB-mask colormap conversion.
+13. Provide GUI-native dataset onboarding with preview-first split planning and optional QA-gated training launch controls.
 
 ## Success Criteria
 

@@ -37,4 +37,9 @@ Current status:
   - `dataops/quality.py` packaged dataset QA checks
 - Phase 10 training data contract implemented:
   - `dataops/training_dataset.py` split-layout detection + unsplit auto-prepare with ID suffix mapping
+- Phase 11 dataset policy alignment implemented:
+  - `dataops/training_dataset.py` leakage-aware default split strategy + optional RGB colormap conversion
+- Phase 12 GUI dataset workspace foundation implemented:
+  - `dataops/training_dataset.py` preview API (`preview_training_dataset_layout`)
+  - `app/orchestration.py` dataset-prepare and dataset-qa command builders
 - Existing implementation still remains under `hydride_segmentation/` for backward compatibility.

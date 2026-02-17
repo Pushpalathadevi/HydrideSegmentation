@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QPlainTextEdit,
     QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QTextEdit,
     QScrollArea,
     QSlider,
@@ -35,6 +38,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QVBoxLayout,
     QWidget,
+    QHeaderView,
 )
 
 from hydride_segmentation.version import __version__
@@ -48,6 +52,13 @@ from src.microseg.corrections import (
     SegmentationClassMap,
     colorize_index_mask,
     to_index_mask,
+)
+from src.microseg.dataops import (
+    DatasetPrepareConfig,
+    DatasetQualityConfig,
+    preview_training_dataset_layout,
+    prepare_training_dataset_layout,
+    run_dataset_quality_checks,
 )
 from src.microseg.io import resolve_config
 from src.microseg.ui import AnnotationLayerSettings, compose_annotation_view
@@ -361,6 +372,10 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orchestrator = OrchestrationCommandBuilder.discover(start=Path(__file__))
         self._job_process: QProcess | None = None
         self._job_name: str = ""
+        self._dataset_preview_rows: list[dict[str, object]] = []
+        self._dataset_preview_split_counts: dict[str, int] = {}
+        self._last_dataset_qa_ok: bool | None = None
+        self._last_dataset_qa_dir: str = ""
         self.state = _UiState()
         self._model_specs = {spec["display_name"]: spec for spec in self.workflow.model_specs()}
 
@@ -742,6 +757,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_train_seed = QSpinBox()
         self.orch_train_seed.setRange(0, 100000)
         self.orch_train_seed.setValue(42)
+        self.orch_train_require_qa = QCheckBox("Require dataset QA pass before launch")
+        self.orch_train_require_qa.setChecked(True)
         self.btn_orch_train = QPushButton("Run Training Job")
         self.btn_orch_train.clicked.connect(self.on_orchestrate_training)
         train_form.addRow("Config", self.orch_train_config_edit)
@@ -765,6 +782,7 @@ class QtSegmentationMainWindow(QMainWindow):
         train_form.addRow("Progress Log Interval (%)", self.orch_train_progress_interval)
         train_form.addRow(self.orch_train_write_html_report)
         train_form.addRow("Seed", self.orch_train_seed)
+        train_form.addRow(self.orch_train_require_qa)
         train_form.addRow(self.btn_orch_train)
         self.workflow_tabs.addTab(train_tab, "Training")
 
@@ -833,6 +851,126 @@ class QtSegmentationMainWindow(QMainWindow):
         package_form.addRow(self.btn_package)
         self.workflow_tabs.addTab(package_tab, "Packaging")
 
+        prep_tab = QWidget()
+        self.workflow_prep_tab = prep_tab
+        prep_root = QVBoxLayout(prep_tab)
+        prep_form = QFormLayout()
+        self.orch_prepare_config_edit = QLineEdit("configs/dataset_prepare.default.yml")
+        self.orch_prepare_set_edit = QLineEdit()
+        self.orch_prepare_set_edit.setPlaceholderText("key=value,key2=value2")
+        self.orch_prepare_dataset_edit = QLineEdit("data")
+        self.orch_prepare_output_edit = QLineEdit("outputs/prepared_dataset")
+        self.orch_prepare_train_ratio = QDoubleSpinBox()
+        self.orch_prepare_train_ratio.setRange(0.05, 0.95)
+        self.orch_prepare_train_ratio.setDecimals(2)
+        self.orch_prepare_train_ratio.setValue(0.8)
+        self.orch_prepare_val_ratio = QDoubleSpinBox()
+        self.orch_prepare_val_ratio.setRange(0.0, 0.8)
+        self.orch_prepare_val_ratio.setDecimals(2)
+        self.orch_prepare_val_ratio.setValue(0.1)
+        self.orch_prepare_test_ratio = QDoubleSpinBox()
+        self.orch_prepare_test_ratio.setRange(0.0, 0.8)
+        self.orch_prepare_test_ratio.setDecimals(2)
+        self.orch_prepare_test_ratio.setValue(0.1)
+        self.orch_prepare_seed = QSpinBox()
+        self.orch_prepare_seed.setRange(0, 100000)
+        self.orch_prepare_seed.setValue(42)
+        self.orch_prepare_id_width = QSpinBox()
+        self.orch_prepare_id_width.setRange(1, 12)
+        self.orch_prepare_id_width.setValue(6)
+        self.orch_prepare_strategy = QComboBox()
+        self.orch_prepare_strategy.addItems(["leakage_aware", "random"])
+        self.orch_prepare_strategy.setCurrentText("leakage_aware")
+        self.orch_prepare_group_mode = QComboBox()
+        self.orch_prepare_group_mode.addItems(["suffix_aware", "stem", "regex"])
+        self.orch_prepare_group_mode.setCurrentText("suffix_aware")
+        self.orch_prepare_group_regex = QLineEdit()
+        self.orch_prepare_group_regex.setPlaceholderText("Optional when leakage group mode=regex")
+        self.orch_prepare_mask_type = QComboBox()
+        self.orch_prepare_mask_type.addItems(["indexed", "rgb_colormap", "auto"])
+        self.orch_prepare_mask_type.setCurrentText("indexed")
+        self.orch_prepare_colormap = QTextEdit()
+        self.orch_prepare_colormap.setPlaceholderText('JSON object, e.g. {"0":[0,0,0],"1":[255,0,0]}')
+        self.orch_prepare_colormap.setMaximumHeight(90)
+        self.orch_prepare_colormap_strict = QCheckBox("Strict colormap (unknown RGB colors fail)")
+        self.orch_prepare_colormap_strict.setChecked(True)
+
+        self.orch_qa_config_edit = QLineEdit("configs/dataset_qa.default.yml")
+        self.orch_qa_output_edit = QLineEdit("outputs/dataops/dataset_qa_report.json")
+        self.orch_qa_imbalance_warn = QDoubleSpinBox()
+        self.orch_qa_imbalance_warn.setRange(0.5, 1.0)
+        self.orch_qa_imbalance_warn.setDecimals(3)
+        self.orch_qa_imbalance_warn.setValue(0.98)
+        self.orch_qa_strict = QCheckBox("Strict QA")
+        self.orch_qa_strict.setChecked(True)
+
+        prep_form.addRow("Prepare Config", self.orch_prepare_config_edit)
+        prep_form.addRow("Prepare Overrides", self.orch_prepare_set_edit)
+        prep_form.addRow("Dataset Dir", self.orch_prepare_dataset_edit)
+        prep_form.addRow("Prepared Output Dir", self.orch_prepare_output_edit)
+        prep_form.addRow("Train Ratio", self.orch_prepare_train_ratio)
+        prep_form.addRow("Val Ratio", self.orch_prepare_val_ratio)
+        prep_form.addRow("Test Ratio", self.orch_prepare_test_ratio)
+        prep_form.addRow("Seed", self.orch_prepare_seed)
+        prep_form.addRow("ID Width", self.orch_prepare_id_width)
+        prep_form.addRow("Split Strategy", self.orch_prepare_strategy)
+        prep_form.addRow("Leakage Group Mode", self.orch_prepare_group_mode)
+        prep_form.addRow("Leakage Group Regex", self.orch_prepare_group_regex)
+        prep_form.addRow("Mask Input Type", self.orch_prepare_mask_type)
+        prep_form.addRow("Mask Colormap JSON", self.orch_prepare_colormap)
+        prep_form.addRow(self.orch_prepare_colormap_strict)
+        prep_form.addRow("QA Config", self.orch_qa_config_edit)
+        prep_form.addRow("QA Output Path", self.orch_qa_output_edit)
+        prep_form.addRow("QA Imbalance Warn", self.orch_qa_imbalance_warn)
+        prep_form.addRow(self.orch_qa_strict)
+        prep_root.addLayout(prep_form)
+
+        prep_actions = QHBoxLayout()
+        self.btn_orch_prepare_preview = QPushButton("Preview Dataset Plan")
+        self.btn_orch_prepare_preview.clicked.connect(self.on_preview_dataset_prepare)
+        self.btn_orch_prepare_run = QPushButton("Run Dataset Prepare Job")
+        self.btn_orch_prepare_run.clicked.connect(self.on_orchestrate_dataset_prepare)
+        self.btn_orch_run_qa = QPushButton("Run QA Check")
+        self.btn_orch_run_qa.clicked.connect(self.on_run_dataset_qa)
+        self.btn_orch_apply_train_dataset = QPushButton("Use Prepared Dir In Training")
+        self.btn_orch_apply_train_dataset.clicked.connect(self.on_apply_prepared_dataset_to_training)
+        prep_actions.addWidget(self.btn_orch_prepare_preview)
+        prep_actions.addWidget(self.btn_orch_prepare_run)
+        prep_actions.addWidget(self.btn_orch_run_qa)
+        prep_actions.addWidget(self.btn_orch_apply_train_dataset)
+        prep_root.addLayout(prep_actions)
+
+        self.dataset_preview_summary = QLabel("Preview: not generated")
+        prep_root.addWidget(self.dataset_preview_summary)
+        self.dataset_preview_filter = QLineEdit()
+        self.dataset_preview_filter.setPlaceholderText("Filter preview rows by id/stem/split/group/path")
+        self.dataset_preview_filter.textChanged.connect(self._refresh_dataset_preview_table)
+        prep_root.addWidget(self.dataset_preview_filter)
+
+        self.dataset_preview_table = QTableWidget(0, 7)
+        self.dataset_preview_table.setHorizontalHeaderLabels(
+            ["Global ID", "Split", "Source Group", "Original Stem", "New Name", "Image Path", "Mask Path"]
+        )
+        self.dataset_preview_table.horizontalHeader().setStretchLastSection(True)
+        self.dataset_preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.dataset_preview_table.setAlternatingRowColors(True)
+        prep_root.addWidget(self.dataset_preview_table, stretch=1)
+        self.workflow_tabs.addTab(prep_tab, "Dataset Prep + QA")
+
+        profile_bar = QHBoxLayout()
+        self.workflow_profile_scope = QComboBox()
+        self.workflow_profile_scope.addItems(["dataset_prepare", "training", "evaluation"])
+        self.btn_workflow_profile_save = QPushButton("Save Workflow Profile")
+        self.btn_workflow_profile_save.clicked.connect(self.on_save_workflow_profile)
+        self.btn_workflow_profile_load = QPushButton("Load Workflow Profile")
+        self.btn_workflow_profile_load.clicked.connect(self.on_load_workflow_profile)
+        profile_bar.addWidget(QLabel("Profile Scope"))
+        profile_bar.addWidget(self.workflow_profile_scope)
+        profile_bar.addWidget(self.btn_workflow_profile_save)
+        profile_bar.addWidget(self.btn_workflow_profile_load)
+        profile_bar.addStretch(1)
+        wf_root.addLayout(profile_bar)
+
         self.workflow_notes = QTextEdit()
         self.workflow_notes.setReadOnly(True)
         self.workflow_notes.setPlainText(
@@ -840,7 +978,8 @@ class QtSegmentationMainWindow(QMainWindow):
             "- One active job at a time\\n"
             "- Commands run through scripts/microseg_cli.py\\n"
             "- Use YAML config + overrides for reproducibility.\\n"
-            "- GPU is opt-in; fallback to CPU is automatic if unavailable."
+            "- GPU is opt-in; fallback to CPU is automatic if unavailable.\\n"
+            "- Dataset Prep + QA tab supports preview, prepare, QA gating, and profile save/load."
         )
         wf_root.addWidget(self.workflow_notes)
 
@@ -1044,6 +1183,136 @@ class QtSegmentationMainWindow(QMainWindow):
             return []
         return [part.strip() for part in txt.split(",") if part.strip()]
 
+    @staticmethod
+    def _parse_json_mapping_text(raw: str) -> dict[str, object]:
+        text = raw.strip()
+        if not text:
+            return {}
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            raise ValueError("Mask colormap must be a JSON object")
+        return {str(k): v for k, v in payload.items()}
+
+    def _build_dataset_prepare_config(
+        self,
+        *,
+        dataset_dir_override: str | None = None,
+        output_dir_override: str | None = None,
+    ) -> DatasetPrepareConfig:
+        cfg_path = self.orch_prepare_config_edit.text().strip() or None
+        cfg_overrides = self._parse_override_text(self.orch_prepare_set_edit.text())
+        cfg = resolve_config(cfg_path, cfg_overrides)
+        dataset_dir = dataset_dir_override or self.orch_prepare_dataset_edit.text().strip() or str(cfg.get("dataset_dir", ""))
+        output_dir = output_dir_override or self.orch_prepare_output_edit.text().strip() or str(cfg.get("output_dir", ""))
+        if not dataset_dir or not output_dir:
+            raise ValueError("Dataset Dir and Prepared Output Dir are required for dataset preparation")
+
+        mask_colormap = dict(cfg.get("mask_colormap", {}))
+        if self.orch_prepare_colormap.toPlainText().strip():
+            mask_colormap = self._parse_json_mapping_text(self.orch_prepare_colormap.toPlainText())
+
+        return DatasetPrepareConfig(
+            dataset_dir=dataset_dir,
+            output_dir=output_dir,
+            train_ratio=float(self.orch_prepare_train_ratio.value()),
+            val_ratio=float(self.orch_prepare_val_ratio.value()),
+            test_ratio=float(self.orch_prepare_test_ratio.value()),
+            seed=int(self.orch_prepare_seed.value()),
+            id_width=int(self.orch_prepare_id_width.value()),
+            split_strategy=str(self.orch_prepare_strategy.currentText()),
+            leakage_group_mode=str(self.orch_prepare_group_mode.currentText()),
+            leakage_group_regex=self.orch_prepare_group_regex.text().strip(),
+            mask_input_type=str(self.orch_prepare_mask_type.currentText()),
+            mask_colormap=mask_colormap,
+            mask_colormap_strict=bool(self.orch_prepare_colormap_strict.isChecked()),
+        )
+
+    def _dataset_prepare_overrides(self, config: DatasetPrepareConfig) -> list[str]:
+        overrides = self._parse_override_text(self.orch_prepare_set_edit.text())
+        overrides.extend(
+            [
+                f"split_train_ratio={float(config.train_ratio)}",
+                f"split_val_ratio={float(config.val_ratio)}",
+                f"split_test_ratio={float(config.test_ratio)}",
+                f"split_seed={int(config.seed)}",
+                f"split_id_width={int(config.id_width)}",
+                f"split_strategy={config.split_strategy}",
+                f"leakage_group_mode={config.leakage_group_mode}",
+                f"leakage_group_regex={config.leakage_group_regex}",
+                f"mask_input_type={config.mask_input_type}",
+                f"mask_colormap_strict={str(bool(config.mask_colormap_strict)).lower()}",
+            ]
+        )
+        if config.mask_colormap:
+            overrides.append(f"mask_colormap={json.dumps(config.mask_colormap, separators=(',', ':'))}")
+        return overrides
+
+    def _set_dataset_preview_payload(self, rows: list[dict[str, object]], split_counts: dict[str, int], summary: str) -> None:
+        self._dataset_preview_rows = rows
+        self._dataset_preview_split_counts = split_counts
+        self.dataset_preview_summary.setText(summary)
+        self._refresh_dataset_preview_table()
+
+    def _refresh_dataset_preview_table(self, *_args) -> None:
+        query = self.dataset_preview_filter.text().strip().lower()
+        rows = self._dataset_preview_rows
+        if query:
+            rows = [
+                row
+                for row in rows
+                if query in " ".join(
+                    [
+                        str(row.get("global_id", "")),
+                        str(row.get("split", "")),
+                        str(row.get("source_group", "")),
+                        str(row.get("original_stem", "")),
+                        str(row.get("new_name", "")),
+                        str(row.get("original_image_path", "")),
+                        str(row.get("original_mask_path", "")),
+                    ]
+                ).lower()
+            ]
+        self.dataset_preview_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            vals = [
+                str(row.get("global_id", row.get("id", ""))),
+                str(row.get("split", "")),
+                str(row.get("source_group", "")),
+                str(row.get("original_stem", "")),
+                str(row.get("new_name", "")),
+                str(row.get("original_image_path", "")),
+                str(row.get("original_mask_path", "")),
+            ]
+            for c, value in enumerate(vals):
+                self.dataset_preview_table.setItem(r, c, QTableWidgetItem(value))
+
+    def _run_dataset_qa(self, dataset_dir: str) -> tuple[bool, str]:
+        qa_cfg_path = self.orch_qa_config_edit.text().strip() or None
+        qa_cfg = resolve_config(qa_cfg_path, None)
+        output_path = self.orch_qa_output_edit.text().strip() or str(qa_cfg.get("output_path", "outputs/dataops/dataset_qa_report.json"))
+        imbalance_warn = float(self.orch_qa_imbalance_warn.value())
+        strict = bool(self.orch_qa_strict.isChecked())
+        report = run_dataset_quality_checks(
+            DatasetQualityConfig(
+                dataset_dir=dataset_dir,
+                output_path=output_path,
+                imbalance_ratio_warn=imbalance_warn,
+                strict=False,
+            )
+        )
+        self._last_dataset_qa_ok = bool(report.ok)
+        self._last_dataset_qa_dir = str(dataset_dir)
+        self.workflow_notes.append(
+            f"[Dataset QA] ok={report.ok} errors={len(report.errors)} warnings={len(report.warnings)} report={output_path}"
+        )
+        if report.errors:
+            self.workflow_notes.append("[Dataset QA] critical errors:\n- " + "\n- ".join(report.errors[:8]))
+        if report.warnings:
+            self.workflow_notes.append("[Dataset QA] warnings:\n- " + "\n- ".join(report.warnings[:8]))
+        if strict and not report.ok:
+            return False, output_path
+        return True, output_path
+
     def _config_overrides(self) -> list[str]:
         return self._parse_override_text(self.config_overrides_edit.text())
 
@@ -1101,6 +1370,256 @@ class QtSegmentationMainWindow(QMainWindow):
             )
         self._job_process = None
 
+    def on_preview_dataset_prepare(self) -> None:
+        try:
+            config = self._build_dataset_prepare_config()
+            preview = preview_training_dataset_layout(config)
+            rows = list(preview.mapping)
+            split_counts = preview.split_counts
+            summary = (
+                f"Preview | layout={preview.source_layout} | pairs={preview.total_pairs} | "
+                f"split={split_counts} | leakage_groups={preview.leakage_groups} | "
+                f"class_hist={preview.class_histogram}"
+            )
+            self._set_dataset_preview_payload(rows, split_counts, summary)
+            self.workflow_notes.append(f"[Dataset Preview] {summary}")
+        except Exception as exc:
+            self.logger.exception("Dataset preview failed")
+            QMessageBox.critical(self, "Dataset Preview Error", str(exc))
+
+    def on_orchestrate_dataset_prepare(self) -> None:
+        try:
+            config = self._build_dataset_prepare_config()
+        except Exception as exc:
+            QMessageBox.critical(self, "Dataset Prepare Config Error", str(exc))
+            return
+        command = self.orchestrator.dataset_prepare(
+            config=self.orch_prepare_config_edit.text().strip() or None,
+            overrides=self._dataset_prepare_overrides(config),
+            dataset_dir=config.dataset_dir,
+            output_dir=config.output_dir,
+        )
+        self._start_orchestration_job(command, "DatasetPrepare")
+
+    def on_run_dataset_qa(self) -> None:
+        dataset_dir = self.orch_prepare_output_edit.text().strip() or self.orch_prepare_dataset_edit.text().strip()
+        if not dataset_dir:
+            QMessageBox.warning(self, "Missing path", "Set Prepared Output Dir or Dataset Dir for QA.")
+            return
+        try:
+            ok, report_path = self._run_dataset_qa(dataset_dir)
+            if ok:
+                QMessageBox.information(self, "Dataset QA", f"QA passed for:\n{dataset_dir}\n\nReport:\n{report_path}")
+            else:
+                QMessageBox.critical(self, "Dataset QA Failed", f"QA failed for:\n{dataset_dir}\n\nReport:\n{report_path}")
+        except Exception as exc:
+            self.logger.exception("Dataset QA failed")
+            QMessageBox.critical(self, "Dataset QA Error", str(exc))
+
+    def on_apply_prepared_dataset_to_training(self) -> None:
+        target = self.orch_prepare_output_edit.text().strip()
+        if not target:
+            QMessageBox.warning(self, "Missing path", "Set Prepared Output Dir first.")
+            return
+        self.orch_train_dataset_edit.setText(target)
+        self.workflow_notes.append(f"[Workflow] Training dataset path set to prepared output: {target}")
+        QMessageBox.information(self, "Training Dataset Updated", f"Training Dataset Dir set to:\n{target}")
+
+    def _preflight_training_dataset_gate(self, dataset_dir: str, output_dir: str) -> tuple[str, list[str]] | None:
+        if not self.orch_train_require_qa.isChecked():
+            return dataset_dir, []
+        prep_out = self.orch_prepare_output_edit.text().strip() or str(Path(output_dir or "outputs/training") / "prepared_dataset")
+        try:
+            prep_cfg = self._build_dataset_prepare_config(dataset_dir_override=dataset_dir, output_dir_override=prep_out)
+            prepared = prepare_training_dataset_layout(prep_cfg)
+            qa_dataset_dir = str(prepared.dataset_dir)
+            ok, report_path = self._run_dataset_qa(qa_dataset_dir)
+            if not ok:
+                QMessageBox.critical(
+                    self,
+                    "Training Blocked (Dataset QA)",
+                    f"Dataset QA failed; training launch is blocked.\n\nDataset: {qa_dataset_dir}\nReport: {report_path}",
+                )
+                return None
+            self.workflow_notes.append(
+                f"[Training Gate] QA passed | dataset={qa_dataset_dir} | used_existing_splits={prepared.used_existing_splits}"
+            )
+            return qa_dataset_dir, ["auto_prepare_dataset=false"]
+        except Exception as exc:
+            self.logger.exception("Training dataset preflight failed")
+            QMessageBox.critical(self, "Training Dataset Gate Error", str(exc))
+            return None
+
+    def _collect_workflow_profile(self, scope: str) -> dict[str, object]:
+        if scope == "dataset_prepare":
+            return {
+                "prepare_config": self.orch_prepare_config_edit.text().strip(),
+                "prepare_overrides": self.orch_prepare_set_edit.text().strip(),
+                "dataset_dir": self.orch_prepare_dataset_edit.text().strip(),
+                "output_dir": self.orch_prepare_output_edit.text().strip(),
+                "split_train_ratio": float(self.orch_prepare_train_ratio.value()),
+                "split_val_ratio": float(self.orch_prepare_val_ratio.value()),
+                "split_test_ratio": float(self.orch_prepare_test_ratio.value()),
+                "split_seed": int(self.orch_prepare_seed.value()),
+                "split_id_width": int(self.orch_prepare_id_width.value()),
+                "split_strategy": self.orch_prepare_strategy.currentText(),
+                "leakage_group_mode": self.orch_prepare_group_mode.currentText(),
+                "leakage_group_regex": self.orch_prepare_group_regex.text().strip(),
+                "mask_input_type": self.orch_prepare_mask_type.currentText(),
+                "mask_colormap_json": self.orch_prepare_colormap.toPlainText().strip(),
+                "mask_colormap_strict": bool(self.orch_prepare_colormap_strict.isChecked()),
+                "qa_config": self.orch_qa_config_edit.text().strip(),
+                "qa_output": self.orch_qa_output_edit.text().strip(),
+                "qa_imbalance_warn": float(self.orch_qa_imbalance_warn.value()),
+                "qa_strict": bool(self.orch_qa_strict.isChecked()),
+            }
+        if scope == "training":
+            return {
+                "config": self.orch_train_config_edit.text().strip(),
+                "overrides": self.orch_train_set_edit.text().strip(),
+                "backend": self.orch_train_backend.currentText(),
+                "dataset_dir": self.orch_train_dataset_edit.text().strip(),
+                "output_dir": self.orch_train_output_edit.text().strip(),
+                "enable_gpu": bool(self.orch_train_enable_gpu.isChecked()),
+                "device_policy": self.orch_train_device_policy.currentText(),
+                "max_samples": int(self.orch_train_max_samples.value()),
+                "epochs": int(self.orch_train_epochs.value()),
+                "batch_size": int(self.orch_train_batch_size.value()),
+                "learning_rate": float(self.orch_train_learning_rate.value()),
+                "weight_decay": float(self.orch_train_weight_decay.value()),
+                "patience": int(self.orch_train_patience.value()),
+                "min_delta": float(self.orch_train_min_delta.value()),
+                "checkpoint_every": int(self.orch_train_checkpoint_every.value()),
+                "resume_checkpoint": self.orch_train_resume_checkpoint.text().strip(),
+                "val_tracking_samples": int(self.orch_train_val_tracking_samples.value()),
+                "val_tracking_fixed": self.orch_train_val_tracking_fixed.text().strip(),
+                "val_tracking_seed": int(self.orch_train_val_tracking_seed.value()),
+                "write_html_report": bool(self.orch_train_write_html_report.isChecked()),
+                "progress_interval": int(self.orch_train_progress_interval.value()),
+                "seed": int(self.orch_train_seed.value()),
+                "require_qa": bool(self.orch_train_require_qa.isChecked()),
+            }
+        if scope == "evaluation":
+            return {
+                "config": self.orch_eval_config_edit.text().strip(),
+                "overrides": self.orch_eval_set_edit.text().strip(),
+                "dataset_dir": self.orch_eval_dataset_edit.text().strip(),
+                "model_path": self.orch_eval_model_edit.text().strip(),
+                "enable_gpu": bool(self.orch_eval_enable_gpu.isChecked()),
+                "device_policy": self.orch_eval_device_policy.currentText(),
+                "split": self.orch_eval_split_combo.currentText(),
+                "output_path": self.orch_eval_output_edit.text().strip(),
+                "tracking_samples": int(self.orch_eval_tracking_samples.value()),
+                "tracking_seed": int(self.orch_eval_tracking_seed.value()),
+                "write_html_report": bool(self.orch_eval_write_html_report.isChecked()),
+            }
+        raise ValueError(f"Unsupported profile scope: {scope}")
+
+    def _apply_workflow_profile(self, scope: str, values: dict[str, object]) -> None:
+        if scope == "dataset_prepare":
+            self.orch_prepare_config_edit.setText(str(values.get("prepare_config", self.orch_prepare_config_edit.text())))
+            self.orch_prepare_set_edit.setText(str(values.get("prepare_overrides", self.orch_prepare_set_edit.text())))
+            self.orch_prepare_dataset_edit.setText(str(values.get("dataset_dir", self.orch_prepare_dataset_edit.text())))
+            self.orch_prepare_output_edit.setText(str(values.get("output_dir", self.orch_prepare_output_edit.text())))
+            self.orch_prepare_train_ratio.setValue(float(values.get("split_train_ratio", self.orch_prepare_train_ratio.value())))
+            self.orch_prepare_val_ratio.setValue(float(values.get("split_val_ratio", self.orch_prepare_val_ratio.value())))
+            self.orch_prepare_test_ratio.setValue(float(values.get("split_test_ratio", self.orch_prepare_test_ratio.value())))
+            self.orch_prepare_seed.setValue(int(values.get("split_seed", self.orch_prepare_seed.value())))
+            self.orch_prepare_id_width.setValue(int(values.get("split_id_width", self.orch_prepare_id_width.value())))
+            self.orch_prepare_strategy.setCurrentText(str(values.get("split_strategy", self.orch_prepare_strategy.currentText())))
+            self.orch_prepare_group_mode.setCurrentText(str(values.get("leakage_group_mode", self.orch_prepare_group_mode.currentText())))
+            self.orch_prepare_group_regex.setText(str(values.get("leakage_group_regex", self.orch_prepare_group_regex.text())))
+            self.orch_prepare_mask_type.setCurrentText(str(values.get("mask_input_type", self.orch_prepare_mask_type.currentText())))
+            self.orch_prepare_colormap.setPlainText(str(values.get("mask_colormap_json", self.orch_prepare_colormap.toPlainText())))
+            self.orch_prepare_colormap_strict.setChecked(bool(values.get("mask_colormap_strict", self.orch_prepare_colormap_strict.isChecked())))
+            self.orch_qa_config_edit.setText(str(values.get("qa_config", self.orch_qa_config_edit.text())))
+            self.orch_qa_output_edit.setText(str(values.get("qa_output", self.orch_qa_output_edit.text())))
+            self.orch_qa_imbalance_warn.setValue(float(values.get("qa_imbalance_warn", self.orch_qa_imbalance_warn.value())))
+            self.orch_qa_strict.setChecked(bool(values.get("qa_strict", self.orch_qa_strict.isChecked())))
+            self.workflow_tabs.setCurrentIndex(self.workflow_tabs.indexOf(self.workflow_prep_tab))
+            return
+        if scope == "training":
+            self.orch_train_config_edit.setText(str(values.get("config", self.orch_train_config_edit.text())))
+            self.orch_train_set_edit.setText(str(values.get("overrides", self.orch_train_set_edit.text())))
+            self.orch_train_backend.setCurrentText(str(values.get("backend", self.orch_train_backend.currentText())))
+            self.orch_train_dataset_edit.setText(str(values.get("dataset_dir", self.orch_train_dataset_edit.text())))
+            self.orch_train_output_edit.setText(str(values.get("output_dir", self.orch_train_output_edit.text())))
+            self.orch_train_enable_gpu.setChecked(bool(values.get("enable_gpu", self.orch_train_enable_gpu.isChecked())))
+            self.orch_train_device_policy.setCurrentText(str(values.get("device_policy", self.orch_train_device_policy.currentText())))
+            self.orch_train_max_samples.setValue(int(values.get("max_samples", self.orch_train_max_samples.value())))
+            self.orch_train_epochs.setValue(int(values.get("epochs", self.orch_train_epochs.value())))
+            self.orch_train_batch_size.setValue(int(values.get("batch_size", self.orch_train_batch_size.value())))
+            self.orch_train_learning_rate.setValue(float(values.get("learning_rate", self.orch_train_learning_rate.value())))
+            self.orch_train_weight_decay.setValue(float(values.get("weight_decay", self.orch_train_weight_decay.value())))
+            self.orch_train_patience.setValue(int(values.get("patience", self.orch_train_patience.value())))
+            self.orch_train_min_delta.setValue(float(values.get("min_delta", self.orch_train_min_delta.value())))
+            self.orch_train_checkpoint_every.setValue(int(values.get("checkpoint_every", self.orch_train_checkpoint_every.value())))
+            self.orch_train_resume_checkpoint.setText(str(values.get("resume_checkpoint", self.orch_train_resume_checkpoint.text())))
+            self.orch_train_val_tracking_samples.setValue(int(values.get("val_tracking_samples", self.orch_train_val_tracking_samples.value())))
+            self.orch_train_val_tracking_fixed.setText(str(values.get("val_tracking_fixed", self.orch_train_val_tracking_fixed.text())))
+            self.orch_train_val_tracking_seed.setValue(int(values.get("val_tracking_seed", self.orch_train_val_tracking_seed.value())))
+            self.orch_train_write_html_report.setChecked(bool(values.get("write_html_report", self.orch_train_write_html_report.isChecked())))
+            self.orch_train_progress_interval.setValue(int(values.get("progress_interval", self.orch_train_progress_interval.value())))
+            self.orch_train_seed.setValue(int(values.get("seed", self.orch_train_seed.value())))
+            self.orch_train_require_qa.setChecked(bool(values.get("require_qa", self.orch_train_require_qa.isChecked())))
+            self.workflow_tabs.setCurrentIndex(1)
+            return
+        if scope == "evaluation":
+            self.orch_eval_config_edit.setText(str(values.get("config", self.orch_eval_config_edit.text())))
+            self.orch_eval_set_edit.setText(str(values.get("overrides", self.orch_eval_set_edit.text())))
+            self.orch_eval_dataset_edit.setText(str(values.get("dataset_dir", self.orch_eval_dataset_edit.text())))
+            self.orch_eval_model_edit.setText(str(values.get("model_path", self.orch_eval_model_edit.text())))
+            self.orch_eval_enable_gpu.setChecked(bool(values.get("enable_gpu", self.orch_eval_enable_gpu.isChecked())))
+            self.orch_eval_device_policy.setCurrentText(str(values.get("device_policy", self.orch_eval_device_policy.currentText())))
+            self.orch_eval_split_combo.setCurrentText(str(values.get("split", self.orch_eval_split_combo.currentText())))
+            self.orch_eval_output_edit.setText(str(values.get("output_path", self.orch_eval_output_edit.text())))
+            self.orch_eval_tracking_samples.setValue(int(values.get("tracking_samples", self.orch_eval_tracking_samples.value())))
+            self.orch_eval_tracking_seed.setValue(int(values.get("tracking_seed", self.orch_eval_tracking_seed.value())))
+            self.orch_eval_write_html_report.setChecked(bool(values.get("write_html_report", self.orch_eval_write_html_report.isChecked())))
+            self.workflow_tabs.setCurrentIndex(2)
+            return
+        raise ValueError(f"Unsupported profile scope: {scope}")
+
+    def on_save_workflow_profile(self) -> None:
+        scope = self.workflow_profile_scope.currentText()
+        path, _ = QFileDialog.getSaveFileName(self, "Save workflow profile", "", "YAML (*.yml *.yaml)")
+        if not path:
+            return
+        payload = {
+            "schema_version": "microseg.workflow_profile.v1",
+            "scope": scope,
+            "values": self._collect_workflow_profile(scope),
+        }
+        try:
+            import yaml
+
+            Path(path).write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+            self.workflow_notes.append(f"[Profile] Saved {scope} profile to {path}")
+            QMessageBox.information(self, "Profile Saved", f"Saved profile:\n{path}")
+        except Exception as exc:
+            self.logger.exception("Failed to save workflow profile")
+            QMessageBox.critical(self, "Save Profile Error", str(exc))
+
+    def on_load_workflow_profile(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Load workflow profile", "", "YAML (*.yml *.yaml)")
+        if not path:
+            return
+        try:
+            import yaml
+
+            payload = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+            scope = str(payload.get("scope", self.workflow_profile_scope.currentText()))
+            values = payload.get("values", {})
+            if not isinstance(values, dict):
+                raise ValueError("Profile values must be a mapping")
+            self.workflow_profile_scope.setCurrentText(scope)
+            self._apply_workflow_profile(scope, values)
+            self.workflow_notes.append(f"[Profile] Loaded {scope} profile from {path}")
+            QMessageBox.information(self, "Profile Loaded", f"Loaded profile:\n{path}")
+        except Exception as exc:
+            self.logger.exception("Failed to load workflow profile")
+            QMessageBox.critical(self, "Load Profile Error", str(exc))
+
     def on_orchestrate_inference(self) -> None:
         overrides = self._parse_override_text(self.orch_infer_set_edit.text())
         overrides.extend(
@@ -1146,11 +1665,27 @@ class QtSegmentationMainWindow(QMainWindow):
         fixed = self.orch_train_val_tracking_fixed.text().strip()
         if fixed:
             overrides.append(f"val_tracking_fixed_samples={fixed}")
+        dataset_dir = self.orch_train_dataset_edit.text().strip() or None
+        output_dir = self.orch_train_output_edit.text().strip() or "outputs/training"
+        if self.orch_train_require_qa.isChecked() and not dataset_dir:
+            train_cfg = resolve_config(self.orch_train_config_edit.text().strip() or None, overrides)
+            cfg_dataset = str(train_cfg.get("dataset_dir", "")).strip()
+            cfg_output = str(train_cfg.get("output_dir", "")).strip()
+            dataset_dir = cfg_dataset or None
+            if cfg_output:
+                output_dir = cfg_output
+        if dataset_dir:
+            gate = self._preflight_training_dataset_gate(dataset_dir, output_dir)
+            if gate is None:
+                return
+            dataset_dir, gate_overrides = gate
+            overrides.extend(gate_overrides)
+            self.orch_train_dataset_edit.setText(dataset_dir)
         command = self.orchestrator.train(
             config=self.orch_train_config_edit.text().strip() or None,
             overrides=overrides,
-            dataset_dir=self.orch_train_dataset_edit.text().strip() or None,
-            output_dir=self.orch_train_output_edit.text().strip() or None,
+            dataset_dir=dataset_dir,
+            output_dir=output_dir,
         )
         self._start_orchestration_job(command, "Training")
 
@@ -1262,7 +1797,8 @@ class QtSegmentationMainWindow(QMainWindow):
             "4. For wrong objects: feature-select + erase to delete component.\n"
             "5. Redraw with brush/polygon/lasso in add mode.\n"
             "6. Tune layer transparency and export indexed/color/npy masks.\n"
-            "7. Use Workflow Hub for train/infer/evaluate/package orchestration jobs.",
+            "7. Use Workflow Hub for train/infer/evaluate/package orchestration jobs.\n"
+            "8. Use Dataset Prep + QA for split preview, colormap conversion, and QA gating.",
         )
 
     def on_show_about(self) -> None:

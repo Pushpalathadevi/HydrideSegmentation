@@ -22,4 +22,4 @@ Current phase coverage includes:
 - `test_phase8_phase_gate.py` phase closeout gate checks and stocktake artifact generation
 - `test_phase9_registry_validation.py` strict frozen model registry validation rules
 - `test_phase9_dataops.py` leakage-aware split planner and dataset QA checks
-- `test_phase10_dataset_prepare.py` unsplit source/masks auto-prepare with leakage-aware grouping, global IDs, and optional RGB-colormap conversion
+- `test_phase10_dataset_prepare.py` unsplit source/masks auto-prepare with leakage-aware grouping, global IDs, optional RGB-colormap conversion, and preview contract checks

@@ -121,6 +121,11 @@ Prepare dataset explicitly:
 microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml
 ```
 
+GUI workflow equivalent:
+- Open `Workflow Hub` -> `Dataset Prep + QA`
+- Use `Preview Dataset Plan` before running prepare
+- Optionally run QA and then launch training with QA gate enabled
+
 Prepare dataset with RGB colormap masks:
 
 ```bash

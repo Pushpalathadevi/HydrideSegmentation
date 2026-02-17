@@ -11,6 +11,7 @@
 7. Save session and resume later.
 8. Run full train/infer/evaluate/package jobs from Workflow Hub.
 9. Review model-specific frozen-checkpoint tips before selecting ML models.
+10. Use Dataset Prep + QA to preview split plans, run data QA, and gate training launches.
 
 ## Correction Workflow
 
@@ -50,6 +51,7 @@ The `Workflow Hub` tab includes orchestration sub-tabs:
 - `Training`: launches `microseg-cli train`
 - `Evaluation`: launches `microseg-cli evaluate`
 - `Packaging`: launches `microseg-cli package`
+- `Dataset Prep + QA`: preview/prepare dataset layouts and run dataset QA checks
 
 Operational behavior:
 - one active orchestration job at a time
@@ -59,6 +61,7 @@ Operational behavior:
 - per-job GPU controls (`Enable GPU` + `device policy`) with CPU fallback behavior
 - default is CPU execution unless GPU is explicitly enabled
 - training tab includes backend selection (`unet_binary`, `torch_pixel`, `sklearn_pixel`)
+- training tab includes optional `Require dataset QA pass before launch` gate
 - `unet_binary` supports early stopping and resume checkpoint path
 - training tab supports validation sample tracking:
   - total tracked sample count per epoch
@@ -67,6 +70,20 @@ Operational behavior:
   - progress logging interval configuration
   - optional HTML report writing
 - evaluation tab supports tracked sample panel count/seed and HTML report toggle
+
+Dataset Prep + QA tab highlights:
+- supports split-layout and unsplit `source/masks` onboarding
+- configurable leakage-aware split controls (`strategy`, `group mode`, `regex`)
+- optional RGB mask conversion using JSON colormap mapping
+- searchable preview table with global IDs and planned split assignment
+- in-app QA report run with strict/non-strict controls
+
+Workflow profiles:
+- save/load YAML profiles for:
+  - `dataset_prepare`
+  - `training`
+  - `evaluation`
+- profile schema: `microseg.workflow_profile.v1`
 
 ## Model Guidance Panel
 

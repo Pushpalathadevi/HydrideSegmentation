@@ -98,3 +98,9 @@ Phase 9 model lifecycle + data ops additions:
   - `src/microseg/dataops/split_planner.py`
   - `src/microseg/dataops/quality.py`
   - `src/microseg/dataops/training_dataset.py`
+
+Phase 12 GUI dataset workspace additions:
+- Workflow Hub `Dataset Prep + QA` tab in `hydride_segmentation/qt/main_window.py`
+- In-app dataset preview API usage with searchable mapping table and class histogram
+- Optional training launch gate requiring dataset QA pass
+- YAML workflow profiles for `dataset_prepare`, `training`, and `evaluation`

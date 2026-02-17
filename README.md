@@ -1,6 +1,6 @@
 # HydrideSegmentation -> MicroSeg Platform (Transition)
 
-Current release version: `0.14.0`
+Current release version: `0.15.0`
 
 This repository is transitioning from a hydride-specific toolkit into a general local platform for microstructural segmentation.
 Hydride segmentation is the first validated workflow.
@@ -25,6 +25,7 @@ See `docs/mission_statement.md`.
   - class index + color map editing
   - split-view synchronized zoom/pan and layer transparency
   - project/session save-load
+  - Dataset Prep + QA workspace (preview, prepare, QA, training gate)
 - Correction export schema `microseg.correction.v1`
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models

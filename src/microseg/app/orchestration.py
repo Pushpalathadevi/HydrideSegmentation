@@ -17,7 +17,7 @@ def _repo_root_from(start: Path) -> Path:
 
 @dataclass(frozen=True)
 class OrchestrationCommandBuilder:
-    """Build subprocess command lines for infer/train/evaluate/package jobs."""
+    """Build subprocess command lines for infer/train/evaluate/dataops jobs."""
 
     repo_root: Path
     python_executable: str = sys.executable
@@ -118,4 +118,43 @@ class OrchestrationCommandBuilder:
             args.extend(["--input-dir", input_dir])
         if output_dir:
             args.extend(["--output-dir", output_dir])
+        return args
+
+    def dataset_prepare(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        dataset_dir: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["dataset-prepare"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if dataset_dir:
+            args.extend(["--dataset-dir", dataset_dir])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args
+
+    def dataset_qa(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        dataset_dir: str | None = None,
+        output_path: str | None = None,
+        strict: bool = False,
+    ) -> list[str]:
+        args = self._base() + ["dataset-qa"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if dataset_dir:
+            args.extend(["--dataset-dir", dataset_dir])
+        if output_path:
+            args.extend(["--output-path", output_path])
+        if strict:
+            args.append("--strict")
         return args

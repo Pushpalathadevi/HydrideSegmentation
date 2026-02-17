@@ -7,7 +7,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from src.microseg.dataops.training_dataset import DatasetPrepareConfig, prepare_training_dataset_layout
+from src.microseg.dataops.training_dataset import (
+    DatasetPrepareConfig,
+    prepare_training_dataset_layout,
+    preview_training_dataset_layout,
+)
 
 
 def _write(path: Path, arr: np.ndarray) -> None:
@@ -139,3 +143,33 @@ def test_phase10_prepare_uses_existing_split_layout_when_present(tmp_path: Path)
     assert res.used_existing_splits is True
     assert res.prepared is False
     assert res.dataset_dir == str(root)
+
+
+def test_phase10_preview_reports_unsplit_mapping_and_histogram(tmp_path: Path) -> None:
+    root = tmp_path / "raw"
+    img = np.zeros((10, 10, 3), dtype=np.uint8)
+    m1 = np.zeros((10, 10), dtype=np.uint8)
+    m1[:, 5:] = 1
+    m2 = np.zeros((10, 10), dtype=np.uint8)
+    m2[:, 2:8] = 2
+    _write(root / "source" / "s1_aug1.png", img)
+    _write(root / "masks" / "s1_aug1.png", m1)
+    _write(root / "source" / "s1_aug2.png", img)
+    _write(root / "masks" / "s1_aug2.png", m2)
+
+    preview = preview_training_dataset_layout(
+        DatasetPrepareConfig(
+            dataset_dir=str(root),
+            output_dir=str(tmp_path / "prepared"),
+            split_strategy="leakage_aware",
+            leakage_group_mode="suffix_aware",
+        )
+    )
+    assert preview.used_existing_splits is False
+    assert preview.total_pairs == 2
+    assert preview.leakage_groups == 1
+    assert sum(preview.split_counts.values()) == 2
+    assert preview.class_histogram["0"] > 0
+    assert preview.class_histogram["1"] > 0
+    assert preview.class_histogram["2"] > 0
+    assert all(rec["source_group"] == "s1" for rec in preview.mapping)

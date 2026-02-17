@@ -42,6 +42,7 @@ A local installable desktop application for microstructural segmentation workflo
 - YAML parameter files for inference/packaging pipelines
 - `--set` runtime overrides for reproducible command-line runs
 - GUI config entries mapping to same config semantics
+- dataset onboarding workspace with split preview, optional RGB colormap conversion, and QA checks
 
 ## Non-Functional Requirements
 
@@ -51,7 +52,7 @@ A local installable desktop application for microstructural segmentation workflo
 - Reproducible outputs
 - Cross-platform packaging target (macOS, Linux, Windows)
 
-## Current Implementation Snapshot (Phase 7)
+## Current Implementation Snapshot (Phase 12)
 
 Implemented now:
 - Registry-backed model selector in GUI
@@ -75,6 +76,9 @@ Implemented now:
 - Phase-gate closeout automation for test pass + stocktake + docs synchronization
 - Leakage-aware correction split planner and packaged dataset QA checks
 - Deterministic unsplit source/masks to train/val/test preparation with ID-mapped filenames
+- Workflow Hub Dataset Prep + QA tab with searchable preview table and class histogram summary
+- Optional training preflight gate to block launches when dataset QA fails
+- YAML workflow profile save/load for dataset-prepare, training, and evaluation panes
 
 Pending:
 - Advanced correction ergonomics (shape libraries, smarter snapping, uncertainty-driven guidance)
