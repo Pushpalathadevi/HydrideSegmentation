@@ -5,7 +5,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='hydride-segmentation',
-    version='0.21.0',
+    version='0.22.0',
     description='Toolkit for zirconium hydride segmentation and analysis',
     packages=find_packages(),
     include_package_data=True,

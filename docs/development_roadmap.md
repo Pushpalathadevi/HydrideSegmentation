@@ -454,3 +454,28 @@ Exit criteria:
 - script can execute or dry-run full model/seed matrix from one config file
 - outputs include JSON, CSV, aggregate CSV, and HTML dashboard
 - docs explicitly describe remaining gaps and next hardening targets
+
+## Phase 21 - Benchmark Analytics Hardening (Implemented)
+
+Goals:
+- Add training-curve analytics to benchmark dashboards for objective model comparison.
+- Include model footprint and runtime effort metrics in run-level and aggregate summaries.
+- Strengthen training-history reporting with explicit epoch-wise accuracy fields.
+
+Deliverables:
+- enriched benchmark suite runner: `scripts/hydride_benchmark_suite.py`
+- training history accuracy additions: `src/microseg/training/unet_binary.py`
+- docs updates:
+  - `docs/hydride_research_workflow.md`
+  - `docs/phase21_benchmark_analytics_hardening.md`
+- tests:
+  - `tests/test_phase7_training_reporting.py`
+  - `tests/test_phase21_benchmark_dashboard_enrichment.py`
+
+Status:
+- Implemented on branch `codex/microstructure-foundation-scaffold` (2026-02-17)
+
+Exit criteria:
+- dashboard includes loss/accuracy/IoU vs epoch curves per run
+- summary outputs include parameter count, model size, train/eval/total runtimes
+- aggregate outputs include mean/std statistics for key quality and runtime metrics

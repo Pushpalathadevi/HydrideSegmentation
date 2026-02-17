@@ -375,17 +375,22 @@ Outputs:
 - run-level CSV: `outputs/benchmarks/top5_suite/benchmark_summary.csv`
 - aggregated CSV: `outputs/benchmarks/top5_suite/benchmark_aggregate.csv`
 - HTML dashboard: `outputs/benchmarks/top5_suite/benchmark_dashboard.html`
+- training-curve PNGs: `outputs/benchmarks/top5_suite/curves/*_loss_curve.png`, `*_accuracy_curve.png`, `*_iou_curve.png`
 
 What this already includes:
 - model name, seed, status
 - metrics (`pixel_accuracy`, `macro_f1`, `mean_iou`, runtime)
 - backend + resolved architecture fields
 - resolved key hyperparameters (`epochs`, `batch_size`, `learning_rate`, `weight_decay`, plus architecture knobs)
+- training-history summaries (`last_*` loss/accuracy/IoU, epochs completed, best training val-loss)
+- model footprint fields (`model_parameter_count`, checkpoint/model artifact size in bytes/MB)
+- runtime effort fields (training runtime, evaluation runtime, and total runtime)
+- run-level training curve gallery (`loss`, `accuracy`, `IoU` vs epoch)
 - train/eval config references and artifact paths
 
 Remaining gaps (known):
 - no statistical significance testing module yet (for example paired tests/CI bands).
-- dashboard is table-first (no advanced interactive plots yet).
+- dashboard is table-first plus static curve gallery (no advanced interactive plots yet).
 - HPC-distributed execution graph (job dependencies/retries) is not yet centralized in one scheduler-native workflow file.
 - `segmentation_models_pytorch` family backbones are installed but not yet first-class train/eval backends in the unified benchmark runner.
 

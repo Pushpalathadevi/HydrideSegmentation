@@ -666,6 +666,13 @@ def _binary_iou_from_logits(logits, targets) -> float:  # noqa: ANN001
     return float(inter / union)
 
 
+def _binary_accuracy_from_logits(logits, targets) -> float:  # noqa: ANN001
+    import torch
+
+    pred = (torch.sigmoid(logits) > 0.5).to(targets.dtype)
+    return float(torch.mean((pred == targets).to(torch.float32)).item())
+
+
 def _binary_iou_from_arrays(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     inter = int(np.count_nonzero((y_true > 0) & (y_pred > 0)))
     union = int(np.count_nonzero((y_true > 0) | (y_pred > 0)))
@@ -692,8 +699,10 @@ def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
             "<tr>"
             f"<td>{int(item.get('epoch', 0))}</td>"
             f"<td>{float(item.get('train_loss', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('train_accuracy', 0.0)):.4f}</td>"
             f"<td>{float(item.get('train_iou', 0.0)):.4f}</td>"
             f"<td>{float(item.get('val_loss', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('val_accuracy', 0.0)):.4f}</td>"
             f"<td>{float(item.get('val_iou', 0.0)):.4f}</td>"
             "</tr>"
         )
@@ -723,7 +732,7 @@ def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
         f" (epoch {int(progress.get('epochs_completed', 0))}/{int(progress.get('epochs_total', 0))})</p>"
         "<h2>Epoch Metrics</h2>"
         "<table border='1' cellpadding='6' cellspacing='0'>"
-        "<tr><th>Epoch</th><th>Train Loss</th><th>Train IoU</th><th>Val Loss</th><th>Val IoU</th></tr>"
+        "<tr><th>Epoch</th><th>Train Loss</th><th>Train Acc</th><th>Train IoU</th><th>Val Loss</th><th>Val Acc</th><th>Val IoU</th></tr>"
         + "".join(rows)
         + "</table>"
         "<h2>Tracked Validation Samples (Input | GT | Pred | Diff)</h2>"
@@ -944,6 +953,7 @@ class UNetBinaryTrainer:
                 epoch_start = time.perf_counter()
                 model.train()
                 train_loss_sum = 0.0
+                train_acc_sum = 0.0
                 train_iou_sum = 0.0
                 train_steps = 0
 
@@ -962,6 +972,7 @@ class UNetBinaryTrainer:
                     optimizer.step()
 
                     train_loss_sum += float(loss.item())
+                    train_acc_sum += _binary_accuracy_from_logits(logits.detach(), y)
                     train_iou_sum += _binary_iou_from_logits(logits.detach(), y)
                     train_steps += 1
 
@@ -988,10 +999,12 @@ class UNetBinaryTrainer:
                         )
 
                 train_loss = train_loss_sum / max(1, train_steps)
+                train_acc = train_acc_sum / max(1, train_steps)
                 train_iou = train_iou_sum / max(1, train_steps)
 
                 model.eval()
                 val_loss_sum = 0.0
+                val_acc_sum = 0.0
                 val_iou_sum = 0.0
                 val_steps = 0
                 with torch.no_grad():
@@ -1001,10 +1014,12 @@ class UNetBinaryTrainer:
                         logits = model(x)
                         loss = criterion(logits, y)
                         val_loss_sum += float(loss.item())
+                        val_acc_sum += _binary_accuracy_from_logits(logits, y)
                         val_iou_sum += _binary_iou_from_logits(logits, y)
                         val_steps += 1
 
                 val_loss = val_loss_sum / max(1, val_steps)
+                val_acc = val_acc_sum / max(1, val_steps)
                 val_iou = val_iou_sum / max(1, val_steps)
                 epoch_runtime = time.perf_counter() - epoch_start
 
@@ -1015,8 +1030,10 @@ class UNetBinaryTrainer:
                 record = {
                     "epoch": epoch,
                     "train_loss": train_loss,
+                    "train_accuracy": train_acc,
                     "train_iou": train_iou,
                     "val_loss": val_loss,
+                    "val_accuracy": val_acc,
                     "val_iou": val_iou,
                     "epoch_runtime_seconds": epoch_runtime,
                     "tracked_samples": latest_samples,
@@ -1075,8 +1092,10 @@ class UNetBinaryTrainer:
                         "ts_utc": _utc_now(),
                         "epoch": epoch,
                         "train_loss": train_loss,
+                        "train_accuracy": train_acc,
                         "train_iou": train_iou,
                         "val_loss": val_loss,
+                        "val_accuracy": val_acc,
                         "val_iou": val_iou,
                         "epoch_runtime_seconds": epoch_runtime,
                         "eta_seconds": eta_total,

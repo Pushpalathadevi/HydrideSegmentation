@@ -26,4 +26,6 @@ Current scripts:
   smoke-testing model loading/evaluation paths without large binary artifacts.
 - `hydride_benchmark_suite.py` runs multi-model hydride benchmark suites (train+eval) and writes consolidated
   JSON/CSV summaries and a single HTML comparison dashboard.
+  - includes per-run training curves (`loss`, `accuracy`, `IoU` vs epoch), model artifact size, parameter count, and train/eval/total runtime fields.
+  - aggregate output includes mean/std rollups for quality and runtime metrics across seeds.
   - installed console entry point: `microseg-benchmark-suite`

@@ -30,6 +30,7 @@ Core planning and governance docs:
 - Phase 18 transformer backend status: `phase18_transformer_backends.md`
 - Phase 19 SOTA HF transformer integration status: `phase19_hf_sota_transformers.md`
 - Phase 20 benchmark suite orchestration status: `phase20_benchmark_suite_orchestration.md`
+- Phase 21 benchmark analytics hardening status: `phase21_benchmark_analytics_hardening.md`
 - Repository health audit: `repo_health_audit.md`
 - Frozen checkpoint registry guide: `frozen_checkpoint_registry.md`
 - HPC GA user guide: `hpc_ga_user_guide.md`

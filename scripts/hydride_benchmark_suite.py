@@ -7,6 +7,7 @@ import csv
 import html
 import json
 from pathlib import Path
+import statistics
 import subprocess
 import sys
 from typing import Any
@@ -85,6 +86,173 @@ def _read_json(path: Path) -> dict[str, Any]:
     return {}
 
 
+def _safe_int(v: object) -> int | None:
+    try:
+        return int(v)
+    except Exception:
+        return None
+
+
+def _mean_and_std(rows: list[dict[str, Any]], key: str) -> tuple[float, float]:
+    vals = [float(v) for v in (_safe_float(r.get(key)) for r in rows) if v is not None]
+    if not vals:
+        return 0.0, 0.0
+    if len(vals) == 1:
+        return float(vals[0]), 0.0
+    return float(sum(vals) / len(vals)), float(statistics.pstdev(vals))
+
+
+def _bytes_to_mb(value: int | float | None) -> float:
+    if value is None:
+        return 0.0
+    return float(value) / (1024.0 * 1024.0)
+
+
+def _extract_history_series(history: list[dict[str, Any]], key: str) -> tuple[list[int], list[float]]:
+    epochs: list[int] = []
+    vals: list[float] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        ep = _safe_int(item.get("epoch"))
+        val = _safe_float(item.get(key))
+        if ep is None or val is None:
+            continue
+        epochs.append(ep)
+        vals.append(float(val))
+    return epochs, vals
+
+
+def _write_curve_plot(
+    *,
+    output_path: Path,
+    title: str,
+    x_vals: list[int],
+    lines: list[tuple[str, list[float]]],
+    y_label: str,
+) -> None:
+    if not x_vals:
+        return
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for label, y_vals in lines:
+        if not y_vals:
+            continue
+        points = min(len(x_vals), len(y_vals))
+        if points <= 0:
+            continue
+        ax.plot(x_vals[:points], y_vals[:points], marker="o", linewidth=1.8, label=label)
+    ax.set_title(title)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(y_label)
+    ax.grid(True, alpha=0.3)
+    if any(y for _, y in lines):
+        ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=140)
+    plt.close(fig)
+
+
+def _parameter_count_from_checkpoint(model_path: Path) -> int | None:
+    if not model_path.exists():
+        return None
+    if model_path.suffix.lower() not in {".pt", ".pth", ".ckpt"}:
+        return None
+    try:
+        import torch
+    except Exception:
+        return None
+    try:
+        payload = torch.load(model_path, map_location="cpu")
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    state = payload.get("model_state_dict")
+    if not isinstance(state, dict):
+        return None
+    total = 0
+    for val in state.values():
+        try:
+            total += int(val.numel())  # type: ignore[call-arg]
+        except Exception:
+            continue
+    return total if total > 0 else None
+
+
+def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) -> dict[str, Any]:
+    report = _read_json(train_dir / "report.json")
+    history_raw = report.get("history", [])
+    history = history_raw if isinstance(history_raw, list) else []
+    progress = report.get("progress", {})
+    if not isinstance(progress, dict):
+        progress = {}
+
+    epochs_loss, train_loss = _extract_history_series(history, "train_loss")
+    _, val_loss = _extract_history_series(history, "val_loss")
+    epochs_acc, train_acc = _extract_history_series(history, "train_accuracy")
+    _, val_acc = _extract_history_series(history, "val_accuracy")
+    _, train_iou = _extract_history_series(history, "train_iou")
+    _, val_iou = _extract_history_series(history, "val_iou")
+    _, epoch_runtime = _extract_history_series(history, "epoch_runtime_seconds")
+
+    curves_dir = output_root / "curves"
+    loss_curve = curves_dir / f"{run_tag}_loss_curve.png"
+    acc_curve = curves_dir / f"{run_tag}_accuracy_curve.png"
+    iou_curve = curves_dir / f"{run_tag}_iou_curve.png"
+
+    _write_curve_plot(
+        output_path=loss_curve,
+        title=f"{run_tag} - Loss vs Epoch",
+        x_vals=epochs_loss,
+        lines=[("Train Loss", train_loss), ("Val Loss", val_loss)],
+        y_label="Loss",
+    )
+    _write_curve_plot(
+        output_path=acc_curve,
+        title=f"{run_tag} - Accuracy vs Epoch",
+        x_vals=epochs_acc,
+        lines=[("Train Accuracy", train_acc), ("Val Accuracy", val_acc)],
+        y_label="Accuracy",
+    )
+    _write_curve_plot(
+        output_path=iou_curve,
+        title=f"{run_tag} - IoU vs Epoch",
+        x_vals=epochs_acc if epochs_acc else epochs_loss,
+        lines=[("Train IoU", train_iou), ("Val IoU", val_iou)],
+        y_label="IoU",
+    )
+
+    epoch_total = _safe_int(progress.get("epochs_total")) or len(history)
+    epoch_done = _safe_int(progress.get("epochs_completed")) or len(history)
+
+    avg_epoch_runtime = (sum(epoch_runtime) / len(epoch_runtime)) if epoch_runtime else _safe_float(report.get("runtime_seconds"))
+
+    return {
+        "training_status": str(report.get("status", "")),
+        "training_runtime_seconds": _safe_float(report.get("runtime_seconds")),
+        "training_runtime_human": str(report.get("runtime_human", "")),
+        "training_epochs_total": epoch_total,
+        "training_epochs_completed": epoch_done,
+        "training_history_points": len(history),
+        "best_val_loss_train": _safe_float(report.get("best_val_loss")),
+        "last_train_loss": train_loss[-1] if train_loss else None,
+        "last_val_loss": val_loss[-1] if val_loss else None,
+        "last_train_accuracy": train_acc[-1] if train_acc else None,
+        "last_val_accuracy": val_acc[-1] if val_acc else None,
+        "last_train_iou": train_iou[-1] if train_iou else None,
+        "last_val_iou": val_iou[-1] if val_iou else None,
+        "avg_epoch_runtime_seconds": avg_epoch_runtime,
+        "loss_curve_png": str(loss_curve) if loss_curve.exists() else "",
+        "accuracy_curve_png": str(acc_curve) if acc_curve.exists() else "",
+        "iou_curve_png": str(iou_curve) if iou_curve.exists() else "",
+    }
+
+
 def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_model: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -93,21 +261,48 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for model, items in sorted(by_model.items()):
-        def mean(vals: list[float]) -> float:
-            return sum(vals) / len(vals) if vals else 0.0
-
-        pa = [float(v) for v in (_safe_float(i.get("pixel_accuracy")) for i in items) if v is not None]
-        f1 = [float(v) for v in (_safe_float(i.get("macro_f1")) for i in items) if v is not None]
-        mi = [float(v) for v in (_safe_float(i.get("mean_iou")) for i in items) if v is not None]
-        rt = [float(v) for v in (_safe_float(i.get("runtime_seconds")) for i in items) if v is not None]
+        ok_items = [i for i in items if str(i.get("status", "")).strip().lower() == "ok"]
+        fail_items = [i for i in items if i not in ok_items]
+        mean_pa, std_pa = _mean_and_std(items, "pixel_accuracy")
+        mean_f1, std_f1 = _mean_and_std(items, "macro_f1")
+        mean_mi, std_mi = _mean_and_std(items, "mean_iou")
+        mean_eval_rt, std_eval_rt = _mean_and_std(items, "runtime_seconds")
+        mean_train_rt, std_train_rt = _mean_and_std(items, "training_runtime_seconds")
+        mean_total_rt, std_total_rt = _mean_and_std(items, "total_runtime_seconds")
+        mean_params, _ = _mean_and_std(items, "model_parameter_count")
+        mean_ckpt_mb, _ = _mean_and_std(items, "model_artifact_size_mb")
+        mean_train_loss, _ = _mean_and_std(items, "last_train_loss")
+        mean_val_loss, _ = _mean_and_std(items, "last_val_loss")
+        mean_train_acc, _ = _mean_and_std(items, "last_train_accuracy")
+        mean_val_acc, _ = _mean_and_std(items, "last_val_accuracy")
+        mean_train_iou, _ = _mean_and_std(items, "last_train_iou")
+        mean_val_iou, _ = _mean_and_std(items, "last_val_iou")
         out.append(
             {
                 "model": model,
                 "runs": len(items),
-                "mean_pixel_accuracy": mean(pa),
-                "mean_macro_f1": mean(f1),
-                "mean_mean_iou": mean(mi),
-                "mean_runtime_seconds": mean(rt),
+                "ok_runs": len(ok_items),
+                "failed_runs": len(fail_items),
+                "mean_pixel_accuracy": mean_pa,
+                "std_pixel_accuracy": std_pa,
+                "mean_macro_f1": mean_f1,
+                "std_macro_f1": std_f1,
+                "mean_mean_iou": mean_mi,
+                "std_mean_iou": std_mi,
+                "mean_eval_runtime_seconds": mean_eval_rt,
+                "std_eval_runtime_seconds": std_eval_rt,
+                "mean_training_runtime_seconds": mean_train_rt,
+                "std_training_runtime_seconds": std_train_rt,
+                "mean_total_runtime_seconds": mean_total_rt,
+                "std_total_runtime_seconds": std_total_rt,
+                "mean_model_parameter_count": mean_params,
+                "mean_model_artifact_size_mb": mean_ckpt_mb,
+                "mean_last_train_loss": mean_train_loss,
+                "mean_last_val_loss": mean_val_loss,
+                "mean_last_train_accuracy": mean_train_acc,
+                "mean_last_val_accuracy": mean_val_acc,
+                "mean_last_train_iou": mean_train_iou,
+                "mean_last_val_iou": mean_val_iou,
             }
         )
     return out
@@ -129,17 +324,23 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         "<h1>Hydride Benchmark Dashboard</h1>",
         "<h2>Model Summary</h2>",
         "<table border='1' cellpadding='6' cellspacing='0'>",
-        "<tr><th>Model</th><th>Runs</th><th>Mean Pixel Acc</th><th>Mean Macro F1</th><th>Mean IoU</th><th>Mean Runtime (s)</th></tr>",
+        "<tr><th>Model</th><th>Runs</th><th>OK</th><th>Failed</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params (mean)</th><th>Model Size MB (mean)</th></tr>",
     ]
     for item in agg:
         lines.append(
             "<tr>"
-            f"<td>{item['model']}</td>"
-            f"<td>{item['runs']}</td>"
-            f"<td>{item['mean_pixel_accuracy']:.6f}</td>"
-            f"<td>{item['mean_macro_f1']:.6f}</td>"
-            f"<td>{item['mean_mean_iou']:.6f}</td>"
-            f"<td>{item['mean_runtime_seconds']:.2f}</td>"
+            f"<td>{html.escape(str(item['model']))}</td>"
+            f"<td>{int(item.get('runs', 0))}</td>"
+            f"<td>{int(item.get('ok_runs', 0))}</td>"
+            f"<td>{int(item.get('failed_runs', 0))}</td>"
+            f"<td>{float(item.get('mean_pixel_accuracy', 0.0)):.6f} ± {float(item.get('std_pixel_accuracy', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_macro_f1', 0.0)):.6f} ± {float(item.get('std_macro_f1', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_mean_iou', 0.0)):.6f} ± {float(item.get('std_mean_iou', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_eval_runtime_seconds', 0.0)):.2f}</td>"
+            f"<td>{float(item.get('mean_training_runtime_seconds', 0.0)):.2f}</td>"
+            f"<td>{float(item.get('mean_total_runtime_seconds', 0.0)):.2f}</td>"
+            f"<td>{float(item.get('mean_model_parameter_count', 0.0)):.0f}</td>"
+            f"<td>{float(item.get('mean_model_artifact_size_mb', 0.0)):.2f}</td>"
             "</tr>"
         )
     lines.extend(
@@ -147,7 +348,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             "</table>",
             "<h2>Run-Level Results</h2>",
             "<table border='1' cellpadding='6' cellspacing='0'>",
-            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Backend</th><th>Architecture</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Runtime (s)</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th></tr>",
+            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Backend</th><th>Architecture</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params</th><th>Model Size MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
         ]
     )
     for row in rows:
@@ -168,13 +369,46 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{_safe_float(row.get('macro_f1')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('mean_iou')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('runtime_seconds')) or 0.0:.2f}</td>"
+            f"<td>{_safe_float(row.get('training_runtime_seconds')) or 0.0:.2f}</td>"
+            f"<td>{_safe_float(row.get('total_runtime_seconds')) or 0.0:.2f}</td>"
+            f"<td>{_safe_int(row.get('model_parameter_count')) or 0}</td>"
+            f"<td>{_safe_float(row.get('model_artifact_size_mb')) or 0.0:.2f}</td>"
             f"<td>{html.escape(hparams)}</td>"
             f"<td>{html.escape(str(row.get('train_config','')))}</td>"
             f"<td>{html.escape(str(row.get('train_dir','')))}</td>"
             f"<td>{html.escape(str(row.get('eval_report','')))}</td>"
+            f"<td>{html.escape(str(row.get('loss_curve_png','')))}</td>"
+            f"<td>{html.escape(str(row.get('accuracy_curve_png','')))}</td>"
+            f"<td>{html.escape(str(row.get('iou_curve_png','')))}</td>"
             "</tr>"
         )
-    lines.extend(["</table>", "</body></html>"])
+    lines.extend(["</table>", "<h2>Training Curve Gallery</h2>"])
+    for row in rows:
+        title = f"{row.get('model', '')} seed {row.get('seed', '')}"
+        loss_curve = str(row.get("loss_curve_png", ""))
+        acc_curve = str(row.get("accuracy_curve_png", ""))
+        iou_curve = str(row.get("iou_curve_png", ""))
+        if not loss_curve and not acc_curve and not iou_curve:
+            continue
+        lines.append(f"<h3>{html.escape(title)}</h3>")
+        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;'>")
+        if loss_curve:
+            lines.append(
+                "<div><div><b>Loss vs Epoch</b></div>"
+                f"<img src='{html.escape(loss_curve)}' style='max-width:520px;border:1px solid #333;'></div>"
+            )
+        if acc_curve:
+            lines.append(
+                "<div><div><b>Accuracy vs Epoch</b></div>"
+                f"<img src='{html.escape(acc_curve)}' style='max-width:520px;border:1px solid #333;'></div>"
+            )
+        if iou_curve:
+            lines.append(
+                "<div><div><b>IoU vs Epoch</b></div>"
+                f"<img src='{html.escape(iou_curve)}' style='max-width:520px;border:1px solid #333;'></div>"
+            )
+        lines.append("</div>")
+    lines.extend(["</body></html>"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -276,6 +510,16 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             eval_payload = _read_json(eval_report)
             metrics = eval_payload.get("metrics", {}) if isinstance(eval_payload, dict) else {}
             train_resolved = _read_json(train_dir / "resolved_config.json")
+            train_meta = _read_training_metadata(train_dir, run_tag, output_root)
+            model_param_count = _parameter_count_from_checkpoint(model_path) if isinstance(model_path, Path) else None
+            model_artifact_bytes = model_path.stat().st_size if isinstance(model_path, Path) and model_path.exists() else None
+            eval_runtime_seconds = eval_payload.get("runtime_seconds") if isinstance(eval_payload, dict) else None
+            train_runtime_seconds = train_meta.get("training_runtime_seconds")
+            total_runtime_seconds = None
+            if _safe_float(train_runtime_seconds) is not None or _safe_float(eval_runtime_seconds) is not None:
+                total_runtime_seconds = float(_safe_float(train_runtime_seconds) or 0.0) + float(
+                    _safe_float(eval_runtime_seconds) or 0.0
+                )
 
             row = {
                 "model": model_name,
@@ -289,9 +533,15 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "pixel_accuracy": metrics.get("pixel_accuracy"),
                 "macro_f1": metrics.get("macro_f1"),
                 "mean_iou": metrics.get("mean_iou"),
-                "runtime_seconds": eval_payload.get("runtime_seconds") if isinstance(eval_payload, dict) else None,
+                "runtime_seconds": eval_runtime_seconds,
+                "training_runtime_seconds": train_runtime_seconds,
+                "total_runtime_seconds": total_runtime_seconds,
                 "backend": eval_payload.get("backend") if isinstance(eval_payload, dict) else "",
                 "model_initialization": eval_payload.get("model_initialization") if isinstance(eval_payload, dict) else "",
+                "model_artifact_path": str(model_path) if isinstance(model_path, Path) else "",
+                "model_artifact_size_bytes": model_artifact_bytes,
+                "model_artifact_size_mb": _bytes_to_mb(model_artifact_bytes),
+                "model_parameter_count": model_param_count,
                 "resolved_backend": train_resolved.get("backend") if isinstance(train_resolved, dict) else "",
                 "resolved_model_architecture": train_resolved.get("model_architecture")
                 if isinstance(train_resolved, dict)
@@ -318,6 +568,22 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "resolved_segformer_patch_size": train_resolved.get("segformer_patch_size")
                 if isinstance(train_resolved, dict)
                 else "",
+                "training_status": train_meta.get("training_status"),
+                "training_runtime_human": train_meta.get("training_runtime_human"),
+                "training_epochs_total": train_meta.get("training_epochs_total"),
+                "training_epochs_completed": train_meta.get("training_epochs_completed"),
+                "training_history_points": train_meta.get("training_history_points"),
+                "best_val_loss_train": train_meta.get("best_val_loss_train"),
+                "last_train_loss": train_meta.get("last_train_loss"),
+                "last_val_loss": train_meta.get("last_val_loss"),
+                "last_train_accuracy": train_meta.get("last_train_accuracy"),
+                "last_val_accuracy": train_meta.get("last_val_accuracy"),
+                "last_train_iou": train_meta.get("last_train_iou"),
+                "last_val_iou": train_meta.get("last_val_iou"),
+                "avg_epoch_runtime_seconds": train_meta.get("avg_epoch_runtime_seconds"),
+                "loss_curve_png": train_meta.get("loss_curve_png"),
+                "accuracy_curve_png": train_meta.get("accuracy_curve_png"),
+                "iou_curve_png": train_meta.get("iou_curve_png"),
                 "train_overrides": "|".join(train_overrides),
                 "eval_overrides": "|".join(eval_overrides),
             }
@@ -355,6 +621,28 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "macro_f1",
             "mean_iou",
             "runtime_seconds",
+            "training_runtime_seconds",
+            "total_runtime_seconds",
+            "training_status",
+            "training_runtime_human",
+            "training_epochs_total",
+            "training_epochs_completed",
+            "training_history_points",
+            "best_val_loss_train",
+            "last_train_loss",
+            "last_val_loss",
+            "last_train_accuracy",
+            "last_val_accuracy",
+            "last_train_iou",
+            "last_val_iou",
+            "avg_epoch_runtime_seconds",
+            "model_artifact_path",
+            "model_artifact_size_bytes",
+            "model_artifact_size_mb",
+            "model_parameter_count",
+            "loss_curve_png",
+            "accuracy_curve_png",
+            "iou_curve_png",
             "train_config",
             "eval_config",
             "train_dir",
@@ -381,10 +669,28 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
         [
             "model",
             "runs",
+            "ok_runs",
+            "failed_runs",
             "mean_pixel_accuracy",
+            "std_pixel_accuracy",
             "mean_macro_f1",
+            "std_macro_f1",
             "mean_mean_iou",
-            "mean_runtime_seconds",
+            "std_mean_iou",
+            "mean_eval_runtime_seconds",
+            "std_eval_runtime_seconds",
+            "mean_training_runtime_seconds",
+            "std_training_runtime_seconds",
+            "mean_total_runtime_seconds",
+            "std_total_runtime_seconds",
+            "mean_model_parameter_count",
+            "mean_model_artifact_size_mb",
+            "mean_last_train_loss",
+            "mean_last_val_loss",
+            "mean_last_train_accuracy",
+            "mean_last_val_accuracy",
+            "mean_last_train_iou",
+            "mean_last_val_iou",
         ],
     )
     _write_dashboard(dashboard_html, rows, agg)

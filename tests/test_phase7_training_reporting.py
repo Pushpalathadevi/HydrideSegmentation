@@ -76,3 +76,6 @@ def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Pa
     assert payload["schema_version"] == "microseg.training_report.v1"
     assert "history" in payload
     assert payload["history"]
+    first = payload["history"][0]
+    assert "train_accuracy" in first
+    assert "val_accuracy" in first
