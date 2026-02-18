@@ -10,8 +10,12 @@ from .classes import (
     DEFAULT_CLASS_MAP,
     SegmentationClass,
     SegmentationClassMap,
+    binary_remapped_foreground_values,
     colorize_index_mask,
+    class_map_to_colormap,
+    load_class_map,
     normalize_binary_index_mask,
+    resolve_class_map,
     to_index_mask,
 )
 
@@ -23,8 +27,12 @@ __all__ = [
     "SCHEMA_VERSION",
     "SegmentationClass",
     "SegmentationClassMap",
+    "binary_remapped_foreground_values",
     "colorize_index_mask",
+    "class_map_to_colormap",
+    "load_class_map",
     "normalize_binary_index_mask",
+    "resolve_class_map",
     "to_index_mask",
 ]
 

@@ -14,6 +14,12 @@ from typing import Any
 
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.microseg.dataops import generate_dataset_split_manifest_from_splits
+
 
 def _load_yaml(path: Path) -> dict[str, Any]:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -503,7 +509,8 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
 
     if benchmark_mode:
         if not dataset_manifest.exists():
-            raise FileNotFoundError(f"benchmark_mode requires dataset_manifest.json: {dataset_manifest}")
+            dataset_manifest = generate_dataset_split_manifest_from_splits(dataset_dir)
+            print(f"[benchmark-mode] generated missing dataset manifest: {dataset_manifest}")
         if expected_manifest_sha:
             observed_sha = _sha256_file(dataset_manifest).lower()
             if observed_sha != expected_manifest_sha:

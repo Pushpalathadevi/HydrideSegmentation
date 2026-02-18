@@ -10,6 +10,7 @@ from .training_dataset import (
     DatasetPrepareConfig,
     DatasetPreparePreview,
     DatasetPrepareResult,
+    generate_dataset_split_manifest_from_splits,
     preview_training_dataset_layout,
     prepare_training_dataset_layout,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "DatasetPrepareResult",
     "DatasetQualityConfig",
     "DatasetQualityReport",
+    "generate_dataset_split_manifest_from_splits",
     "plan_and_materialize_correction_splits",
     "preview_training_dataset_layout",
     "prepare_training_dataset_layout",

@@ -5,6 +5,7 @@ backend_label: hf_segformer_b0
 model_architecture: hf_segformer_b0
 train_split: train
 val_split: val
+binary_mask_normalization: nonzero_foreground
 auto_prepare_dataset: false
 epochs: 24
 batch_size: 6

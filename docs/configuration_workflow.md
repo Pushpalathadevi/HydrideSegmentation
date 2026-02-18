@@ -55,6 +55,11 @@ microseg-cli dataset-prepare \
   --set mask_input_type=rgb_colormap \
   --set 'mask_colormap={"0":[0,0,0],"1":[255,0,0],"2":[0,255,0]}'
 ```
+If `mask_colormap` is omitted for RGB masks, the class-color mapping is resolved from:
+1. `--class-map-path` override
+2. `MICROSEG_CLASS_MAP_PATH` environment variable
+3. `configs/segmentation_classes.json`
+4. builtin fallback (`background`/`feature`)
 
 Training:
 ```bash
@@ -155,8 +160,10 @@ These two bundles are partial warm-start mappings from ViT-tiny; see `docs/pretr
 
 Binary mask normalization override example:
 ```bash
-microseg-cli train --config configs/train.default.yml --set binary_mask_normalization=two_value_zero_background
+microseg-cli train --config configs/train.default.yml --set binary_mask_normalization=nonzero_foreground
 ```
+`nonzero_foreground` maps any non-zero indexed pixel to class `1` (foreground), while preserving `0` as background.
+`two_value_zero_background` is stricter and only remaps when masks contain exactly two values where one is `0`.
 
 UNet validation tracking + reporting example:
 ```bash

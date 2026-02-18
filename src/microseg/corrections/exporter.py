@@ -14,9 +14,9 @@ from PIL import Image
 
 from src.microseg.app.desktop_workflow import DesktopRunRecord
 from src.microseg.corrections.classes import (
-    DEFAULT_CLASS_MAP,
     SegmentationClassMap,
     colorize_index_mask,
+    resolve_class_map,
     to_index_mask,
 )
 from src.microseg.domain.corrections import CorrectionExportRecord
@@ -57,7 +57,8 @@ class CorrectionExporter:
         sample_dir = root / sample_id
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        class_map = class_map or DEFAULT_CLASS_MAP
+        if class_map is None:
+            class_map, _ = resolve_class_map()
         formats = formats or {"indexed_png", "color_png"}
 
         input_path = sample_dir / "input.png"

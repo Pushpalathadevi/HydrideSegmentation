@@ -156,10 +156,12 @@ microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict
 ```
 
 
-Enable optional binary auto-normalization:
+Enable binary auto-normalization for legacy masks (`0` background, any non-zero foreground):
 
 ```bash
 microseg-cli dataset-prepare \
   --config configs/dataset_prepare.default.yml \
-  --set binary_mask_normalization=two_value_zero_background
+  --set binary_mask_normalization=nonzero_foreground
 ```
+The same setting is available in `train` and `evaluate`. When non-canonical foreground values
+(for example `78`, `80`, `255`) are remapped to class `1`, a warning is emitted and execution continues.

@@ -15,7 +15,7 @@ val_tracking_samples: 2
 val_tracking_seed: 17
 write_html_report: true
 progress_log_interval_pct: 50
-binary_mask_normalization: off
+binary_mask_normalization: nonzero_foreground
 seed: 42
 enable_gpu: false
 device_policy: cpu

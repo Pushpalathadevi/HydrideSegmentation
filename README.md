@@ -134,13 +134,16 @@ microseg-cli dataset-prepare \
   --set mask_input_type=rgb_colormap \
   --set 'mask_colormap={"0":[0,0,0],"1":[255,0,0]}'
 ```
+If `mask_colormap` is omitted, class colors are resolved from `--class-map-path`, `MICROSEG_CLASS_MAP_PATH`,
+then `configs/segmentation_classes.json`.
 
-Binary mask auto-normalization (optional, converts two-value masks like 0/255 or 0/7 into 0/1):
+Binary mask auto-normalization (`0` stays background, non-zero can be foreground):
 ```bash
 microseg-cli dataset-prepare \
   --config configs/dataset_prepare.default.yml \
-  --set binary_mask_normalization=two_value_zero_background
+  --set binary_mask_normalization=nonzero_foreground
 ```
+`two_value_zero_background` remains available for stricter two-value-only remapping.
 
 Dataset QA:
 ```bash
@@ -216,6 +219,7 @@ Single-script top-5 hydride benchmark run + dashboard:
 python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_suite.top5.yml --strict
 ```
 - Benchmark mode now supports hard-fail dataset freeze checks (`expected_dataset_manifest_sha256`, `expected_split_id_file`).
+- When `benchmark_mode=true` and `dataset_manifest.json` is missing, the suite auto-generates it from `train/val/test`.
 - Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch), tracked validation sample panels/IoU summaries, model size, parameter count, runtime effort metrics, and evaluation scientific metrics.
 
 ## Beginner End-To-End Workflow

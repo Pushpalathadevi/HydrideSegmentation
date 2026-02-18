@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image
 from sklearn.metrics import f1_score
 
-from src.microseg.corrections.classes import normalize_binary_index_mask
+from src.microseg.corrections.classes import binary_remapped_foreground_values, normalize_binary_index_mask
 from src.microseg.training.pixel_classifier import load_pixel_classifier, predict_index_mask
 from src.microseg.training.torch_pixel_classifier import (
     load_torch_pixel_classifier,
@@ -85,6 +85,27 @@ def _collect_pairs(split_dir: Path) -> list[tuple[Path, Path]]:
     if not pairs:
         raise RuntimeError(f"no image/mask pairs found in {split_dir}")
     return pairs
+
+
+def _warn_binary_mask_remap_values(
+    pairs: list[tuple[Path, Path]],
+    *,
+    binary_mask_normalization: str,
+    logger: logging.Logger,
+) -> None:
+    mode = str(binary_mask_normalization).strip().lower()
+    if mode not in {"two_value_zero_background", "nonzero_foreground"}:
+        return
+    remapped: set[int] = set()
+    for _img_path, mask_path in pairs:
+        arr = np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8)
+        remapped.update(binary_remapped_foreground_values(arr, mode=mode))
+    if remapped:
+        logger.warning(
+            "binary_mask_normalization=%s remapped non-zero mask values %s to foreground class 1 during evaluation.",
+            mode,
+            sorted(remapped),
+        )
 
 
 def _mean_iou(y_true: np.ndarray, y_pred: np.ndarray, labels: np.ndarray) -> tuple[float, dict[str, float]]:
@@ -194,6 +215,11 @@ class PixelModelEvaluator:
         dataset_root = Path(config.dataset_dir)
         split_dir = dataset_root / config.split
         pairs = _collect_pairs(split_dir)
+        _warn_binary_mask_remap_values(
+            pairs,
+            binary_mask_normalization=str(config.binary_mask_normalization),
+            logger=logger,
+        )
         out_path = Path(config.output_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         samples_dir = out_path.parent / "samples"

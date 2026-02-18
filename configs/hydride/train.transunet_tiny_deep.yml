@@ -10,6 +10,7 @@ transformer_mlp_ratio: 2.5
 transformer_dropout: 0.05
 train_split: train
 val_split: val
+binary_mask_normalization: nonzero_foreground
 auto_prepare_dataset: false
 epochs: 30
 batch_size: 4

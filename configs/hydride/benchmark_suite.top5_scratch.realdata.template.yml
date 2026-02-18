@@ -11,9 +11,9 @@ python_executable: python
 # Start with one seed for first HPC validation run; expand to [42, 43, 44] for full study.
 seeds: [42]
 
-# Set false when using an externally prepared split without dataset_manifest.json.
-# Set true only for manifest-controlled prepared datasets.
-benchmark_mode: false
+# Recommended true for reproducibility checks.
+# If dataset_manifest.json is missing, it is auto-generated from train/val/test folders.
+benchmark_mode: true
 
 experiments:
   - name: unet_binary_scratch

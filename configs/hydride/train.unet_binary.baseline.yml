@@ -6,6 +6,7 @@ model_architecture: unet_binary
 model_base_channels: 16
 train_split: train
 val_split: val
+binary_mask_normalization: nonzero_foreground
 auto_prepare_dataset: false
 epochs: 20
 batch_size: 8

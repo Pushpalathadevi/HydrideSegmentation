@@ -1,0 +1,35 @@
+{
+  "schema_version": "microseg.segmentation_class_map.v1",
+  "description": "Default class definitions for correction, visualization, and mask colormap fallback.",
+  "classes": [
+    {
+      "index": 0,
+      "name": "background",
+      "color_rgb": [0, 0, 0],
+      "color_hex": "#000000",
+      "description": "Background matrix"
+    },
+    {
+      "index": 1,
+      "name": "hydrate",
+      "color_rgb": [255, 0, 0],
+      "color_hex": "#FF0000",
+      "description": "Hydride foreground class"
+    },
+    {
+      "index": 2,
+      "name": "precipitate",
+      "color_rgb": [0, 200, 83],
+      "color_hex": "#00C853",
+      "description": "Secondary precipitate phase"
+    },
+    {
+      "index": 3,
+      "name": "scratch",
+      "color_rgb": [0, 102, 204],
+      "color_hex": "#0066CC",
+      "description": "Surface scratch / artifact class"
+    }
+  ],
+  "notes": "Override per-project with --class-map-path or MICROSEG_CLASS_MAP_PATH if needed."
+}

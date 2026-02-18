@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+import hashlib
 import json
 import random
 import re
@@ -14,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 from src.microseg.corrections.classes import normalize_binary_index_mask
+from src.microseg.corrections.classes import class_map_to_colormap, resolve_class_map
 
 
 SUPPORTED_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
@@ -27,6 +30,14 @@ _AUGMENTATION_SUFFIX_PATTERNS = [
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _is_supported_image(path: Path) -> bool:
@@ -72,6 +83,79 @@ def _find_unsplit_dirs(root: Path) -> tuple[Path, Path] | None:
     return None
 
 
+def generate_dataset_split_manifest_from_splits(
+    dataset_dir: str | Path,
+    *,
+    output_path: str | Path | None = None,
+) -> Path:
+    """Generate ``dataset_manifest.json`` from existing train/val/test folders.
+
+    Parameters
+    ----------
+    dataset_dir:
+        Dataset root containing ``train/``, ``val/``, and ``test/`` split folders.
+    output_path:
+        Optional manifest output path. Defaults to ``<dataset_dir>/dataset_manifest.json``.
+
+    Returns
+    -------
+    Path
+        Path to the written manifest file.
+    """
+
+    root = Path(dataset_dir)
+    if not _has_explicit_split_layout(root):
+        raise FileNotFoundError(
+            f"dataset layout at {root} does not contain train/val/test images+masks folders"
+        )
+
+    rows: list[tuple[str, str, Path, Path]] = []
+    split_counts = {"train": 0, "val": 0, "test": 0}
+    for split in ["train", "val", "test"]:
+        split_pairs = _pairs_by_stem(root / split / "images", root / split / "masks")
+        split_counts[split] = len(split_pairs)
+        for stem, image_path, mask_path in split_pairs:
+            rows.append((split, stem, image_path, mask_path))
+
+    stem_counts = Counter(stem for _split, stem, _img, _msk in rows)
+    sample_to_split: dict[str, str] = {}
+    group_to_split: dict[str, str] = {}
+    split_group_counts = {"train": 0, "val": 0, "test": 0}
+    sample_hashes: dict[str, dict[str, str]] = {}
+
+    for split, stem, image_path, mask_path in rows:
+        sample_id = stem if stem_counts[stem] == 1 else f"{split}/{stem}"
+        sample_to_split[sample_id] = split
+        group_to_split[sample_id] = split
+        split_group_counts[split] += 1
+        sample_hashes[sample_id] = {
+            "image_sha256": _file_sha256(image_path),
+            "mask_sha256": _file_sha256(mask_path),
+        }
+
+    manifest = {
+        "schema_version": "microseg.dataset_split_manifest.v1",
+        "created_utc": _utc_now(),
+        "config": {
+            "dataset_dir": str(root),
+            "source_layout": "split_layout",
+            "generated_by": "generate_dataset_split_manifest_from_splits",
+        },
+        "total_samples": int(sum(split_counts.values())),
+        "leakage_groups": int(sum(split_group_counts.values())),
+        "split_counts": split_counts,
+        "split_group_counts": split_group_counts,
+        "group_to_split": group_to_split,
+        "sample_to_split": sample_to_split,
+        "sample_hashes": sample_hashes,
+    }
+
+    manifest_path = Path(output_path) if output_path is not None else (root / "dataset_manifest.json")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest_path
+
+
 @dataclass(frozen=True)
 class DatasetPrepareConfig:
     """Configuration for training dataset layout preparation."""
@@ -89,7 +173,8 @@ class DatasetPrepareConfig:
     mask_input_type: Literal["indexed", "rgb_colormap", "auto"] = "indexed"
     mask_colormap: dict[str, object] = field(default_factory=dict)
     mask_colormap_strict: bool = True
-    binary_mask_normalization: Literal["off", "two_value_zero_background"] = "off"
+    binary_mask_normalization: Literal["off", "two_value_zero_background", "nonzero_foreground"] = "off"
+    class_map_path: str = ""
 
 
 @dataclass
@@ -317,7 +402,11 @@ def _mask_to_index(mask_path: Path, config: DatasetPrepareConfig) -> np.ndarray:
                 f"RGB mask provided but mask_input_type is '{config.mask_input_type}'. "
                 "Set mask_input_type=rgb_colormap and provide mask_colormap."
             )
-        colormap = _normalize_rgb_colormap(config.mask_colormap)
+        if config.mask_colormap:
+            colormap = _normalize_rgb_colormap(config.mask_colormap)
+        else:
+            class_map, _ = resolve_class_map(config.class_map_path)
+            colormap = _normalize_rgb_colormap(class_map_to_colormap(class_map))
         return _rgb_mask_to_index(
             mask_raw.astype(np.uint8),
             colormap=colormap,

@@ -59,6 +59,7 @@ from src.microseg.corrections import (
     SegmentationClass,
     SegmentationClassMap,
     colorize_index_mask,
+    resolve_class_map,
     to_index_mask,
 )
 from src.microseg.dataops import (
@@ -387,6 +388,12 @@ class QtSegmentationMainWindow(QMainWindow):
         self._review_summary_a = None
         self._review_summary_b = None
         self.state = _UiState()
+        try:
+            resolved_class_map, class_map_source = resolve_class_map()
+            self.state.class_map = resolved_class_map
+            self.logger.info("Class map source: %s", class_map_source)
+        except Exception as exc:
+            self.logger.warning("Failed to load configured class map; falling back to builtin defaults: %s", exc)
         self._model_specs = {spec["display_name"]: spec for spec in self.workflow.model_specs()}
 
         self._sync_scroll_guard = False

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,11 +13,21 @@ import numpy as np
 from PIL import Image
 
 from src.microseg.core import resolve_torch_device
-from src.microseg.corrections.classes import normalize_binary_index_mask
+from src.microseg.corrections.classes import binary_remapped_foreground_values, normalize_binary_index_mask
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _ensure_logger() -> logging.Logger:
+    logger = logging.getLogger("microseg.training.torch_pixel")
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+        logger.addHandler(handler)
+    return logger
 
 
 def _collect_pairs(split_dir: Path) -> list[tuple[Path, Path]]:
@@ -46,6 +57,27 @@ def _load_mask(path: Path, *, binary_mask_normalization: str) -> np.ndarray:
         np.asarray(Image.open(path).convert("L"), dtype=np.uint8),
         mode=str(binary_mask_normalization),
     )
+
+
+def _warn_binary_mask_remap_values(
+    pairs: list[tuple[Path, Path]],
+    *,
+    binary_mask_normalization: str,
+    logger: logging.Logger,
+) -> None:
+    mode = str(binary_mask_normalization).strip().lower()
+    if mode not in {"two_value_zero_background", "nonzero_foreground"}:
+        return
+    remapped: set[int] = set()
+    for _img_path, mask_path in pairs:
+        arr = np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8)
+        remapped.update(binary_remapped_foreground_values(arr, mode=mode))
+    if remapped:
+        logger.warning(
+            "binary_mask_normalization=%s remapped non-zero mask values %s to foreground class 1 during training.",
+            mode,
+            sorted(remapped),
+        )
 
 
 def _build_samples(
@@ -109,6 +141,7 @@ class TorchPixelClassifierTrainer:
     def train(self, config: TorchPixelTrainingConfig) -> dict[str, Any]:
         import torch
 
+        logger = _ensure_logger()
         torch.manual_seed(int(config.seed))
 
         dataset_root = Path(config.dataset_dir)
@@ -116,6 +149,11 @@ class TorchPixelClassifierTrainer:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         pairs = _collect_pairs(dataset_root / config.train_split)
+        _warn_binary_mask_remap_values(
+            pairs,
+            binary_mask_normalization=str(config.binary_mask_normalization),
+            logger=logger,
+        )
         x_np, y_raw = _build_samples(
             pairs,
             max_samples=config.max_samples,

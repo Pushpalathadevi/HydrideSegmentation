@@ -9,6 +9,7 @@ from PIL import Image
 
 from src.microseg.dataops.training_dataset import (
     DatasetPrepareConfig,
+    generate_dataset_split_manifest_from_splits,
     prepare_training_dataset_layout,
     preview_training_dataset_layout,
 )
@@ -195,3 +196,28 @@ def test_phase10_prepare_binary_mask_normalization_two_value_zero_background(tmp
     out_mask = next(out.glob("*/masks/sample_*.png"))
     arr = np.asarray(Image.open(out_mask).convert("L"), dtype=np.uint8)
     assert set(np.unique(arr).tolist()) == {0, 1}
+
+
+def test_phase10_generate_dataset_manifest_from_existing_splits(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    img = np.zeros((8, 8, 3), dtype=np.uint8)
+    mask = np.zeros((8, 8), dtype=np.uint8)
+
+    _write(dataset / "train" / "images" / "a.png", img)
+    _write(dataset / "train" / "masks" / "a.png", mask)
+    _write(dataset / "val" / "images" / "a.png", img)
+    _write(dataset / "val" / "masks" / "a.png", mask)
+    _write(dataset / "test" / "images" / "b.png", img)
+    _write(dataset / "test" / "masks" / "b.png", mask)
+
+    manifest_path = generate_dataset_split_manifest_from_splits(dataset)
+    assert manifest_path.exists()
+
+    import json
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "microseg.dataset_split_manifest.v1"
+    assert manifest["split_counts"] == {"train": 1, "val": 1, "test": 1}
+    assert manifest["sample_to_split"]["train/a"] == "train"
+    assert manifest["sample_to_split"]["val/a"] == "val"
+    assert manifest["sample_to_split"]["b"] == "test"

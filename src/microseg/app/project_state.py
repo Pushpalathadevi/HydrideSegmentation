@@ -13,7 +13,7 @@ from PIL import Image
 
 from src.microseg.version import __version__
 from src.microseg.app.desktop_workflow import DesktopRunRecord
-from src.microseg.corrections import DEFAULT_CLASS_MAP, SegmentationClassMap, to_index_mask
+from src.microseg.corrections import SegmentationClassMap, resolve_class_map, to_index_mask
 
 
 SCHEMA_VERSION = "microseg.project.v1"
@@ -132,7 +132,10 @@ class ProjectStateStore:
             manifest=rec.get("manifest", {}),
             analysis_images_b64=rec.get("analysis_images_b64", {}),
         )
-        class_map = SegmentationClassMap.from_dict(payload.get("class_map") or DEFAULT_CLASS_MAP.as_dict())
+        if payload.get("class_map"):
+            class_map = SegmentationClassMap.from_dict(payload.get("class_map"))
+        else:
+            class_map, _ = resolve_class_map()
 
         return ProjectLoadResult(
             record=record,

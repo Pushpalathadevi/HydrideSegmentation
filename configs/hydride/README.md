@@ -2,6 +2,10 @@
 
 These templates are for fair model-comparison studies on a fixed hydride dataset split.
 
+Hydride defaults in this folder:
+- `binary_mask_normalization: nonzero_foreground` for train/evaluate presets (`0`=background, any non-zero pixel=foreground).
+- Benchmark suite templates support `benchmark_mode: true`; if `dataset_manifest.json` is missing, it is auto-generated from split folders.
+
 Available scratch training presets:
 - `train.unet_binary.baseline.yml`
 - `train.hf_segformer_b0_scratch.yml`

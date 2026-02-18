@@ -139,7 +139,7 @@ Copy and edit only these fields:
 1. `dataset_dir`
 2. `output_root`
 3. optionally `seeds` (`[42]` for first run, `[42, 43, 44]` for publication-grade comparison)
-4. `benchmark_mode` (`false` for externally pre-split datasets without `dataset_manifest.json`)
+4. `benchmark_mode` (`true` recommended; if `dataset_manifest.json` is missing, the suite now auto-generates it from `train/val/test` folders)
 
 Run:
 ```bash

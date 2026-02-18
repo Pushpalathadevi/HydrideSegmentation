@@ -41,7 +41,7 @@ Report schema is bumped to `microseg.pixel_eval.v3`.
 
 `scripts/hydride_benchmark_suite.py` now supports benchmark hard-fail checks:
 
-- requires `dataset_manifest.json` when `benchmark_mode=true`
+- expects `dataset_manifest.json` when `benchmark_mode=true`, and now auto-generates it from split folders if missing
 - optional strict manifest hash check via `expected_dataset_manifest_sha256`
 - optional strict split-ID membership check via `expected_split_id_file`
 

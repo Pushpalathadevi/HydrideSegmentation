@@ -38,7 +38,10 @@ with deterministic default split behavior and programmatic file IDs.
 5. Documentation
 - Added `docs/training_data_requirements.md`.
 - Updated config/workflow docs and command references.
-- Added optional `binary_mask_normalization=two_value_zero_background` support for two-value indexed masks (for example `0/255` -> `0/1`).
+- Added optional binary normalization modes:
+  - `two_value_zero_background` for two-value indexed masks (for example `0/255` -> `0/1`)
+  - `nonzero_foreground` for robust legacy binary masks (`0` background, any non-zero foreground)
+- Added class-map fallback resolution for RGB masks via `--class-map-path`, `MICROSEG_CLASS_MAP_PATH`, and `configs/segmentation_classes.json`.
 
 ## Example
 

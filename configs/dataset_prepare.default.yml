@@ -12,3 +12,4 @@ mask_input_type: indexed
 mask_colormap: {}
 mask_colormap_strict: true
 binary_mask_normalization: off
+class_map_path: ""

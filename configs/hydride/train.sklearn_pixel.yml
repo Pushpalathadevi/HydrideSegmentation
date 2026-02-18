@@ -3,6 +3,7 @@ output_dir: outputs/benchmarks/sklearn_pixel_seed42
 backend: sklearn_pixel
 train_split: train
 val_split: val
+binary_mask_normalization: nonzero_foreground
 auto_prepare_dataset: false
 max_samples: 300000
 max_iter: 500

@@ -18,7 +18,7 @@ import numpy as np
 from PIL import Image
 
 from src.microseg.core import resolve_torch_device
-from src.microseg.corrections.classes import normalize_binary_index_mask
+from src.microseg.corrections.classes import binary_remapped_foreground_values, normalize_binary_index_mask
 from src.microseg.plugins import (
     resolve_bundle_paths,
     resolve_pretrained_record,
@@ -102,6 +102,28 @@ def _collect_pairs(split_dir: Path) -> list[tuple[Path, Path]]:
     if not pairs:
         raise RuntimeError(f"no image/mask pairs found in {split_dir}")
     return pairs
+
+
+def _warn_binary_mask_remap_values(
+    pairs: list[tuple[Path, Path]],
+    *,
+    binary_mask_normalization: str,
+    logger: logging.Logger,
+) -> None:
+    mode = str(binary_mask_normalization).strip().lower()
+    if mode not in {"two_value_zero_background", "nonzero_foreground"}:
+        return
+    remapped: set[int] = set()
+    for _img_path, mask_path in pairs:
+        arr = np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8)
+        remapped.update(binary_remapped_foreground_values(arr, mode=mode))
+    if remapped:
+        logger.warning(
+            "binary_mask_normalization=%s remapped non-zero mask values %s to foreground class 1; "
+            "zero remains background.",
+            mode,
+            sorted(remapped),
+        )
 
 
 def _to_rel(path: Path, root: Path) -> str:
@@ -1065,6 +1087,11 @@ class UNetBinaryTrainer:
 
         train_pairs = _collect_pairs(dataset_root / config.train_split)
         val_pairs = _collect_pairs(dataset_root / config.val_split)
+        _warn_binary_mask_remap_values(
+            train_pairs + val_pairs,
+            binary_mask_normalization=str(config.binary_mask_normalization),
+            logger=logger,
+        )
         fixed_sample_names = _normalize_fixed_samples(config.val_tracking_fixed_samples)
 
         workers = max(0, int(config.num_workers))

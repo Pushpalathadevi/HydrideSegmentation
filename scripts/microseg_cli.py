@@ -85,10 +85,12 @@ def _normalize_binary_mask_mode(value: object) -> str:
     text = str(value).strip().lower()
     if value is False or text in {"", "0", "false", "off", "none", "null"}:
         return "off"
+    if text in {"nonzero_foreground", "nonzero", "all_nonzero_foreground"}:
+        return "nonzero_foreground"
     if value is True or text in {"1", "true", "on", "two_value_zero_background"}:
         return "two_value_zero_background"
     raise ValueError(
-        "binary_mask_normalization must be one of: off, two_value_zero_background; "
+        "binary_mask_normalization must be one of: off, two_value_zero_background, nonzero_foreground; "
         f"got {value!r}"
     )
 
@@ -121,6 +123,7 @@ def _build_dataset_prepare_config(
         binary_mask_normalization=_normalize_binary_mask_mode(
             cfg.get("binary_mask_normalization", args.binary_mask_normalization)
         ),
+        class_map_path=str(cfg.get("class_map_path", getattr(args, "class_map_path", ""))),
     )
 
 
@@ -853,7 +856,11 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--pin-memory", action=argparse.BooleanOptionalAction, default=False)
     train.add_argument("--persistent-workers", action=argparse.BooleanOptionalAction, default=False)
     train.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
-    train.add_argument("--binary-mask-normalization", choices=["off", "two_value_zero_background"], default="off")
+    train.add_argument(
+        "--binary-mask-normalization",
+        choices=["off", "two_value_zero_background", "nonzero_foreground"],
+        default="off",
+    )
     train.add_argument("--max-iter", type=int, default=500)
     train.add_argument("--seed", type=int, default=42)
     train.add_argument("--auto-prepare-dataset", action=argparse.BooleanOptionalAction, default=None)
@@ -898,7 +905,11 @@ def _build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--mask-input-type", choices=["indexed", "rgb_colormap", "auto"], default="indexed")
     ev.add_argument("--mask-colormap-json", type=str, default="")
     ev.add_argument("--mask-colormap-strict", action=argparse.BooleanOptionalAction, default=True)
-    ev.add_argument("--binary-mask-normalization", choices=["off", "two_value_zero_background"], default="off")
+    ev.add_argument(
+        "--binary-mask-normalization",
+        choices=["off", "two_value_zero_background", "nonzero_foreground"],
+        default="off",
+    )
     ev.set_defaults(handler=_evaluate)
 
     models = sub.add_parser("models", help="List available GUI/CLI models and frozen-checkpoint metadata")
@@ -962,7 +973,12 @@ def _build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--mask-input-type", choices=["indexed", "rgb_colormap", "auto"], default="indexed")
     prep.add_argument("--mask-colormap-json", type=str, default="")
     prep.add_argument("--mask-colormap-strict", action=argparse.BooleanOptionalAction, default=True)
-    prep.add_argument("--binary-mask-normalization", choices=["off", "two_value_zero_background"], default="off")
+    prep.add_argument(
+        "--binary-mask-normalization",
+        choices=["off", "two_value_zero_background", "nonzero_foreground"],
+        default="off",
+    )
+    prep.add_argument("--class-map-path", type=str, default="")
     prep.set_defaults(handler=_dataset_prepare)
 
     hpc_ga = sub.add_parser("hpc-ga-generate", help="Generate GA-planned HPC job bundle")

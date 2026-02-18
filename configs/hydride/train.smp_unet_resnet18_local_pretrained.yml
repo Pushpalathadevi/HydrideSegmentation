@@ -5,6 +5,7 @@ backend_label: smp_unet_resnet18_local_pretrained
 model_architecture: smp_unet_resnet18
 train_split: train
 val_split: val
+binary_mask_normalization: nonzero_foreground
 auto_prepare_dataset: false
 epochs: 24
 batch_size: 6
