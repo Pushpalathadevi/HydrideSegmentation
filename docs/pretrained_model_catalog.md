@@ -27,12 +27,32 @@ microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.js
 | `transunet_tiny_vit_tiny_patch16_imagenet` | `transunet_tiny` | `timm:vit_tiny_patch16_224` | `See upstream timm model card/license terms` | `dosovitskiy2020vit` | Partial warm-start bootstrap mapped into internal `transunet_tiny` tensor shapes. |
 | `segformer_mini_vit_tiny_patch16_imagenet` | `segformer_mini` | `timm:vit_tiny_patch16_224` | `See upstream timm model card/license terms` | `dosovitskiy2020vit` | Partial warm-start bootstrap mapped into internal `segformer_mini` tensor shapes. |
 
+## Manual Upstream Download URLs
+
+Use these URLs on a connected machine when manual download is required.
+
+| Model ID | Direct URL(s) |
+|---|---|
+| `hf_segformer_b0_ade20k` | `https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512/resolve/main/pytorch_model.bin` ; `https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512/resolve/main/model.safetensors` |
+| `hf_segformer_b2_ade20k` | `https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512/resolve/main/pytorch_model.bin` |
+| `hf_segformer_b5_ade20k` | `https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/pytorch_model.bin` |
+| `smp_unet_resnet18_imagenet` | encoder source: `https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/model.safetensors` ; `https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/pytorch_model.bin` |
+| `unet_binary_resnet18_imagenet_partial` | `https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/model.safetensors` ; `https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/pytorch_model.bin` |
+| `transunet_tiny_vit_tiny_patch16_imagenet` | `https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/model.safetensors` ; `https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/pytorch_model.bin` |
+| `segformer_mini_vit_tiny_patch16_imagenet` | `https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/model.safetensors` ; `https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/pytorch_model.bin` |
+
+## Architecture And Manuscript Discussion Companion
+
+For architecture diagrams, critical model comparison, and manuscript-focused discussion prompts:
+- `docs/model_architecture_manuscript_foundation.md`
+
 ## Manuscript Citation Source
 
 - BibTeX file: `docs/pretrained_model_citations.bib`
 - Recommended practice:
   - cite architecture papers (SegFormer, U-Net, ResNet)
-  - cite ViT paper for `transunet_tiny`/`segformer_mini` bootstrap bundles
+  - cite ViT and TransUNet papers for `transunet_tiny` bootstrap discussions
+  - cite ViT and SegFormer papers for `segformer_mini` bootstrap discussions
   - additionally cite dataset/model cards where required by upstream terms
   - include exact `source_revision` commit hash from `registry.json`
 

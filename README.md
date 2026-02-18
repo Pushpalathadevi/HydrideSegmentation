@@ -264,6 +264,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Offline pretrained transfer workflow: `docs/offline_pretrained_transfer_workflow.md`
 - Single-file HPC real-data runbook (scratch + local-pretrained + dashboard): `docs/hpc_airgap_top5_realdata_runbook.md`
 - Pretrained model catalog + citations: `docs/pretrained_model_catalog.md`
+- Model architecture manuscript foundation (Mermaid diagrams + critical comparison): `docs/model_architecture_manuscript_foundation.md`
 - Pretrained citation BibTeX: `docs/pretrained_model_citations.bib`
 - Configuration workflow: `docs/configuration_workflow.md`
 - Development workflow + phase closeout gate: `docs/development_workflow.md`

@@ -1,6 +1,6 @@
 {
   "schema_version": "microseg.pretrained_catalog.v1",
-  "updated_utc": "2026-02-17T00:00:00Z",
+  "updated_utc": "2026-02-18T00:00:00Z",
   "citation_bib": "docs/pretrained_model_citations.bib",
   "models": [
     {
@@ -10,17 +10,27 @@
       "source": "segmentation_models_pytorch:Unet(resnet18, encoder_weights=imagenet)",
       "source_url": "https://github.com/qubvel-org/segmentation_models.pytorch",
       "license": "See upstream package licenses",
-      "citation_key": ["ronneberger2015unet", "he2016resnet"]
+      "citation_key": ["ronneberger2015unet", "he2016resnet"],
+      "manual_download_urls": [
+        "https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/model.safetensors",
+        "https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/pytorch_model.bin"
+      ],
+      "remarks": "Encoder pretrained source is downloaded, then full U-Net state dict is assembled locally by script."
     },
     {
       "model_id": "unet_binary_resnet18_imagenet_partial",
       "architecture": "unet_binary",
       "framework": "torch",
       "source": "timm:resnet18",
-      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "source_url": "https://huggingface.co/timm/resnet18.a1_in1k",
       "license": "See upstream timm model card/license terms",
       "citation_key": ["he2016resnet", "ronneberger2015unet"],
-      "bootstrap_type": "partial_warm_start"
+      "bootstrap_type": "partial_warm_start",
+      "manual_download_urls": [
+        "https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/model.safetensors",
+        "https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/pytorch_model.bin"
+      ],
+      "remarks": "Partial warm-start mapping into internal unet_binary encoder tensors."
     },
     {
       "model_id": "hf_segformer_b0_ade20k",
@@ -29,7 +39,11 @@
       "source": "huggingface:nvidia/segformer-b0-finetuned-ade-512-512",
       "source_url": "https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512",
       "license": "See upstream model card license metadata",
-      "citation_key": ["xie2021segformer", "zhou2017ade20k"]
+      "citation_key": ["xie2021segformer", "zhou2017ade20k"],
+      "manual_download_urls": [
+        "https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512/resolve/main/pytorch_model.bin",
+        "https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512/resolve/main/model.safetensors"
+      ]
     },
     {
       "model_id": "hf_segformer_b2_ade20k",
@@ -38,7 +52,10 @@
       "source": "huggingface:nvidia/segformer-b2-finetuned-ade-512-512",
       "source_url": "https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512",
       "license": "See upstream model card license metadata",
-      "citation_key": ["xie2021segformer", "zhou2017ade20k"]
+      "citation_key": ["xie2021segformer", "zhou2017ade20k"],
+      "manual_download_urls": [
+        "https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512/resolve/main/pytorch_model.bin"
+      ]
     },
     {
       "model_id": "hf_segformer_b5_ade20k",
@@ -47,27 +64,40 @@
       "source": "huggingface:nvidia/segformer-b5-finetuned-ade-640-640",
       "source_url": "https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640",
       "license": "See upstream model card license metadata",
-      "citation_key": ["xie2021segformer", "zhou2017ade20k"]
+      "citation_key": ["xie2021segformer", "zhou2017ade20k"],
+      "manual_download_urls": [
+        "https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/pytorch_model.bin"
+      ]
     },
     {
       "model_id": "transunet_tiny_vit_tiny_patch16_imagenet",
       "architecture": "transunet_tiny",
       "framework": "torch",
       "source": "timm:vit_tiny_patch16_224",
-      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "source_url": "https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k",
       "license": "See upstream timm model card/license terms",
-      "citation_key": ["dosovitskiy2020vit"],
-      "bootstrap_type": "partial_warm_start"
+      "citation_key": ["dosovitskiy2020vit", "chen2021transunet"],
+      "bootstrap_type": "partial_warm_start",
+      "manual_download_urls": [
+        "https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/model.safetensors",
+        "https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/pytorch_model.bin"
+      ],
+      "remarks": "Partial warm-start mapping for internal transunet_tiny; not official author checkpoint."
     },
     {
       "model_id": "segformer_mini_vit_tiny_patch16_imagenet",
       "architecture": "segformer_mini",
       "framework": "torch",
       "source": "timm:vit_tiny_patch16_224",
-      "source_url": "https://github.com/huggingface/pytorch-image-models",
+      "source_url": "https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k",
       "license": "See upstream timm model card/license terms",
-      "citation_key": ["dosovitskiy2020vit"],
-      "bootstrap_type": "partial_warm_start"
+      "citation_key": ["dosovitskiy2020vit", "xie2021segformer"],
+      "bootstrap_type": "partial_warm_start",
+      "manual_download_urls": [
+        "https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/model.safetensors",
+        "https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/pytorch_model.bin"
+      ],
+      "remarks": "Partial warm-start mapping for internal segformer_mini variant."
     }
   ]
 }
