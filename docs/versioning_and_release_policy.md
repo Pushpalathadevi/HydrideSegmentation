@@ -41,7 +41,7 @@ Before release:
 - Validate dataset packaging manifest generation
 - Validate resolved configuration artifacts for CLI workflows
 - Validate training report artifacts (`microseg.training_report.v1`, `microseg.training_manifest.v2`)
-- Validate evaluation report artifacts (`microseg.pixel_eval.v2`) and optional HTML summary output
+- Validate evaluation report artifacts (`microseg.pixel_eval.v4`) and optional HTML summary output
 - Validate frozen model metadata (`microseg-cli validate-registry --config configs/registry_validation.default.yml --strict`)
 - Keep checkpoint binaries out of git; track only metadata and promotion evidence paths
 

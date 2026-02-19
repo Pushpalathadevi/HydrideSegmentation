@@ -55,5 +55,5 @@ Current status:
 - Phase 22 architecture + benchmark hardening implemented:
   - `version.py`, `utils/encoding.py`, and `evaluation/hydride_metrics.py` now provide microseg-native version/image/analysis primitives.
   - `training/unet_binary.py` adds AMP, gradient accumulation, deterministic mode, and dataloader runtime controls.
-  - `evaluation/pixel_model_eval.py` now emits scientific distribution/error metrics (`microseg.pixel_eval.v3`).
+- `evaluation/pixel_model_eval.py` now emits expanded quality + scientific distribution/error metrics (`microseg.pixel_eval.v4`).
   - `scripts/hydride_benchmark_suite.py` now enforces dataset freeze invariants in benchmark mode.

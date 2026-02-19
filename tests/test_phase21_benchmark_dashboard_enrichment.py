@@ -40,6 +40,13 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
                 "val_accuracy": 0.71,
                 "val_iou": 0.52,
                 "epoch_runtime_seconds": 5.0,
+                "tracked_samples": [
+                    {
+                        "sample_name": "val_a.png",
+                        "iou": 0.41,
+                        "panel": "eval_samples/epoch_001/val_a_panel.png",
+                    }
+                ],
             },
             {
                 "epoch": 2,
@@ -50,6 +57,13 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
                 "val_accuracy": 0.76,
                 "val_iou": 0.58,
                 "epoch_runtime_seconds": 4.0,
+                "tracked_samples": [
+                    {
+                        "sample_name": "val_a.png",
+                        "iou": 0.57,
+                        "panel": "eval_samples/epoch_002/val_a_panel.png",
+                    }
+                ],
             },
         ],
     }
@@ -90,6 +104,7 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
     assert row["loss_curve_png"]
     assert row["accuracy_curve_png"]
     assert row["iou_curve_png"]
+    assert row["tracked_sample_evolution_count"] == 1
     assert Path(row["loss_curve_png"]).exists()
     assert Path(row["accuracy_curve_png"]).exists()
     assert Path(row["iou_curve_png"]).exists()
@@ -97,8 +112,10 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
     dashboard_text = (output_root / "benchmark_dashboard.html").read_text(encoding="utf-8")
     assert "Training Curve Gallery" in dashboard_text
     assert "Accuracy vs Epoch" in dashboard_text
+    assert "Tracked Sample Evolution" in dashboard_text
 
     with (output_root / "benchmark_aggregate.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert rows
     assert "mean_last_val_accuracy" in rows[0]
+    assert "quality_score" in rows[0]

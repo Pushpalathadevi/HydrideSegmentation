@@ -51,7 +51,7 @@ Strengthen the platform foundation for scientific publication and field deployme
   - `training_report.html`
   - `eval_samples/epoch_XXX/*.png`
 - Evaluation:
-  - JSON report (`microseg.pixel_eval.v2`)
+  - JSON report (`microseg.pixel_eval.v4`)
   - HTML sidecar report (`.html`)
   - tracked sample panels under sibling `samples/`
 

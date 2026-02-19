@@ -262,20 +262,33 @@ This is already compatible with the current training/evaluation stack for:
 
 ## Metrics Used For Comparison
 
-For every evaluated run (`microseg.pixel_eval.v2` reports):
+For every evaluated run (`microseg.pixel_eval.v4` reports):
 - `pixel_accuracy`
 - `macro_f1`
 - `mean_iou`
+- `macro_precision`
+- `macro_recall`
+- `weighted_f1`
+- `balanced_accuracy`
+- `frequency_weighted_iou`
+- binary diagnostics (for binary label sets): foreground precision/recall/specificity/IoU/Dice, FPR/FNR, MCC
 - `per_class_iou`
+- `per_class_precision`
+- `per_class_recall`
+- `per_class_f1`
+- confusion matrix (counts + normalized)
 - `runtime_seconds`
+- scientific metrics (`mask_area_fraction_abs_error`, `hydride_count_abs_error`, size/orientation Wasserstein distances)
 
 Primary ranking metrics:
 - `mean_iou`
 - `macro_f1`
+- `foreground_dice` (binary hydride use-case)
 
 Secondary selection metrics:
 - `runtime_seconds`
 - stability across seeds (mean + spread over repeated runs)
+- robustness diagnostics (`FPR`, `FNR`, `MCC`, tracked sample IoU evolution)
 
 ## Phase 4 - Collate Results And Compare Critically
 
@@ -379,18 +392,21 @@ Outputs:
 
 What this already includes:
 - model name, seed, status
-- metrics (`pixel_accuracy`, `macro_f1`, `mean_iou`, runtime)
+- expanded metrics (`pixel_accuracy`, `macro_f1`, `mean_iou`, `macro_precision`, `macro_recall`, `weighted_f1`, `balanced_accuracy`, `frequency_weighted_iou`)
+- binary diagnostics (`foreground_*`, `FPR/FNR`, `MCC`) for binary datasets
+- scientific metrics (`mask_area_fraction_abs_error`, `hydride_count_abs_error`, size/orientation Wasserstein)
 - backend + resolved architecture fields
 - resolved key hyperparameters (`epochs`, `batch_size`, `learning_rate`, `weight_decay`, plus architecture knobs)
 - training-history summaries (`last_*` loss/accuracy/IoU, epochs completed, best training val-loss)
 - model footprint fields (`model_parameter_count`, checkpoint/model artifact size in bytes/MB)
 - runtime effort fields (training runtime, evaluation runtime, and total runtime)
 - run-level training curve gallery (`loss`, `accuracy`, `IoU` vs epoch)
+- tracked sample IoU-vs-epoch evolution curves and delta summaries
 - train/eval config references and artifact paths
 
 Remaining gaps (known):
 - no statistical significance testing module yet (for example paired tests/CI bands).
-- dashboard is table-first plus static curve gallery (no advanced interactive plots yet).
+- dashboard is static HTML (intentionally air-gap friendly), not interactive.
 - HPC-distributed execution graph (job dependencies/retries) is not yet centralized in one scheduler-native workflow file.
 - `segmentation_models_pytorch` family backbones are installed but not yet first-class train/eval backends in the unified benchmark runner.
 
@@ -423,8 +439,8 @@ Use correction GUI for visual audit of representative successes/failures and doc
 Select the model for deployment/publication based on transparent criteria.
 
 Recommended decision criteria:
-- primary: `mean_iou` and `macro_f1` on test
-- secondary: runtime, stability across seeds, operational simplicity
+- primary: `mean_iou`, `macro_f1`, and `foreground_dice` on test
+- secondary: runtime, stability across seeds, robustness diagnostics (`FPR/FNR`, `MCC`, tracked-sample evolution), operational simplicity
 - tertiary: correction burden in human review
 
 Record decision rationale in a short selection memo:

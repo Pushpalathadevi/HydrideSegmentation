@@ -158,10 +158,18 @@ Primary outputs:
 - `curves/*_iou_curve.png`
 
 The dashboard includes:
-- per-run and per-model metrics (`pixel_accuracy`, `macro_f1`, `mean_iou`)
+- per-run and per-model quality metrics:
+  - `pixel_accuracy`, `macro_f1`, `mean_iou`
+  - `macro_precision`, `macro_recall`, `weighted_f1`, `balanced_accuracy`, `frequency_weighted_iou`
+  - binary diagnostics (`foreground_precision`, `foreground_recall`, `foreground_specificity`, `foreground_iou`, `foreground_dice`, `FPR`, `FNR`, `MCC`) when labels are binary
+- scientific error metrics:
+  - `mask_area_fraction_abs_error`
+  - `hydride_count_abs_error`
+  - `hydride_size_wasserstein`
+  - `hydride_orientation_wasserstein`
 - runtime and model-size summaries
 - training curves for every run
-- tracked validation sample IoU summaries and validation panel gallery
+- tracked validation sample IoU summaries, tracked-sample IoU-vs-epoch evolution curves, and validation panel gallery
 
 ## 7. Optional GA HPC Sweep Profiles (If You Want Candidate Search)
 

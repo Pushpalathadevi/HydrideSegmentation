@@ -81,6 +81,7 @@ def test_phase5_torch_train_and_eval_with_gpu_enabled_falls_back_on_cpu(tmp_path
     assert payload["backend"] == "torch_pixel"
     assert payload["runtime_device"] in {"cpu", "cuda", "mps"}
     assert payload["metrics"]["pixel_accuracy"] >= 0.6
+    assert payload["metrics"]["foreground_dice"] >= 0.0
 
 
 def test_phase5_evaluate_accepts_pth_suffix_for_torch_checkpoints(tmp_path: Path) -> None:

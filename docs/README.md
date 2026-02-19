@@ -41,6 +41,7 @@ Core planning and governance docs:
 - Configuration workflow: `configuration_workflow.md`
 - Offline pretrained transfer workflow: `offline_pretrained_transfer_workflow.md`
 - HPC air-gapped top-5 real-data runbook: `hpc_airgap_top5_realdata_runbook.md`
+- Benchmark metrics and dashboard reference: `benchmark_metrics_reference.md`
 - Pretrained model catalog + provenance metadata: `pretrained_model_catalog.md`
 - Model architecture manuscript foundation (diagrams + critical comparison): `model_architecture_manuscript_foundation.md`
 - Pretrained citation BibTeX: `pretrained_model_citations.bib`

@@ -28,14 +28,22 @@ These settings are exposed in `microseg-cli train` and included in resolved conf
 
 ## Evaluation scientific metrics expansion
 
-`PixelModelEvaluator` now reports scientific summary metrics (mean across evaluated samples):
+`PixelModelEvaluator` now reports expanded evaluation metrics + scientific summary metrics (mean across evaluated samples):
+
+- core quality: `pixel_accuracy`, `macro_f1`, `mean_iou`
+- robustness: `macro_precision`, `macro_recall`, `weighted_f1`, `balanced_accuracy`, `frequency_weighted_iou`
+- binary diagnostics (when labels are `{0,1}`): `foreground_precision`, `foreground_recall`, `foreground_specificity`,
+  `foreground_iou`, `foreground_dice`, `false_positive_rate`, `false_negative_rate`, `matthews_corrcoef`,
+  GT/pred foreground fractions
+- per-class metrics: IoU + precision + recall + F1 + support
+- confusion matrix: counts + row/column normalized matrices
 
 - area-fraction GT/pred and absolute error
 - hydride count GT/pred and absolute error
 - size distribution distances (Wasserstein, KS)
 - orientation distribution distances (Wasserstein, KS)
 
-Report schema is bumped to `microseg.pixel_eval.v3`.
+Report schema is bumped to `microseg.pixel_eval.v4`.
 
 ## Dataset freeze enforcement in benchmark mode
 

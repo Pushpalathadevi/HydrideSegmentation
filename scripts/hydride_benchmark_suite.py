@@ -6,7 +6,9 @@ import argparse
 import csv
 import html
 import json
+import math
 from pathlib import Path
+import re
 import statistics
 import subprocess
 import sys
@@ -124,6 +126,12 @@ def _bytes_to_mb(value: int | float | None) -> float:
     if value is None:
         return 0.0
     return float(value) / (1024.0 * 1024.0)
+
+
+def _safe_name(text: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(text).strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or "sample"
 
 
 def _extract_history_series(history: list[dict[str, Any]], key: str) -> tuple[list[int], list[float]]:
@@ -273,6 +281,69 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
                 }
             )
 
+    tracked_history_map: dict[str, list[dict[str, Any]]] = {}
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        epoch_num = _safe_int(item.get("epoch"))
+        if epoch_num is None:
+            continue
+        tracked_epoch = item.get("tracked_samples", [])
+        if not isinstance(tracked_epoch, list):
+            continue
+        for sample in tracked_epoch:
+            if not isinstance(sample, dict):
+                continue
+            name = str(sample.get("sample_name", "")).strip()
+            iou = _safe_float(sample.get("iou"))
+            panel_rel = str(sample.get("panel", "")).strip()
+            if not name or iou is None:
+                continue
+            tracked_history_map.setdefault(name, []).append(
+                {
+                    "epoch": int(epoch_num),
+                    "iou": float(iou),
+                    "panel_png": str((train_dir / panel_rel).resolve()) if panel_rel else "",
+                }
+            )
+
+    tracked_sample_evolution: list[dict[str, Any]] = []
+    for sample_name in sorted(tracked_history_map.keys()):
+        records = sorted(tracked_history_map[sample_name], key=lambda v: int(v.get("epoch", 0)))
+        epochs = [int(r["epoch"]) for r in records if _safe_int(r.get("epoch")) is not None]
+        ious = [float(r["iou"]) for r in records if _safe_float(r.get("iou")) is not None]
+        if not epochs or not ious:
+            continue
+        evo_curve = curves_dir / f"{run_tag}_tracked_{_safe_name(sample_name)}_iou_curve.png"
+        _write_curve_plot(
+            output_path=evo_curve,
+            title=f"{run_tag} - {sample_name} IoU vs Epoch",
+            x_vals=epochs,
+            lines=[("Tracked Sample IoU", ious)],
+            y_label="IoU",
+        )
+        tracked_sample_evolution.append(
+            {
+                "sample_name": sample_name,
+                "points": len(ious),
+                "first_epoch": int(epochs[0]),
+                "last_epoch": int(epochs[-1]),
+                "first_iou": float(ious[0]),
+                "last_iou": float(ious[-1]),
+                "delta_iou": float(ious[-1] - ious[0]),
+                "best_iou": float(max(ious)),
+                "worst_iou": float(min(ious)),
+                "latest_panel_png": str(records[-1].get("panel_png", "")),
+                "iou_curve_png": str(evo_curve) if evo_curve.exists() else "",
+            }
+        )
+
+    tracked_deltas = [
+        float(item.get("delta_iou"))
+        for item in tracked_sample_evolution
+        if _safe_float(item.get("delta_iou")) is not None
+    ]
+
     return {
         "training_status": str(report.get("status", "")),
         "training_runtime_seconds": _safe_float(report.get("runtime_seconds")),
@@ -296,6 +367,10 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
         "tracked_samples_min_iou": min(tracked_ious) if tracked_ious else None,
         "tracked_samples_max_iou": max(tracked_ious) if tracked_ious else None,
         "tracked_samples": tracked_samples,
+        "tracked_sample_evolution": tracked_sample_evolution,
+        "tracked_sample_evolution_count": len(tracked_sample_evolution),
+        "best_tracked_sample_delta_iou": max(tracked_deltas) if tracked_deltas else None,
+        "worst_tracked_sample_delta_iou": min(tracked_deltas) if tracked_deltas else None,
     }
 
 
@@ -312,6 +387,19 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         mean_pa, std_pa = _mean_and_std(items, "pixel_accuracy")
         mean_f1, std_f1 = _mean_and_std(items, "macro_f1")
         mean_mi, std_mi = _mean_and_std(items, "mean_iou")
+        mean_mp, std_mp = _mean_and_std(items, "macro_precision")
+        mean_mr, std_mr = _mean_and_std(items, "macro_recall")
+        mean_wf1, std_wf1 = _mean_and_std(items, "weighted_f1")
+        mean_bacc, std_bacc = _mean_and_std(items, "balanced_accuracy")
+        mean_fwiou, std_fwiou = _mean_and_std(items, "frequency_weighted_iou")
+        mean_fg_dice, std_fg_dice = _mean_and_std(items, "foreground_dice")
+        mean_fg_iou, std_fg_iou = _mean_and_std(items, "foreground_iou")
+        mean_fg_precision, _ = _mean_and_std(items, "foreground_precision")
+        mean_fg_recall, _ = _mean_and_std(items, "foreground_recall")
+        mean_fg_specificity, _ = _mean_and_std(items, "foreground_specificity")
+        mean_fpr, _ = _mean_and_std(items, "false_positive_rate")
+        mean_fnr, _ = _mean_and_std(items, "false_negative_rate")
+        mean_mcc, _ = _mean_and_std(items, "matthews_corrcoef")
         mean_eval_rt, std_eval_rt = _mean_and_std(items, "runtime_seconds")
         mean_train_rt, std_train_rt = _mean_and_std(items, "training_runtime_seconds")
         mean_total_rt, std_total_rt = _mean_and_std(items, "total_runtime_seconds")
@@ -324,6 +412,37 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         mean_train_iou, _ = _mean_and_std(items, "last_train_iou")
         mean_val_iou, _ = _mean_and_std(items, "last_val_iou")
         mean_tracked_iou, _ = _mean_and_std(items, "tracked_samples_mean_iou")
+        mean_area_err, _ = _mean_and_std(items, "mask_area_fraction_abs_error")
+        mean_count_err, _ = _mean_and_std(items, "hydride_count_abs_error")
+        mean_size_w, _ = _mean_and_std(items, "hydride_size_wasserstein")
+        mean_orient_w, _ = _mean_and_std(items, "hydride_orientation_wasserstein")
+        mean_best_delta_iou, _ = _mean_and_std(items, "best_tracked_sample_delta_iou")
+        mean_worst_delta_iou, _ = _mean_and_std(items, "worst_tracked_sample_delta_iou")
+
+        iou_gaps: list[float] = []
+        tracked_spans: list[float] = []
+        for item in items:
+            tr = _safe_float(item.get("last_train_iou"))
+            va = _safe_float(item.get("last_val_iou"))
+            if tr is not None and va is not None:
+                iou_gaps.append(float(tr - va))
+            tmax = _safe_float(item.get("tracked_samples_max_iou"))
+            tmin = _safe_float(item.get("tracked_samples_min_iou"))
+            if tmax is not None and tmin is not None:
+                tracked_spans.append(float(tmax - tmin))
+        mean_overfit_iou_gap = float(sum(iou_gaps) / len(iou_gaps)) if iou_gaps else 0.0
+        mean_tracked_iou_span = float(sum(tracked_spans) / len(tracked_spans)) if tracked_spans else 0.0
+
+        fg_quality = mean_fg_dice if mean_fg_dice > 0 else mean_mi
+        quality_score = (
+            0.40 * mean_mi
+            + 0.25 * mean_f1
+            + 0.20 * mean_wf1
+            + 0.15 * fg_quality
+        )
+        runtime_base = mean_total_rt if mean_total_rt > 0 else mean_eval_rt
+        efficiency_score = quality_score / (1.0 + math.log1p(max(0.0, runtime_base)))
+        robustness_score = (len(ok_items) / len(items)) if items else 0.0
         out.append(
             {
                 "model": model,
@@ -336,6 +455,26 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "std_macro_f1": std_f1,
                 "mean_mean_iou": mean_mi,
                 "std_mean_iou": std_mi,
+                "mean_macro_precision": mean_mp,
+                "std_macro_precision": std_mp,
+                "mean_macro_recall": mean_mr,
+                "std_macro_recall": std_mr,
+                "mean_weighted_f1": mean_wf1,
+                "std_weighted_f1": std_wf1,
+                "mean_balanced_accuracy": mean_bacc,
+                "std_balanced_accuracy": std_bacc,
+                "mean_frequency_weighted_iou": mean_fwiou,
+                "std_frequency_weighted_iou": std_fwiou,
+                "mean_foreground_dice": mean_fg_dice,
+                "std_foreground_dice": std_fg_dice,
+                "mean_foreground_iou": mean_fg_iou,
+                "std_foreground_iou": std_fg_iou,
+                "mean_foreground_precision": mean_fg_precision,
+                "mean_foreground_recall": mean_fg_recall,
+                "mean_foreground_specificity": mean_fg_specificity,
+                "mean_false_positive_rate": mean_fpr,
+                "mean_false_negative_rate": mean_fnr,
+                "mean_matthews_corrcoef": mean_mcc,
                 "mean_eval_runtime_seconds": mean_eval_rt,
                 "std_eval_runtime_seconds": std_eval_rt,
                 "mean_training_runtime_seconds": mean_train_rt,
@@ -351,8 +490,63 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "mean_last_train_iou": mean_train_iou,
                 "mean_last_val_iou": mean_val_iou,
                 "mean_tracked_samples_iou": mean_tracked_iou,
+                "mean_mask_area_fraction_abs_error": mean_area_err,
+                "mean_hydride_count_abs_error": mean_count_err,
+                "mean_hydride_size_wasserstein": mean_size_w,
+                "mean_hydride_orientation_wasserstein": mean_orient_w,
+                "mean_overfit_iou_gap": mean_overfit_iou_gap,
+                "mean_tracked_iou_span": mean_tracked_iou_span,
+                "mean_best_tracked_sample_delta_iou": mean_best_delta_iou,
+                "mean_worst_tracked_sample_delta_iou": mean_worst_delta_iou,
+                "quality_score": quality_score,
+                "efficiency_score": efficiency_score,
+                "robustness_score": robustness_score,
             }
         )
+
+    if not out:
+        return out
+
+    quality_sorted = sorted(
+        out,
+        key=lambda item: (
+            -float(item.get("quality_score", 0.0)),
+            -float(item.get("mean_mean_iou", 0.0)),
+            float(item.get("mean_total_runtime_seconds", 0.0)),
+        ),
+    )
+    efficiency_sorted = sorted(
+        out,
+        key=lambda item: (
+            -float(item.get("efficiency_score", 0.0)),
+            -float(item.get("mean_mean_iou", 0.0)),
+        ),
+    )
+    runtime_sorted = sorted(
+        out,
+        key=lambda item: (
+            float(item.get("mean_total_runtime_seconds", 0.0)),
+            -float(item.get("mean_mean_iou", 0.0)),
+        ),
+    )
+    robust_sorted = sorted(
+        out,
+        key=lambda item: (
+            -float(item.get("robustness_score", 0.0)),
+            -float(item.get("mean_mean_iou", 0.0)),
+        ),
+    )
+
+    rank_quality = {item["model"]: idx + 1 for idx, item in enumerate(quality_sorted)}
+    rank_efficiency = {item["model"]: idx + 1 for idx, item in enumerate(efficiency_sorted)}
+    rank_runtime = {item["model"]: idx + 1 for idx, item in enumerate(runtime_sorted)}
+    rank_robustness = {item["model"]: idx + 1 for idx, item in enumerate(robust_sorted)}
+    for item in out:
+        model = str(item.get("model", ""))
+        item["rank_quality"] = int(rank_quality.get(model, 0))
+        item["rank_efficiency"] = int(rank_efficiency.get(model, 0))
+        item["rank_runtime"] = int(rank_runtime.get(model, 0))
+        item["rank_robustness"] = int(rank_robustness.get(model, 0))
     return out
 
 
@@ -367,24 +561,83 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> Non
 
 def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    total_runs = len(rows)
+    failed_runs = len([r for r in rows if str(r.get("status", "")).strip().lower() != "ok"])
+    ok_runs = total_runs - failed_runs
+
+    def _pick_best(items: list[dict[str, Any]], key: str, *, higher_is_better: bool = True) -> dict[str, Any] | None:
+        if not items:
+            return None
+        filtered = [item for item in items if _safe_float(item.get(key)) is not None]
+        if not filtered:
+            return None
+        return sorted(filtered, key=lambda item: float(item.get(key, 0.0)), reverse=higher_is_better)[0]
+
+    best_quality = _pick_best(agg, "quality_score", higher_is_better=True)
+    best_efficiency = _pick_best(agg, "efficiency_score", higher_is_better=True)
+    fastest = _pick_best(agg, "mean_total_runtime_seconds", higher_is_better=False)
+
+    def _summary_line(item: dict[str, Any] | None, metric_key: str) -> str:
+        if item is None:
+            return "n/a"
+        model = html.escape(str(item.get("model", "")))
+        value = float(item.get(metric_key, 0.0))
+        return f"{model} ({value:.6f})"
+
+    style = (
+        "<style>"
+        "body{font-family:Arial,sans-serif;margin:16px;line-height:1.35;}"
+        ".cards{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0;}"
+        ".card{border:1px solid #bbb;border-radius:8px;padding:10px 12px;min-width:240px;background:#fafafa;}"
+        "table{border-collapse:collapse;margin:10px 0;width:100%;}"
+        "th,td{border:1px solid #bbb;padding:6px 8px;vertical-align:top;}"
+        "th{background:#f0f0f0;position:sticky;top:0;}"
+        ".mono{font-family:Menlo,Consolas,monospace;font-size:12px;}"
+        "</style>"
+    )
     lines: list[str] = [
-        "<html><head><meta charset='utf-8'><title>Hydride Benchmark Dashboard</title></head><body>",
+        "<html><head><meta charset='utf-8'><title>Hydride Benchmark Dashboard</title>"
+        + style
+        + "</head><body>",
         "<h1>Hydride Benchmark Dashboard</h1>",
+        "<div class='cards'>",
+        f"<div class='card'><b>Total Runs</b><div>{total_runs}</div></div>",
+        f"<div class='card'><b>Successful Runs</b><div>{ok_runs}</div></div>",
+        f"<div class='card'><b>Failed Runs</b><div>{failed_runs}</div></div>",
+        f"<div class='card'><b>Top Quality</b><div>{_summary_line(best_quality, 'quality_score')}</div></div>",
+        f"<div class='card'><b>Top Efficiency</b><div>{_summary_line(best_efficiency, 'efficiency_score')}</div></div>",
+        f"<div class='card'><b>Fastest Model (mean total runtime)</b><div>{_summary_line(fastest, 'mean_total_runtime_seconds')}</div></div>",
+        "</div>",
         "<h2>Model Summary</h2>",
         "<table border='1' cellpadding='6' cellspacing='0'>",
-        "<tr><th>Model</th><th>Runs</th><th>OK</th><th>Failed</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Tracked Val Sample IoU (mean)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params (mean)</th><th>Model Size MB (mean)</th></tr>",
+        "<tr><th>Model</th><th>Rank Quality</th><th>Rank Efficiency</th><th>Rank Runtime</th><th>Rank Robustness</th><th>Runs</th><th>OK</th><th>Failed</th><th>Quality Score</th><th>Efficiency Score</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Weighted F1 (mean±std)</th><th>Balanced Acc (mean±std)</th><th>Foreground Dice (mean±std)</th><th>Foreground Specificity (mean)</th><th>FPR (mean)</th><th>FNR (mean)</th><th>MCC (mean)</th><th>Tracked Val Sample IoU (mean)</th><th>Tracked IoU Span (mean)</th><th>Overfit Gap IoU (train-val, mean)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params (mean)</th><th>Model Size MB (mean)</th></tr>",
     ]
     for item in agg:
         lines.append(
             "<tr>"
             f"<td>{html.escape(str(item['model']))}</td>"
+            f"<td>{int(item.get('rank_quality', 0))}</td>"
+            f"<td>{int(item.get('rank_efficiency', 0))}</td>"
+            f"<td>{int(item.get('rank_runtime', 0))}</td>"
+            f"<td>{int(item.get('rank_robustness', 0))}</td>"
             f"<td>{int(item.get('runs', 0))}</td>"
             f"<td>{int(item.get('ok_runs', 0))}</td>"
             f"<td>{int(item.get('failed_runs', 0))}</td>"
+            f"<td>{float(item.get('quality_score', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('efficiency_score', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_pixel_accuracy', 0.0)):.6f} ± {float(item.get('std_pixel_accuracy', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_macro_f1', 0.0)):.6f} ± {float(item.get('std_macro_f1', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_mean_iou', 0.0)):.6f} ± {float(item.get('std_mean_iou', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_weighted_f1', 0.0)):.6f} ± {float(item.get('std_weighted_f1', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_balanced_accuracy', 0.0)):.6f} ± {float(item.get('std_balanced_accuracy', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_foreground_dice', 0.0)):.6f} ± {float(item.get('std_foreground_dice', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_foreground_specificity', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_false_positive_rate', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_false_negative_rate', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_matthews_corrcoef', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_tracked_samples_iou', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_tracked_iou_span', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_overfit_iou_gap', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_eval_runtime_seconds', 0.0)):.2f}</td>"
             f"<td>{float(item.get('mean_training_runtime_seconds', 0.0)):.2f}</td>"
             f"<td>{float(item.get('mean_total_runtime_seconds', 0.0)):.2f}</td>"
@@ -395,9 +648,29 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
     lines.extend(
         [
             "</table>",
+            "<h2>Scientific Error Summary (Lower Is Better)</h2>",
+            "<table border='1' cellpadding='6' cellspacing='0'>",
+            "<tr><th>Model</th><th>Area Fraction Abs Error</th><th>Hydride Count Abs Error</th><th>Size Wasserstein</th><th>Orientation Wasserstein</th><th>Best Tracked Delta IoU (mean)</th><th>Worst Tracked Delta IoU (mean)</th></tr>",
+        ]
+    )
+    for item in agg:
+        lines.append(
+            "<tr>"
+            f"<td>{html.escape(str(item.get('model', '')))}</td>"
+            f"<td>{float(item.get('mean_mask_area_fraction_abs_error', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_hydride_count_abs_error', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_hydride_size_wasserstein', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_hydride_orientation_wasserstein', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_best_tracked_sample_delta_iou', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_worst_tracked_sample_delta_iou', 0.0)):.6f}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
             "<h2>Run-Level Results</h2>",
             "<table border='1' cellpadding='6' cellspacing='0'>",
-            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Backend</th><th>Architecture</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Tracked Val Sample IoU</th><th>Tracked Sample Count</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params</th><th>Model Size MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
+            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Backend</th><th>Architecture</th><th>Init</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Weighted F1</th><th>Balanced Acc</th><th>Foreground Dice</th><th>Foreground Precision</th><th>Foreground Recall</th><th>Foreground Specificity</th><th>FPR</th><th>FNR</th><th>MCC</th><th>Area Abs Err</th><th>Count Abs Err</th><th>Size W</th><th>Orientation W</th><th>Tracked Val Sample IoU</th><th>Tracked Sample Count</th><th>Tracked Evol. Curves</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params</th><th>Model Size MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
         ]
     )
     for row in rows:
@@ -414,11 +687,26 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{html.escape(str(row.get('status','')))}</td>"
             f"<td>{html.escape(str(row.get('resolved_backend') or row.get('backend','')))}</td>"
             f"<td>{html.escape(str(row.get('resolved_model_architecture','')))}</td>"
+            f"<td>{html.escape(str(row.get('model_initialization','')))}</td>"
             f"<td>{_safe_float(row.get('pixel_accuracy')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('macro_f1')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('mean_iou')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('weighted_f1')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('balanced_accuracy')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('foreground_dice')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('foreground_precision')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('foreground_recall')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('foreground_specificity')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('false_positive_rate')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('false_negative_rate')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('matthews_corrcoef')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('mask_area_fraction_abs_error')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('hydride_count_abs_error')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('hydride_size_wasserstein')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('hydride_orientation_wasserstein')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('tracked_samples_mean_iou')) or 0.0:.6f}</td>"
             f"<td>{_safe_int(row.get('tracked_samples_count')) or 0}</td>"
+            f"<td>{_safe_int(row.get('tracked_sample_evolution_count')) or 0}</td>"
             f"<td>{_safe_float(row.get('runtime_seconds')) or 0.0:.2f}</td>"
             f"<td>{_safe_float(row.get('training_runtime_seconds')) or 0.0:.2f}</td>"
             f"<td>{_safe_float(row.get('total_runtime_seconds')) or 0.0:.2f}</td>"
@@ -459,6 +747,50 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
                 f"<img src='{html.escape(iou_curve)}' style='max-width:520px;border:1px solid #333;'></div>"
             )
         lines.append("</div>")
+    lines.extend(["<h2>Tracked Sample Evolution (IoU vs Epoch)</h2>"])
+    for row in rows:
+        tracked_evolution = row.get("tracked_sample_evolution")
+        if not isinstance(tracked_evolution, list) or not tracked_evolution:
+            continue
+        title = f"{row.get('model', '')} seed {row.get('seed', '')}"
+        lines.append(f"<h3>{html.escape(title)}</h3>")
+        lines.append(
+            "<table border='1' cellpadding='6' cellspacing='0'>"
+            "<tr><th>Sample</th><th>Points</th><th>First IoU</th><th>Last IoU</th><th>Delta IoU</th><th>Best IoU</th><th>Worst IoU</th><th>Curve</th></tr>"
+        )
+        for item in tracked_evolution:
+            if not isinstance(item, dict):
+                continue
+            curve_png = str(item.get("iou_curve_png", "")).strip()
+            curve_cell = html.escape(curve_png) if curve_png else "-"
+            lines.append(
+                "<tr>"
+                f"<td>{html.escape(str(item.get('sample_name', '')))}</td>"
+                f"<td>{int(_safe_int(item.get('points')) or 0)}</td>"
+                f"<td>{_safe_float(item.get('first_iou')) or 0.0:.6f}</td>"
+                f"<td>{_safe_float(item.get('last_iou')) or 0.0:.6f}</td>"
+                f"<td>{_safe_float(item.get('delta_iou')) or 0.0:.6f}</td>"
+                f"<td>{_safe_float(item.get('best_iou')) or 0.0:.6f}</td>"
+                f"<td>{_safe_float(item.get('worst_iou')) or 0.0:.6f}</td>"
+                f"<td class='mono'>{curve_cell}</td>"
+                "</tr>"
+            )
+        lines.append("</table>")
+        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;'>")
+        for item in tracked_evolution:
+            if not isinstance(item, dict):
+                continue
+            curve_png = str(item.get("iou_curve_png", "")).strip()
+            if not curve_png:
+                continue
+            lines.append(
+                "<div><div><b>"
+                + html.escape(str(item.get("sample_name", "")))
+                + "</b></div>"
+                + f"<img src='{html.escape(curve_png)}' style='max-width:520px;border:1px solid #333;'></div>"
+            )
+        lines.append("</div>")
+
     lines.extend(["<h2>Validation Sample Panels</h2>"])
     for row in rows:
         tracked_samples = row.get("tracked_samples")
@@ -614,6 +946,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
 
             eval_payload = _read_json(eval_report)
             metrics = eval_payload.get("metrics", {}) if isinstance(eval_payload, dict) else {}
+            scientific_metrics = eval_payload.get("scientific_metrics", {}) if isinstance(eval_payload, dict) else {}
             train_resolved = _read_json(train_dir / "resolved_config.json")
             train_meta = _read_training_metadata(train_dir, run_tag, output_root)
             model_param_count = _parameter_count_from_checkpoint(model_path) if isinstance(model_path, Path) else None
@@ -638,9 +971,26 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "pixel_accuracy": metrics.get("pixel_accuracy"),
                 "macro_f1": metrics.get("macro_f1"),
                 "mean_iou": metrics.get("mean_iou"),
+                "macro_precision": metrics.get("macro_precision"),
+                "macro_recall": metrics.get("macro_recall"),
+                "weighted_f1": metrics.get("weighted_f1"),
+                "balanced_accuracy": metrics.get("balanced_accuracy"),
+                "frequency_weighted_iou": metrics.get("frequency_weighted_iou"),
+                "foreground_precision": metrics.get("foreground_precision"),
+                "foreground_recall": metrics.get("foreground_recall"),
+                "foreground_specificity": metrics.get("foreground_specificity"),
+                "foreground_iou": metrics.get("foreground_iou"),
+                "foreground_dice": metrics.get("foreground_dice"),
+                "false_positive_rate": metrics.get("false_positive_rate"),
+                "false_negative_rate": metrics.get("false_negative_rate"),
+                "matthews_corrcoef": metrics.get("matthews_corrcoef"),
                 "runtime_seconds": eval_runtime_seconds,
                 "training_runtime_seconds": train_runtime_seconds,
                 "total_runtime_seconds": total_runtime_seconds,
+                "mask_area_fraction_abs_error": scientific_metrics.get("mask_area_fraction_abs_error"),
+                "hydride_count_abs_error": scientific_metrics.get("hydride_count_abs_error"),
+                "hydride_size_wasserstein": scientific_metrics.get("hydride_size_wasserstein"),
+                "hydride_orientation_wasserstein": scientific_metrics.get("hydride_orientation_wasserstein"),
                 "backend": eval_payload.get("backend") if isinstance(eval_payload, dict) else "",
                 "model_initialization": eval_payload.get("model_initialization") if isinstance(eval_payload, dict) else "",
                 "model_artifact_path": str(model_path) if isinstance(model_path, Path) else "",
@@ -694,6 +1044,10 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "tracked_samples_min_iou": train_meta.get("tracked_samples_min_iou"),
                 "tracked_samples_max_iou": train_meta.get("tracked_samples_max_iou"),
                 "tracked_samples": train_meta.get("tracked_samples"),
+                "tracked_sample_evolution_count": train_meta.get("tracked_sample_evolution_count"),
+                "tracked_sample_evolution": train_meta.get("tracked_sample_evolution"),
+                "best_tracked_sample_delta_iou": train_meta.get("best_tracked_sample_delta_iou"),
+                "worst_tracked_sample_delta_iou": train_meta.get("worst_tracked_sample_delta_iou"),
                 "train_overrides": "|".join(train_overrides),
                 "eval_overrides": "|".join(eval_overrides),
             }
@@ -706,7 +1060,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
     dashboard_html = output_root / "benchmark_dashboard.html"
 
     summary_payload = {
-        "schema_version": "microseg.hydride_benchmark_suite.v1",
+        "schema_version": "microseg.hydride_benchmark_suite.v2",
         "config_path": str(cfg_path),
         "dataset_dir": dataset_dir,
         "output_root": str(output_root),
@@ -732,6 +1086,23 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "pixel_accuracy",
             "macro_f1",
             "mean_iou",
+            "macro_precision",
+            "macro_recall",
+            "weighted_f1",
+            "balanced_accuracy",
+            "frequency_weighted_iou",
+            "foreground_precision",
+            "foreground_recall",
+            "foreground_specificity",
+            "foreground_iou",
+            "foreground_dice",
+            "false_positive_rate",
+            "false_negative_rate",
+            "matthews_corrcoef",
+            "mask_area_fraction_abs_error",
+            "hydride_count_abs_error",
+            "hydride_size_wasserstein",
+            "hydride_orientation_wasserstein",
             "runtime_seconds",
             "training_runtime_seconds",
             "total_runtime_seconds",
@@ -752,6 +1123,9 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "tracked_samples_mean_iou",
             "tracked_samples_min_iou",
             "tracked_samples_max_iou",
+            "tracked_sample_evolution_count",
+            "best_tracked_sample_delta_iou",
+            "worst_tracked_sample_delta_iou",
             "model_artifact_path",
             "model_artifact_size_bytes",
             "model_artifact_size_mb",
@@ -793,6 +1167,26 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "std_macro_f1",
             "mean_mean_iou",
             "std_mean_iou",
+            "mean_macro_precision",
+            "std_macro_precision",
+            "mean_macro_recall",
+            "std_macro_recall",
+            "mean_weighted_f1",
+            "std_weighted_f1",
+            "mean_balanced_accuracy",
+            "std_balanced_accuracy",
+            "mean_frequency_weighted_iou",
+            "std_frequency_weighted_iou",
+            "mean_foreground_dice",
+            "std_foreground_dice",
+            "mean_foreground_iou",
+            "std_foreground_iou",
+            "mean_foreground_precision",
+            "mean_foreground_recall",
+            "mean_foreground_specificity",
+            "mean_false_positive_rate",
+            "mean_false_negative_rate",
+            "mean_matthews_corrcoef",
             "mean_eval_runtime_seconds",
             "std_eval_runtime_seconds",
             "mean_training_runtime_seconds",
@@ -801,6 +1195,10 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "std_total_runtime_seconds",
             "mean_model_parameter_count",
             "mean_model_artifact_size_mb",
+            "mean_mask_area_fraction_abs_error",
+            "mean_hydride_count_abs_error",
+            "mean_hydride_size_wasserstein",
+            "mean_hydride_orientation_wasserstein",
             "mean_last_train_loss",
             "mean_last_val_loss",
             "mean_last_train_accuracy",
@@ -808,6 +1206,17 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "mean_last_train_iou",
             "mean_last_val_iou",
             "mean_tracked_samples_iou",
+            "mean_tracked_iou_span",
+            "mean_best_tracked_sample_delta_iou",
+            "mean_worst_tracked_sample_delta_iou",
+            "mean_overfit_iou_gap",
+            "quality_score",
+            "efficiency_score",
+            "robustness_score",
+            "rank_quality",
+            "rank_efficiency",
+            "rank_runtime",
+            "rank_robustness",
         ],
     )
     _write_dashboard(dashboard_html, rows, agg)

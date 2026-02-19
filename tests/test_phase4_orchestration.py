@@ -105,6 +105,17 @@ def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:
     assert report_path.exists()
     assert payload["metrics"]["pixel_accuracy"] > 0.7
     assert "macro_f1" in payload["metrics"]
+    assert "macro_precision" in payload["metrics"]
+    assert "macro_recall" in payload["metrics"]
+    assert "weighted_f1" in payload["metrics"]
+    assert "balanced_accuracy" in payload["metrics"]
+    assert "frequency_weighted_iou" in payload["metrics"]
+    assert "foreground_dice" in payload["metrics"]
+    assert payload["metrics"]["foreground_dice"] >= 0.0
+    assert "per_class_precision" in payload
+    assert "per_class_recall" in payload
+    assert "per_class_f1" in payload
+    assert "confusion_matrix" in payload
 
     raw = json.loads(report_path.read_text(encoding="utf-8"))
     assert str(raw["schema_version"]).startswith("microseg.pixel_eval.v")

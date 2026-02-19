@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 from PIL import Image
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 from src.microseg.corrections.classes import binary_remapped_foreground_values, normalize_binary_index_mask
 from src.microseg.training.pixel_classifier import load_pixel_classifier, predict_index_mask
@@ -124,6 +124,101 @@ def _mean_iou(y_true: np.ndarray, y_pred: np.ndarray, labels: np.ndarray) -> tup
     return (float(np.mean(vals)) if vals else 1.0, per_class)
 
 
+def _safe_div(num: float, den: float) -> float:
+    if den == 0:
+        return 0.0
+    return float(num / den)
+
+
+def _advanced_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    labels: np.ndarray,
+    per_class_iou: dict[str, float],
+) -> tuple[dict[str, float], dict[str, float], dict[str, float], dict[str, int], dict[str, Any]]:
+    label_list = [int(v) for v in labels.tolist()]
+    precision_vals = precision_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
+    recall_vals = recall_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
+    f1_vals = f1_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
+
+    per_class_precision = {str(int(lbl)): float(v) for lbl, v in zip(label_list, precision_vals.tolist())}
+    per_class_recall = {str(int(lbl)): float(v) for lbl, v in zip(label_list, recall_vals.tolist())}
+    per_class_f1 = {str(int(lbl)): float(v) for lbl, v in zip(label_list, f1_vals.tolist())}
+    class_support = {str(int(lbl)): int(np.count_nonzero(y_true == lbl)) for lbl in label_list}
+
+    weighted_f1 = float(f1_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+    macro_precision = float(precision_score(y_true, y_pred, labels=labels, average="macro", zero_division=0))
+    macro_recall = float(recall_score(y_true, y_pred, labels=labels, average="macro", zero_division=0))
+    balanced_accuracy = macro_recall
+
+    total = float(y_true.size)
+    freq_weighted_iou = 0.0
+    for lbl in label_list:
+        support = float(class_support.get(str(lbl), 0))
+        iou = float(per_class_iou.get(str(lbl), 0.0))
+        freq_weighted_iou += _safe_div(support, total) * iou
+
+    out: dict[str, float] = {
+        "macro_precision": macro_precision,
+        "macro_recall": macro_recall,
+        "weighted_f1": weighted_f1,
+        "balanced_accuracy": balanced_accuracy,
+        "frequency_weighted_iou": float(freq_weighted_iou),
+    }
+
+    cm_payload: dict[str, Any] = {"labels": label_list, "counts": [], "row_normalized": [], "column_normalized": []}
+    if label_list:
+        counts = np.zeros((len(label_list), len(label_list)), dtype=np.int64)
+        for i, gt_lbl in enumerate(label_list):
+            gt_mask = y_true == gt_lbl
+            for j, pred_lbl in enumerate(label_list):
+                counts[i, j] = int(np.count_nonzero(gt_mask & (y_pred == pred_lbl)))
+        cm_payload["counts"] = counts.tolist()
+        row_denom = counts.sum(axis=1, keepdims=True).astype(np.float64)
+        col_denom = counts.sum(axis=0, keepdims=True).astype(np.float64)
+        row_norm = np.divide(counts, row_denom, out=np.zeros_like(counts, dtype=np.float64), where=row_denom != 0)
+        col_norm = np.divide(counts, col_denom, out=np.zeros_like(counts, dtype=np.float64), where=col_denom != 0)
+        cm_payload["row_normalized"] = row_norm.tolist()
+        cm_payload["column_normalized"] = col_norm.tolist()
+
+    # Binary-only foreground metrics when labels are exactly {0, 1}.
+    if set(label_list) == {0, 1}:
+        true_fg = y_true == 1
+        pred_fg = y_pred == 1
+        tp = float(np.count_nonzero(true_fg & pred_fg))
+        tn = float(np.count_nonzero((~true_fg) & (~pred_fg)))
+        fp = float(np.count_nonzero((~true_fg) & pred_fg))
+        fn = float(np.count_nonzero(true_fg & (~pred_fg)))
+
+        fg_precision = _safe_div(tp, tp + fp)
+        fg_recall = _safe_div(tp, tp + fn)
+        fg_specificity = _safe_div(tn, tn + fp)
+        fg_iou = _safe_div(tp, tp + fp + fn)
+        fg_dice = _safe_div(2.0 * tp, 2.0 * tp + fp + fn)
+        fpr = _safe_div(fp, fp + tn)
+        fnr = _safe_div(fn, fn + tp)
+
+        mcc_denom = (tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)
+        mcc = 0.0 if mcc_denom <= 0 else float((tp * tn - fp * fn) / np.sqrt(mcc_denom))
+
+        out.update(
+            {
+                "foreground_precision": fg_precision,
+                "foreground_recall": fg_recall,
+                "foreground_specificity": fg_specificity,
+                "foreground_iou": fg_iou,
+                "foreground_dice": fg_dice,
+                "false_positive_rate": fpr,
+                "false_negative_rate": fnr,
+                "matthews_corrcoef": mcc,
+                "gt_foreground_fraction": float(np.mean(true_fg)),
+                "pred_foreground_fraction": float(np.mean(pred_fg)),
+            }
+        )
+
+    return out, per_class_precision, per_class_recall, class_support, {"per_class_f1": per_class_f1, **cm_payload}
+
+
 def _binary_panel(image: np.ndarray, gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
     gt_u8 = (gt.astype(np.uint8) * 255)
     pred_u8 = (pred.astype(np.uint8) * 255)
@@ -138,15 +233,24 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
     metrics = payload.get("metrics", {})
     scientific = payload.get("scientific_metrics", {})
     samples = payload.get("tracked_samples", [])
+    per_class_iou = payload.get("per_class_iou", {})
+    per_class_precision = payload.get("per_class_precision", {})
+    per_class_recall = payload.get("per_class_recall", {})
+    per_class_f1 = payload.get("per_class_f1", {})
+    class_support = payload.get("class_support", {})
+    confusion = payload.get("confusion_matrix", {})
     rows = []
     for sample in samples:
+        fg_dice = float(sample.get("foreground_dice", 0.0)) if "foreground_dice" in sample else None
+        fg_cell = f"<td>{fg_dice:.4f}</td>" if fg_dice is not None else "<td>-</td>"
         rows.append(
             "<tr>"
             f"<td>{html.escape(str(sample.get('sample_name', '')))}</td>"
             f"<td>{float(sample.get('pixel_accuracy', 0.0)):.4f}</td>"
             f"<td>{float(sample.get('macro_f1', 0.0)):.4f}</td>"
             f"<td>{float(sample.get('mean_iou', 0.0)):.4f}</td>"
-            "</tr>"
+            + fg_cell
+            + "</tr>"
         )
     gallery = []
     for sample in samples:
@@ -157,6 +261,54 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
             f"<img src='{panel}' style='max-width:100%;border:1px solid #333;'>"
             "</div>"
         )
+
+    class_rows: list[str] = []
+    class_keys = sorted(
+        {str(k) for k in per_class_iou.keys()} | {str(k) for k in per_class_precision.keys()} | {str(k) for k in per_class_recall.keys()}
+    )
+    for class_key in class_keys:
+        class_rows.append(
+            "<tr>"
+            f"<td>{html.escape(class_key)}</td>"
+            f"<td>{int(class_support.get(class_key, 0))}</td>"
+            f"<td>{float(per_class_iou.get(class_key, 0.0)):.6f}</td>"
+            f"<td>{float(per_class_precision.get(class_key, 0.0)):.6f}</td>"
+            f"<td>{float(per_class_recall.get(class_key, 0.0)):.6f}</td>"
+            f"<td>{float(per_class_f1.get(class_key, 0.0)):.6f}</td>"
+            "</tr>"
+        )
+
+    binary_rows: list[str] = []
+    for key in [
+        "foreground_precision",
+        "foreground_recall",
+        "foreground_specificity",
+        "foreground_iou",
+        "foreground_dice",
+        "false_positive_rate",
+        "false_negative_rate",
+        "matthews_corrcoef",
+        "gt_foreground_fraction",
+        "pred_foreground_fraction",
+    ]:
+        if key in metrics:
+            binary_rows.append(
+                "<tr>"
+                f"<td>{html.escape(key)}</td>"
+                f"<td>{float(metrics.get(key, 0.0)):.6f}</td>"
+                "</tr>"
+            )
+
+    confusion_labels = confusion.get("labels", [])
+    confusion_counts = confusion.get("counts", [])
+    confusion_rows: list[str] = []
+    if isinstance(confusion_labels, list) and isinstance(confusion_counts, list):
+        header = "".join(f"<th>pred {html.escape(str(lbl))}</th>" for lbl in confusion_labels)
+        confusion_rows.append(f"<tr><th>GT \\ Pred</th>{header}</tr>")
+        for idx, lbl in enumerate(confusion_labels):
+            row_vals = confusion_counts[idx] if idx < len(confusion_counts) and isinstance(confusion_counts[idx], list) else []
+            row_html = "".join(f"<td>{int(v)}</td>" for v in row_vals)
+            confusion_rows.append(f"<tr><th>{html.escape(str(lbl))}</th>{row_html}</tr>")
 
     html_text = (
         "<html><head><meta charset='utf-8'><title>MicroSeg Evaluation Report</title></head><body>"
@@ -170,7 +322,26 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         f"<li>Pixel Accuracy: {float(metrics.get('pixel_accuracy', 0.0)):.6f}</li>"
         f"<li>Macro F1: {float(metrics.get('macro_f1', 0.0)):.6f}</li>"
         f"<li>Mean IoU: {float(metrics.get('mean_iou', 0.0)):.6f}</li>"
+        f"<li>Macro Precision: {float(metrics.get('macro_precision', 0.0)):.6f}</li>"
+        f"<li>Macro Recall: {float(metrics.get('macro_recall', 0.0)):.6f}</li>"
+        f"<li>Weighted F1: {float(metrics.get('weighted_f1', 0.0)):.6f}</li>"
+        f"<li>Balanced Accuracy: {float(metrics.get('balanced_accuracy', 0.0)):.6f}</li>"
+        f"<li>Frequency-Weighted IoU: {float(metrics.get('frequency_weighted_iou', 0.0)):.6f}</li>"
         "</ul>"
+        "<h2>Per-Class Metrics</h2>"
+        "<table border='1' cellpadding='6' cellspacing='0'>"
+        "<tr><th>Class</th><th>Support</th><th>IoU</th><th>Precision</th><th>Recall</th><th>F1</th></tr>"
+        + "".join(class_rows)
+        + "</table>"
+        "<h2>Binary Foreground Diagnostics</h2>"
+        "<table border='1' cellpadding='6' cellspacing='0'>"
+        "<tr><th>Metric</th><th>Value</th></tr>"
+        + ("".join(binary_rows) if binary_rows else "<tr><td colspan='2'>Not applicable (non-binary labels).</td></tr>")
+        + "</table>"
+        "<h2>Confusion Matrix (Counts)</h2>"
+        "<table border='1' cellpadding='6' cellspacing='0'>"
+        + ("".join(confusion_rows) if confusion_rows else "<tr><td>No confusion matrix available.</td></tr>")
+        + "</table>"
         "<h2>Scientific Metrics (Mean across evaluated samples)</h2>"
         "<ul>"
         f"<li>Area Fraction Abs Error: {float(scientific.get('mask_area_fraction_abs_error', 0.0)):.6f}</li>"
@@ -180,7 +351,7 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         "</ul>"
         "<h2>Tracked Sample Metrics</h2>"
         "<table border='1' cellpadding='6' cellspacing='0'>"
-        "<tr><th>Sample</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th></tr>"
+        "<tr><th>Sample</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Foreground Dice</th></tr>"
         + "".join(rows)
         + "</table>"
         "<h2>Tracked Samples (Input | GT | Pred | Diff)</h2>"
@@ -312,6 +483,13 @@ class PixelModelEvaluator:
                 "macro_f1": f1_local,
                 "mean_iou": iou_local,
             }
+            if set([int(v) for v in labels_local.tolist()]) == {0, 1}:
+                y_true_local = gt.reshape(-1)
+                y_pred_local = pred.reshape(-1)
+                tp = float(np.count_nonzero((y_true_local == 1) & (y_pred_local == 1)))
+                fp = float(np.count_nonzero((y_true_local == 0) & (y_pred_local == 1)))
+                fn = float(np.count_nonzero((y_true_local == 1) & (y_pred_local == 0)))
+                sample_item["foreground_dice"] = _safe_div(2.0 * tp, 2.0 * tp + fp + fn)
             sci = scientific_distance_metrics((gt > 0).astype(np.uint8), (pred > 0).astype(np.uint8))
             sample_item.update(sci)
             scientific_rows.append(sci)
@@ -341,6 +519,19 @@ class PixelModelEvaluator:
         pixel_acc = float(np.mean(y_true == y_pred))
         macro_f1 = float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0))
         mean_iou, per_class_iou = _mean_iou(y_true, y_pred, labels)
+        advanced, per_class_precision, per_class_recall, class_support, extra = _advanced_metrics(
+            y_true,
+            y_pred,
+            labels,
+            per_class_iou,
+        )
+        per_class_f1 = extra.get("per_class_f1", {}) if isinstance(extra, dict) else {}
+        confusion_matrix = {
+            "labels": extra.get("labels", []),
+            "counts": extra.get("counts", []),
+            "row_normalized": extra.get("row_normalized", []),
+            "column_normalized": extra.get("column_normalized", []),
+        }
 
         runtime_seconds = time.perf_counter() - run_start
         scientific_metrics: dict[str, float] = {}
@@ -352,7 +543,7 @@ class PixelModelEvaluator:
 
         config_payload = asdict(config)
         payload = {
-            "schema_version": "microseg.pixel_eval.v3",
+            "schema_version": "microseg.pixel_eval.v4",
             "created_utc": _utc_now(),
             "started_utc": started_utc,
             "config": config_payload,
@@ -369,8 +560,14 @@ class PixelModelEvaluator:
                 "pixel_accuracy": pixel_acc,
                 "macro_f1": macro_f1,
                 "mean_iou": mean_iou,
+                **advanced,
             },
             "per_class_iou": per_class_iou,
+            "per_class_precision": per_class_precision,
+            "per_class_recall": per_class_recall,
+            "per_class_f1": per_class_f1,
+            "class_support": class_support,
+            "confusion_matrix": confusion_matrix,
             "scientific_metrics": scientific_metrics,
             "tracked_samples": [s for s in sample_metrics if "panel" in s],
             "sample_metrics": sample_metrics,
@@ -383,10 +580,11 @@ class PixelModelEvaluator:
             payload["html_report_path"] = str(html_path)
 
         logger.info(
-            "evaluation complete | metrics: pixel_acc=%.4f macro_f1=%.4f mean_iou=%.4f | runtime=%s",
+            "evaluation complete | metrics: pixel_acc=%.4f macro_f1=%.4f mean_iou=%.4f weighted_f1=%.4f | runtime=%s",
             pixel_acc,
             macro_f1,
             mean_iou,
+            float(advanced.get("weighted_f1", 0.0)),
             _format_seconds(runtime_seconds),
         )
         return payload
