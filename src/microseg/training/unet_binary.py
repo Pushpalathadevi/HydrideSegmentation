@@ -19,6 +19,7 @@ from PIL import Image
 
 from src.microseg.core import resolve_torch_device
 from src.microseg.corrections.classes import binary_remapped_foreground_values, normalize_binary_index_mask
+from src.microseg.data import InputPolicyConfig, apply_input_policy, resolve_collate_fn
 from src.microseg.plugins import (
     resolve_bundle_paths,
     resolve_pretrained_record,
@@ -267,9 +268,22 @@ def _resolve_pretrained_bundle(
 class _SegPairDataset:
     """Dataset of image/mask path pairs for binary segmentation."""
 
-    def __init__(self, pairs: list[tuple[Path, Path]], *, binary_mask_normalization: str) -> None:
+    def __init__(
+        self,
+        pairs: list[tuple[Path, Path]],
+        *,
+        binary_mask_normalization: str,
+        input_policy_cfg: InputPolicyConfig,
+        seed: int,
+        is_train: bool,
+        logger: logging.Logger,
+    ) -> None:
         self.pairs = pairs
         self.binary_mask_normalization = str(binary_mask_normalization)
+        self.input_policy_cfg = input_policy_cfg
+        self.seed = int(seed)
+        self.is_train = bool(is_train)
+        self.logger = logger
 
     def __len__(self) -> int:
         return len(self.pairs)
@@ -287,6 +301,18 @@ class _SegPairDataset:
 
         x = torch.from_numpy(image.transpose(2, 0, 1))
         y = torch.from_numpy(mask[None, ...])
+        orig_hw = tuple(int(v) for v in x.shape[-2:])
+        rng = torch.Generator().manual_seed(self.seed + int(index)) if self.is_train else None
+        x, y = apply_input_policy(x, y, self.input_policy_cfg, rng=rng, is_train=self.is_train)
+        self.logger.debug(
+            "input policy sample=%s idx=%d train=%s policy=%s original_hw=%s final_hw=%s",
+            img_path.name,
+            int(index),
+            self.is_train,
+            self.input_policy_cfg.input_policy,
+            orig_hw,
+            tuple(int(v) for v in x.shape[-2:]),
+        )
         return x, y
 
 
@@ -969,11 +995,22 @@ class UNetBinaryTrainingConfig:
     pretrained_verify_sha256: bool = True
     amp_enabled: bool = False
     grad_accum_steps: int = 1
+    torch_compile: bool = False
     num_workers: int = 0
     pin_memory: bool = False
     persistent_workers: bool = False
     deterministic: bool = True
     binary_mask_normalization: str = "off"
+    input_hw: tuple[int, int] = (512, 512)
+    input_policy: str = "random_crop"
+    val_input_policy: str = "letterbox"
+    keep_aspect: bool = True
+    pad_value_image: float = 0.0
+    pad_value_mask: int = 0
+    image_interpolation: str = "bilinear"
+    mask_interpolation: str = "nearest"
+    require_divisible_by: int = 32
+    dataloader_collate: str = "default"
 
 
 def _binary_iou_from_logits(logits, targets) -> float:  # noqa: ANN001
@@ -1097,22 +1134,70 @@ class UNetBinaryTrainer:
         workers = max(0, int(config.num_workers))
         use_persistent_workers = bool(config.persistent_workers) and workers > 0
         pin_memory = bool(config.pin_memory)
+        collate_fn = resolve_collate_fn(config.dataloader_collate)
+        input_hw = tuple(int(v) for v in config.input_hw)
+        if len(input_hw) != 2:
+            raise ValueError(f"input_hw must be (height, width), got {config.input_hw!r}")
+        if str(config.mask_interpolation).strip().lower() != "nearest":
+            raise ValueError("mask_interpolation must be 'nearest' for segmentation masks")
+        train_policy_cfg = InputPolicyConfig(
+            input_hw=input_hw,
+            input_policy=str(config.input_policy).strip().lower() or "random_crop",
+            keep_aspect=bool(config.keep_aspect),
+            pad_value_image=float(config.pad_value_image),
+            pad_value_mask=int(config.pad_value_mask),
+            image_interpolation=str(config.image_interpolation).strip().lower() or "bilinear",
+            require_divisible_by=max(1, int(config.require_divisible_by)),
+        )
+        val_policy_cfg = InputPolicyConfig(
+            input_hw=input_hw,
+            input_policy=str(config.val_input_policy).strip().lower() or "letterbox",
+            keep_aspect=bool(config.keep_aspect),
+            pad_value_image=float(config.pad_value_image),
+            pad_value_mask=int(config.pad_value_mask),
+            image_interpolation=str(config.image_interpolation).strip().lower() or "bilinear",
+            require_divisible_by=max(1, int(config.require_divisible_by)),
+        )
+        logger.info(
+            "input size policy train=%s val=%s input_hw=%s require_divisible_by=%d collate=%s",
+            train_policy_cfg.input_policy,
+            val_policy_cfg.input_policy,
+            train_policy_cfg.input_hw,
+            int(train_policy_cfg.require_divisible_by),
+            str(config.dataloader_collate),
+        )
 
         train_loader = DataLoader(
-            _SegPairDataset(train_pairs, binary_mask_normalization=config.binary_mask_normalization),
+            _SegPairDataset(
+                train_pairs,
+                binary_mask_normalization=config.binary_mask_normalization,
+                input_policy_cfg=train_policy_cfg,
+                seed=int(config.seed),
+                is_train=True,
+                logger=logger,
+            ),
             batch_size=max(1, int(config.batch_size)),
             shuffle=True,
             num_workers=workers,
             pin_memory=pin_memory,
             persistent_workers=use_persistent_workers,
+            collate_fn=collate_fn,
         )
         val_loader = DataLoader(
-            _SegPairDataset(val_pairs, binary_mask_normalization=config.binary_mask_normalization),
+            _SegPairDataset(
+                val_pairs,
+                binary_mask_normalization=config.binary_mask_normalization,
+                input_policy_cfg=val_policy_cfg,
+                seed=int(config.seed),
+                is_train=False,
+                logger=logger,
+            ),
             batch_size=max(1, int(config.batch_size)),
             shuffle=False,
             num_workers=workers,
             pin_memory=pin_memory,
             persistent_workers=use_persistent_workers,
+            collate_fn=collate_fn,
         )
 
         resolved = resolve_torch_device(enable_gpu=bool(config.enable_gpu), policy=str(config.device_policy))
@@ -1163,6 +1248,12 @@ class UNetBinaryTrainer:
             pretrained_strict=bool(config.pretrained_strict),
             pretrained_ignore_mismatched_sizes=bool(config.pretrained_ignore_mismatched_sizes),
         ).to(device)
+        if bool(config.torch_compile) and hasattr(torch, "compile") and hasattr(model, "model"):
+            try:
+                model.model = torch.compile(model.model)  # type: ignore[assignment]
+                logger.info("torch.compile enabled for model backend")
+            except Exception as exc:
+                logger.warning("torch.compile requested but unavailable: %s", exc)
         optimizer = torch.optim.Adam(
             model.parameters(),
             lr=float(config.learning_rate),
@@ -1176,7 +1267,10 @@ class UNetBinaryTrainer:
                 torch.backends.cudnn.deterministic = True
                 torch.backends.cudnn.benchmark = False
 
-        use_amp = bool(config.amp_enabled) and str(device).startswith("cuda")
+        amp_pref = bool(config.amp_enabled)
+        if not amp_pref and architecture.startswith("hf_segformer_"):
+            amp_pref = True
+        use_amp = amp_pref and str(device).startswith("cuda")
         scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
         grad_accum_steps = max(1, int(config.grad_accum_steps))
 

@@ -17,6 +17,7 @@ Current phase coverage includes:
 - `test_phase4_orchestration.py` command builder + baseline training/evaluation orchestration
 - `test_phase5_gpu_runtime.py` GPU-compatible training/evaluation with CPU fallback behavior
 - `test_phase6_unet_training.py` UNet training backend, checkpoint resume, and evaluation path
+- `test_input_size_policy.py` mixed-size DataLoader failure reproduction, fixed-size policy transforms, letterbox/padding semantics, and pad-to-max collate fallback
 - `test_phase7_frozen_registry.py` frozen checkpoint metadata registry and GUI integration
 - `test_phase7_training_reporting.py` UNet reporting outputs and val tracking artifact generation
 - `test_phase8_phase_gate.py` phase closeout gate checks and stocktake artifact generation

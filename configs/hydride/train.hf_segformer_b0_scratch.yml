@@ -22,3 +22,17 @@ progress_log_interval_pct: 10
 seed: 42
 enable_gpu: true
 device_policy: auto
+
+input_hw: [512, 512]
+input_policy: random_crop
+val_input_policy: letterbox
+keep_aspect: true
+pad_value_image: 0.0
+pad_value_mask: 0
+image_interpolation: bilinear
+mask_interpolation: nearest
+require_divisible_by: 32
+dataloader_collate: default
+amp_enabled: true
+grad_accum_steps: 4
+torch_compile: false
