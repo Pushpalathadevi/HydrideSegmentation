@@ -51,6 +51,17 @@ enable_gpu: false
 device_policy: cpu
 amp_enabled: false
 grad_accum_steps: 1
+torch_compile: false
+input_hw: [512, 512]
+input_policy: random_crop
+val_input_policy: letterbox
+keep_aspect: true
+pad_value_image: 0.0
+pad_value_mask: 0
+image_interpolation: bilinear
+mask_interpolation: nearest
+require_divisible_by: 32
+dataloader_collate: default
 num_workers: 0
 pin_memory: false
 persistent_workers: false

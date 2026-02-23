@@ -88,16 +88,11 @@ Training (UNet):
 microseg-cli train --config configs/train.default.yml --set epochs=20
 ```
 
-Training with AMP + gradient accumulation + deterministic controls:
+Training with fixed input-size policy + AMP + gradient accumulation:
 ```bash
-microseg-cli train --config configs/train.default.yml \
-  --set amp_enabled=true \
-  --set grad_accum_steps=2 \
-  --set num_workers=4 \
-  --set pin_memory=true \
-  --set persistent_workers=true \
-  --set deterministic=true
+microseg-cli train --config configs/train.default.yml   --set input_hw=[512,512]   --set input_policy=random_crop   --set val_input_policy=letterbox   --set amp_enabled=true   --set grad_accum_steps=2   --set deterministic=true
 ```
+See [docs/input_size_policy.md](docs/input_size_policy.md) for policy details, collation fallback mode, and HPC memory guidance.
 
 Training with tracked validation samples:
 ```bash

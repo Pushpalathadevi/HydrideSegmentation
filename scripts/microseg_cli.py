@@ -95,6 +95,19 @@ def _normalize_binary_mask_mode(value: object) -> str:
     )
 
 
+
+
+def _parse_hw(value: object, *, fallback: str = "512,512") -> tuple[int, int]:
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        return int(value[0]), int(value[1])
+    text = str(value if value is not None else fallback).strip().strip("[]")
+    sep = "," if "," in text else "x"
+    parts = [p.strip() for p in text.split(sep) if p.strip()]
+    if len(parts) != 2:
+        raise ValueError(f"input_hw must have two integers, got {value!r}")
+    return int(parts[0]), int(parts[1])
+
+
 def _build_dataset_prepare_config(
     *,
     cfg: dict[str, object],
@@ -278,6 +291,7 @@ def _train(args: argparse.Namespace) -> int:
                 ),
                 amp_enabled=bool(cfg.get("amp_enabled", args.amp_enabled)),
                 grad_accum_steps=int(cfg.get("grad_accum_steps", args.grad_accum_steps)),
+                torch_compile=bool(cfg.get("torch_compile", args.torch_compile)),
                 num_workers=int(cfg.get("num_workers", args.num_workers)),
                 pin_memory=bool(cfg.get("pin_memory", args.pin_memory)),
                 persistent_workers=bool(cfg.get("persistent_workers", args.persistent_workers)),
@@ -285,6 +299,16 @@ def _train(args: argparse.Namespace) -> int:
                 binary_mask_normalization=_normalize_binary_mask_mode(
                     cfg.get("binary_mask_normalization", args.binary_mask_normalization)
                 ),
+                input_hw=_parse_hw(cfg.get("input_hw", args.input_hw), fallback=args.input_hw),
+                input_policy=str(cfg.get("input_policy", args.input_policy)),
+                val_input_policy=str(cfg.get("val_input_policy", args.val_input_policy)),
+                keep_aspect=bool(cfg.get("keep_aspect", args.keep_aspect)),
+                pad_value_image=float(cfg.get("pad_value_image", args.pad_value_image)),
+                pad_value_mask=int(cfg.get("pad_value_mask", args.pad_value_mask)),
+                image_interpolation=str(cfg.get("image_interpolation", args.image_interpolation)),
+                mask_interpolation=str(cfg.get("mask_interpolation", args.mask_interpolation)),
+                require_divisible_by=int(cfg.get("require_divisible_by", args.require_divisible_by)),
+                dataloader_collate=str(cfg.get("dataloader_collate", args.dataloader_collate)),
             )
         )
     else:
@@ -852,6 +876,25 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--pretrained-verify-sha256", action=argparse.BooleanOptionalAction, default=True)
     train.add_argument("--amp-enabled", action=argparse.BooleanOptionalAction, default=False)
     train.add_argument("--grad-accum-steps", type=int, default=1)
+    train.add_argument("--torch-compile", action=argparse.BooleanOptionalAction, default=False)
+    train.add_argument("--input-hw", type=str, default="512,512", help="Target input H,W")
+    train.add_argument(
+        "--input-policy",
+        choices=["resize", "letterbox", "random_crop", "center_crop"],
+        default="random_crop",
+    )
+    train.add_argument(
+        "--val-input-policy",
+        choices=["resize", "letterbox", "random_crop", "center_crop"],
+        default="letterbox",
+    )
+    train.add_argument("--keep-aspect", action=argparse.BooleanOptionalAction, default=True)
+    train.add_argument("--pad-value-image", type=float, default=0.0)
+    train.add_argument("--pad-value-mask", type=int, default=0)
+    train.add_argument("--image-interpolation", choices=["bilinear", "bicubic", "nearest"], default="bilinear")
+    train.add_argument("--mask-interpolation", choices=["nearest"], default="nearest")
+    train.add_argument("--require-divisible-by", type=int, default=32)
+    train.add_argument("--dataloader-collate", choices=["default", "pad_to_max"], default="default")
     train.add_argument("--num-workers", type=int, default=0)
     train.add_argument("--pin-memory", action=argparse.BooleanOptionalAction, default=False)
     train.add_argument("--persistent-workers", action=argparse.BooleanOptionalAction, default=False)
