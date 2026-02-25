@@ -35,6 +35,9 @@ Current scripts:
 - `hydride_benchmark_suite.py` runs multi-model hydride benchmark suites (train+eval) and writes consolidated
   JSON/CSV summaries and a single HTML comparison dashboard.
   - includes per-run training curves (`loss`, `accuracy`, `IoU` vs epoch), model artifact size, parameter count, and train/eval/total runtime fields.
-  - includes tracked validation-sample IoU summaries and panel galleries from training reports.
+  - includes tracked validation-sample panel galleries with per-image metric blocks from training reports.
+  - includes trainable-parameter count, checkpoint weight statistics, runtime hardware fields, and FLOPs estimates when available.
+  - emits canonical campaign artifacts `summary.json` + `summary.html` (plus compatibility files `benchmark_summary.json` + `benchmark_dashboard.html`).
+  - local-pretrained runs with missing weights are marked `pretrained_missing`, logged with actionable fixes, and remaining runs continue.
   - aggregate output includes mean/std rollups for quality and runtime metrics across seeds.
   - installed console entry point: `microseg-benchmark-suite`

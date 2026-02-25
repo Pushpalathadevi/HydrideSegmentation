@@ -215,7 +215,9 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 ```
 - Benchmark mode now supports hard-fail dataset freeze checks (`expected_dataset_manifest_sha256`, `expected_split_id_file`).
 - When `benchmark_mode=true` and `dataset_manifest.json` is missing, the suite auto-generates it from `train/val/test`.
-- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch), tracked validation sample panels/IoU summaries, model size, parameter count, runtime effort metrics, and evaluation scientific metrics.
+- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch), tracked validation sample panels with per-image metric blocks, model size/weight statistics, parameter and trainable-parameter counts, runtime effort metrics (including FLOPs estimates when available), and evaluation scientific metrics.
+- Canonical campaign artifacts: `summary.json` and `summary.html` (compatibility files `benchmark_summary.json` and `benchmark_dashboard.html` are still emitted).
+- If a local-pretrained run is missing required weights/registry artifacts, it is marked `pretrained_missing` with actionable fix text in the run log, and remaining runs continue.
 
 ## Beginner End-To-End Workflow
 

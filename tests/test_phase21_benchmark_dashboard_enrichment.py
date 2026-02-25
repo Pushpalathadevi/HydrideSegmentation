@@ -108,6 +108,8 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
     assert Path(row["loss_curve_png"]).exists()
     assert Path(row["accuracy_curve_png"]).exists()
     assert Path(row["iou_curve_png"]).exists()
+    assert (output_root / "summary.json").exists()
+    assert (output_root / "summary.html").exists()
 
     dashboard_text = (output_root / "benchmark_dashboard.html").read_text(encoding="utf-8")
     assert "Training Curve Gallery" in dashboard_text

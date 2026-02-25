@@ -117,5 +117,23 @@ def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:
     assert "per_class_f1" in payload
     assert "confusion_matrix" in payload
 
+    tracked = payload.get("tracked_samples", [])
+    assert tracked
+    sample = tracked[0]
+    assert "macro_precision" in sample
+    assert "macro_recall" in sample
+    assert "weighted_f1" in sample
+    assert "balanced_accuracy" in sample
+    assert "frequency_weighted_iou" in sample
+    assert "foreground_dice" in sample
+    assert "mask_area_fraction_abs_error" in sample
+
+    html_path = Path(str(payload.get("html_report_path", "")))
+    assert html_path.exists()
+    html_text = html_path.read_text(encoding="utf-8")
+    assert "Tracked Samples (Input | GT | Pred | Diff)" in html_text
+    assert "Each sample panel includes per-image values for all available run metrics." in html_text
+    assert "matthews_corrcoef" in html_text
+
     raw = json.loads(report_path.read_text(encoding="utf-8"))
     assert str(raw["schema_version"]).startswith("microseg.pixel_eval.v")

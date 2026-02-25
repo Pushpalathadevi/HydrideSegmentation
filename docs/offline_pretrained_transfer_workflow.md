@@ -3,6 +3,8 @@
 ## Objective
 
 Enable transfer learning on air-gapped systems using locally staged pretrained bundles.
+For the full scratch+pretrained campaign procedure (including `summary.html` / `summary.json`),
+use [docs/hpc_airgap_top5_realdata_runbook.md](docs/hpc_airgap_top5_realdata_runbook.md).
 
 This workflow supports the following local-pretrained backends:
 - U-Net:
@@ -46,14 +48,21 @@ Manuscript/reporting metadata contract:
 
 ## Connected Machine Steps (Download + Stage)
 
-1. Install dependencies:
+1. Create and activate local environment (`.venv`):
 ```bash
-pip install -r requirements-core.txt
-pip install -e .
-pip install segmentation-models-pytorch
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-core.txt
+python -m pip install -e .
+python -m pip install segmentation-models-pytorch
 ```
 
-2. Download/stage pretrained bundles:
+2. Browser-download and stage pretrained bundles:
+- download all required pretrained artifacts via browser (see [docs/pretrained_model_catalog.md](docs/pretrained_model_catalog.md))
+- place them under repo-root `pre_trained_weights/` with `registry.json`
+
+Optional (if command-line network download is allowed on connected machine), you can materialize bundles automatically:
 ```bash
 python scripts/download_pretrained_weights.py --targets all --force
 ```
@@ -73,9 +82,19 @@ This materializes:
 microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict
 ```
 
+4. Package transfer zip + checksum:
+```bash
+zip -r transfer_pretrained_payload.zip pre_trained_weights
+sha256sum transfer_pretrained_payload.zip > transfer_pretrained_payload.zip.sha256
+```
+
 ## Air-Gapped Machine Steps
 
-1. Copy `pre_trained_weights/` from connected machine (external drive).
+1. Copy and verify on air-gapped machine:
+```bash
+sha256sum -c transfer_pretrained_payload.zip.sha256
+unzip -o transfer_pretrained_payload.zip
+```
 2. Validate copied artifacts:
 ```bash
 microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict

@@ -6,11 +6,16 @@ import html
 import hashlib
 import json
 import logging
+import os
+import platform
 import random
+import socket
+import subprocess
 import time
 import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from math import sqrt
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +25,7 @@ from PIL import Image
 from src.microseg.core import resolve_torch_device
 from src.microseg.corrections.classes import binary_remapped_foreground_values, normalize_binary_index_mask
 from src.microseg.data import InputPolicyConfig, apply_input_policy, resolve_collate_fn
+from src.microseg.evaluation.hydride_metrics import scientific_distance_metrics
 from src.microseg.plugins import (
     resolve_bundle_paths,
     resolve_pretrained_record,
@@ -174,6 +180,265 @@ def _select_tracking_pairs(
         rng = random.Random(int(seed) + int(epoch))
         selected.extend(rng.sample(remaining, k=min(need_random, len(remaining))))
     return selected[:total_samples], missing_fixed
+
+
+def _safe_div(num: float, den: float) -> float:
+    if den == 0:
+        return 0.0
+    return float(num / den)
+
+
+def _unwrap_torch_module(model_obj: Any) -> Any:
+    return getattr(model_obj, "model", model_obj)
+
+
+def _model_parameter_counts(model_obj: Any) -> tuple[int | None, int | None]:
+    total = 0
+    trainable = 0
+    try:
+        iterator = model_obj.parameters()
+    except Exception:
+        return None, None
+    for param in iterator:
+        try:
+            count = int(param.numel())
+        except Exception:
+            continue
+        total += count
+        if bool(getattr(param, "requires_grad", False)):
+            trainable += count
+    if total <= 0:
+        return None, None
+    return total, trainable
+
+
+def _state_dict_tensor_stats(state_dict: dict[str, Any]) -> dict[str, Any]:
+    try:
+        import torch
+    except Exception:
+        return {}
+    total = 0.0
+    total_sq = 0.0
+    value_count = 0
+    tensor_count = 0
+    min_value: float | None = None
+    max_value: float | None = None
+    for value in state_dict.values():
+        if not isinstance(value, torch.Tensor):
+            continue
+        if value.numel() == 0:
+            continue
+        vec = value.detach().to(device="cpu", dtype=torch.float32).reshape(-1)
+        if vec.numel() == 0:
+            continue
+        tensor_count += 1
+        value_count += int(vec.numel())
+        total += float(vec.sum().item())
+        total_sq += float((vec * vec).sum().item())
+        vmin = float(vec.min().item())
+        vmax = float(vec.max().item())
+        min_value = vmin if min_value is None else min(min_value, vmin)
+        max_value = vmax if max_value is None else max(max_value, vmax)
+    if value_count <= 0:
+        return {}
+    mean = total / float(value_count)
+    variance = max(0.0, (total_sq / float(value_count)) - (mean * mean))
+    return {
+        "tensor_count": int(tensor_count),
+        "value_count": int(value_count),
+        "mean": float(mean),
+        "std": float(sqrt(variance)),
+        "min": float(min_value if min_value is not None else 0.0),
+        "max": float(max_value if max_value is not None else 0.0),
+    }
+
+
+def _model_weight_statistics(model_obj: Any) -> dict[str, Any]:
+    try:
+        state_dict = model_obj.state_dict()
+    except Exception:
+        return {}
+    if not isinstance(state_dict, dict):
+        return {}
+    return _state_dict_tensor_stats(state_dict)
+
+
+def _runtime_hardware_profile(device: str) -> dict[str, Any]:
+    profile: dict[str, Any] = {
+        "host": socket.gethostname(),
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "cpu_count_logical": int(os.cpu_count() or 0),
+        "selected_device": str(device),
+    }
+    try:
+        import torch
+
+        profile["torch_version"] = str(torch.__version__)
+        profile["torch_cuda_available"] = bool(torch.cuda.is_available())
+        profile["torch_cuda_device_count"] = int(torch.cuda.device_count()) if torch.cuda.is_available() else 0
+        if str(device).startswith("cuda") and torch.cuda.is_available():
+            dev = torch.device(device)
+            index = int(dev.index or 0)
+            props = torch.cuda.get_device_properties(index)
+            profile["gpu_index"] = index
+            profile["gpu_name"] = str(props.name)
+            profile["gpu_total_memory_mb"] = float(props.total_memory) / (1024.0 * 1024.0)
+            profile["gpu_multiprocessor_count"] = int(props.multi_processor_count)
+            profile["gpu_compute_capability"] = f"{int(props.major)}.{int(props.minor)}"
+    except Exception:
+        return profile
+
+    if str(device).startswith("cuda"):
+        try:
+            proc = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,name,driver_version,memory.total,memory.used,utilization.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+            if proc.returncode == 0:
+                selected = profile.get("gpu_index")
+                for line in proc.stdout.splitlines():
+                    parts = [part.strip() for part in line.split(",")]
+                    if len(parts) < 6:
+                        continue
+                    if selected is not None and str(parts[0]) != str(selected):
+                        continue
+                    profile["nvidia_smi_driver_version"] = parts[2]
+                    try:
+                        profile["nvidia_smi_memory_total_mb"] = float(parts[3])
+                        profile["nvidia_smi_memory_used_mb"] = float(parts[4])
+                        profile["nvidia_smi_gpu_utilization_pct"] = float(parts[5])
+                    except Exception:
+                        pass
+                    break
+        except Exception:
+            pass
+    return profile
+
+
+def _current_gpu_peak_memory_mb(device: str) -> float | None:
+    if not str(device).startswith("cuda"):
+        return None
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        dev = torch.device(device)
+        index = int(dev.index or 0)
+        peak_bytes = float(torch.cuda.max_memory_allocated(index))
+        if peak_bytes <= 0:
+            return 0.0
+        return peak_bytes / (1024.0 * 1024.0)
+    except Exception:
+        return None
+
+
+def _output_numel(output: object) -> int | None:
+    try:
+        import torch
+    except Exception:
+        return None
+    if isinstance(output, torch.Tensor):
+        return int(output.numel())
+    if isinstance(output, (list, tuple)):
+        for item in output:
+            n = _output_numel(item)
+            if n is not None:
+                return n
+        return None
+    if isinstance(output, dict):
+        for item in output.values():
+            n = _output_numel(item)
+            if n is not None:
+                return n
+        return None
+    return None
+
+
+def _estimate_forward_flops_per_sample(
+    model_obj: Any,
+    *,
+    image_height: int,
+    image_width: int,
+    device: str,
+) -> int | None:
+    try:
+        import torch
+    except Exception:
+        return None
+    if image_height <= 0 or image_width <= 0:
+        return None
+    module = _unwrap_torch_module(model_obj)
+    if not isinstance(module, torch.nn.Module):
+        return None
+
+    total_flops = 0
+
+    def conv_hook(mod: Any, _inputs: tuple[Any, ...], output: object) -> None:
+        nonlocal total_flops
+        out_numel = _output_numel(output)
+        if out_numel is None or out_numel <= 0:
+            return
+        kernel_size = getattr(mod, "kernel_size", (1, 1))
+        k_h = int(kernel_size[0]) if isinstance(kernel_size, tuple) else int(kernel_size)
+        k_w = int(kernel_size[1]) if isinstance(kernel_size, tuple) else int(kernel_size)
+        groups = max(1, int(getattr(mod, "groups", 1)))
+        in_ch = int(getattr(mod, "in_channels", 1))
+        kernel_ops = (k_h * k_w * max(1, in_ch // groups) * 2) + (1 if getattr(mod, "bias", None) is not None else 0)
+        total_flops += int(out_numel * kernel_ops)
+
+    def linear_hook(mod: Any, _inputs: tuple[Any, ...], output: object) -> None:
+        nonlocal total_flops
+        out_numel = _output_numel(output)
+        if out_numel is None or out_numel <= 0:
+            return
+        in_features = max(1, int(getattr(mod, "in_features", 1)))
+        total_flops += int(out_numel * (2 * in_features))
+
+    def norm_hook(_mod: Any, _inputs: tuple[Any, ...], output: object) -> None:
+        nonlocal total_flops
+        out_numel = _output_numel(output)
+        if out_numel is None or out_numel <= 0:
+            return
+        total_flops += int(out_numel * 2)
+
+    hooks: list[Any] = []
+    try:
+        for submodule in module.modules():
+            if isinstance(submodule, (torch.nn.Conv2d, torch.nn.ConvTranspose2d)):
+                hooks.append(submodule.register_forward_hook(conv_hook))
+            elif isinstance(submodule, torch.nn.Linear):
+                hooks.append(submodule.register_forward_hook(linear_hook))
+            elif isinstance(submodule, (torch.nn.BatchNorm2d, torch.nn.LayerNorm)):
+                hooks.append(submodule.register_forward_hook(norm_hook))
+
+        x = torch.zeros((1, 3, int(image_height), int(image_width)), dtype=torch.float32, device=device)
+        was_training = bool(module.training)
+        module.eval()
+        with torch.no_grad():
+            _ = model_obj(x)
+        if was_training:
+            module.train()
+    except Exception:
+        total_flops = 0
+    finally:
+        for hook in hooks:
+            try:
+                hook.remove()
+            except Exception:
+                pass
+
+    if total_flops <= 0:
+        return None
+    return int(total_flops)
 
 
 @dataclass(frozen=True)
@@ -1039,6 +1304,78 @@ def _binary_iou_from_arrays(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(inter / union)
 
 
+def _binary_sample_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
+    gt = (y_true > 0).astype(np.uint8).reshape(-1)
+    pred = (y_pred > 0).astype(np.uint8).reshape(-1)
+    total = float(gt.size)
+
+    tp = float(np.count_nonzero((gt == 1) & (pred == 1)))
+    tn = float(np.count_nonzero((gt == 0) & (pred == 0)))
+    fp = float(np.count_nonzero((gt == 0) & (pred == 1)))
+    fn = float(np.count_nonzero((gt == 1) & (pred == 0)))
+
+    fg_precision = _safe_div(tp, tp + fp)
+    fg_recall = _safe_div(tp, tp + fn)
+    fg_f1 = _safe_div(2.0 * fg_precision * fg_recall, fg_precision + fg_recall)
+    fg_iou = _safe_div(tp, tp + fp + fn)
+
+    bg_precision = _safe_div(tn, tn + fn)
+    bg_recall = _safe_div(tn, tn + fp)
+    bg_f1 = _safe_div(2.0 * bg_precision * bg_recall, bg_precision + bg_recall)
+    bg_iou = _safe_div(tn, tn + fp + fn)
+
+    macro_precision = 0.5 * (fg_precision + bg_precision)
+    macro_recall = 0.5 * (fg_recall + bg_recall)
+    macro_f1 = 0.5 * (fg_f1 + bg_f1)
+    weighted_f1 = _safe_div(((tn + fp) * bg_f1) + ((tp + fn) * fg_f1), total)
+    balanced_accuracy = macro_recall
+    frequency_weighted_iou = _safe_div(((tn + fp) * bg_iou) + ((tp + fn) * fg_iou), total)
+    pixel_accuracy = _safe_div(tp + tn, total)
+
+    fg_specificity = _safe_div(tn, tn + fp)
+    fg_dice = _safe_div(2.0 * tp, (2.0 * tp) + fp + fn)
+    fpr = _safe_div(fp, fp + tn)
+    fnr = _safe_div(fn, fn + tp)
+    mcc_denom = (tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)
+    mcc = 0.0 if mcc_denom <= 0.0 else _safe_div((tp * tn) - (fp * fn), sqrt(mcc_denom))
+
+    return {
+        "pixel_accuracy": float(pixel_accuracy),
+        "macro_precision": float(macro_precision),
+        "macro_recall": float(macro_recall),
+        "macro_f1": float(macro_f1),
+        "mean_iou": float(0.5 * (fg_iou + bg_iou)),
+        "weighted_f1": float(weighted_f1),
+        "balanced_accuracy": float(balanced_accuracy),
+        "frequency_weighted_iou": float(frequency_weighted_iou),
+        "foreground_precision": float(fg_precision),
+        "foreground_recall": float(fg_recall),
+        "foreground_specificity": float(fg_specificity),
+        "foreground_iou": float(fg_iou),
+        "foreground_dice": float(fg_dice),
+        "false_positive_rate": float(fpr),
+        "false_negative_rate": float(fnr),
+        "matthews_corrcoef": float(mcc),
+    }
+
+
+def _sample_metrics_block(sample: dict[str, Any], metric_order: list[str]) -> str:
+    metrics_lines: list[str] = []
+    for key in metric_order:
+        if key not in sample:
+            continue
+        value = sample.get(key)
+        try:
+            value_text = f"{float(value):.6f}"
+        except Exception:
+            continue
+        label = html.escape(key.replace("_", " "))
+        metrics_lines.append(f"<li><b>{label}</b>: {value_text}</li>")
+    if not metrics_lines:
+        return ""
+    return "<ul style='margin:8px 0 0 18px;'>" + "".join(metrics_lines) + "</ul>"
+
+
 def _tracking_panel(image: np.ndarray, gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
     gt_u8 = (gt.astype(np.uint8) * 255)
     pred_u8 = (pred.astype(np.uint8) * 255)
@@ -1066,16 +1403,40 @@ def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
         )
 
     samples = payload.get("latest_tracked_samples", [])
+    sample_metric_order = [
+        "pixel_accuracy",
+        "macro_f1",
+        "mean_iou",
+        "macro_precision",
+        "macro_recall",
+        "weighted_f1",
+        "balanced_accuracy",
+        "frequency_weighted_iou",
+        "foreground_precision",
+        "foreground_recall",
+        "foreground_specificity",
+        "foreground_iou",
+        "foreground_dice",
+        "false_positive_rate",
+        "false_negative_rate",
+        "matthews_corrcoef",
+        "mask_area_fraction_abs_error",
+        "hydride_count_abs_error",
+        "hydride_size_wasserstein",
+        "hydride_orientation_wasserstein",
+    ]
     gallery: list[str] = []
     for sample in samples:
         panel = html.escape(str(sample.get("panel", "")))
         name = html.escape(str(sample.get("sample_name", "")))
         iou = float(sample.get("iou", 0.0))
+        metrics_html = _sample_metrics_block(sample, sample_metric_order)
         gallery.append(
             "<div style='margin:10px 0;padding:10px;border:1px solid #ddd;'>"
             f"<div><b>{name}</b> | IoU={iou:.4f}</div>"
             f"<img src='{panel}' style='max-width:100%;border:1px solid #333;' alt='{name}'>"
-            "</div>"
+            + metrics_html
+            + "</div>"
         )
 
     progress = payload.get("progress", {})
@@ -1248,6 +1609,16 @@ class UNetBinaryTrainer:
             pretrained_strict=bool(config.pretrained_strict),
             pretrained_ignore_mismatched_sizes=bool(config.pretrained_ignore_mismatched_sizes),
         ).to(device)
+        model_parameter_count, model_trainable_parameter_count = _model_parameter_counts(model)
+        model_weight_stats: dict[str, Any] = {}
+        runtime_hardware = _runtime_hardware_profile(str(device))
+        first_img = np.asarray(Image.open(train_pairs[0][0]).convert("RGB"), dtype=np.uint8)
+        flops_per_sample_forward = _estimate_forward_flops_per_sample(
+            model,
+            image_height=int(first_img.shape[0]),
+            image_width=int(first_img.shape[1]),
+            device=str(device),
+        )
         if bool(config.torch_compile) and hasattr(torch, "compile") and hasattr(model, "model"):
             try:
                 model.model = torch.compile(model.model)  # type: ignore[assignment]
@@ -1273,6 +1644,11 @@ class UNetBinaryTrainer:
         use_amp = amp_pref and str(device).startswith("cuda")
         scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
         grad_accum_steps = max(1, int(config.grad_accum_steps))
+        if str(device).startswith("cuda") and torch.cuda.is_available():
+            try:
+                torch.cuda.reset_peak_memory_stats(torch.device(device))
+            except Exception:
+                pass
 
         start_epoch = 1
         best_val_loss = float("inf")
@@ -1298,6 +1674,9 @@ class UNetBinaryTrainer:
         latest_samples: list[dict[str, Any]] = []
         no_improve = 0
         checkpoint_files: list[str] = []
+        train_samples_processed = 0
+        val_samples_processed = 0
+        tracking_samples_processed = 0
 
         def write_report(
             *,
@@ -1310,6 +1689,24 @@ class UNetBinaryTrainer:
             runtime_seconds = time.perf_counter() - run_start
             total_epochs = max(1, int(config.epochs))
             total_percent = min(100.0, max(0.0, (len(history) / total_epochs) * 100.0))
+            selected_ckpt = best_path if best_path.exists() else last_path
+            checkpoint_size_bytes = (
+                int(selected_ckpt.stat().st_size) if selected_ckpt.exists() and selected_ckpt.is_file() else None
+            )
+            estimated_total_flops = None
+            if flops_per_sample_forward is not None:
+                estimated_total_flops = int(
+                    int(flops_per_sample_forward)
+                    * (
+                        (3 * int(train_samples_processed))
+                        + int(val_samples_processed)
+                        + int(tracking_samples_processed)
+                    )
+                )
+            hardware_payload = dict(runtime_hardware)
+            peak_mb = _current_gpu_peak_memory_mb(str(device))
+            if peak_mb is not None:
+                hardware_payload["gpu_peak_memory_allocated_mb"] = float(peak_mb)
             payload: dict[str, Any] = {
                 "schema_version": "microseg.training_report.v1",
                 "backend": backend_label,
@@ -1326,6 +1723,31 @@ class UNetBinaryTrainer:
                 "pretrained_init": pretrained_payload,
                 "device": device,
                 "device_reason": resolved.reason,
+                "runtime_hardware": hardware_payload,
+                "model_parameter_count": model_parameter_count,
+                "model_trainable_parameter_count": model_trainable_parameter_count,
+                "model_weight_statistics": model_weight_stats,
+                "model_checkpoint_size_bytes": checkpoint_size_bytes,
+                "model_checkpoint_size_mb": (
+                    float(checkpoint_size_bytes) / (1024.0 * 1024.0) if checkpoint_size_bytes is not None else None
+                ),
+                "compute_effort": {
+                    "train_samples_processed": int(train_samples_processed),
+                    "val_samples_processed": int(val_samples_processed),
+                    "tracking_samples_processed": int(tracking_samples_processed),
+                    "estimated_forward_flops_per_sample": flops_per_sample_forward,
+                    "estimated_total_flops": estimated_total_flops,
+                    "estimated_total_tflops": (
+                        float(estimated_total_flops) / 1_000_000_000_000.0
+                        if estimated_total_flops is not None
+                        else None
+                    ),
+                    "flops_estimate_method": (
+                        "forward_hook_approximate; total ~= 3*train + 1*val + 1*tracking samples"
+                        if flops_per_sample_forward is not None
+                        else "unavailable"
+                    ),
+                },
                 "progress": {
                     "epochs_total": int(config.epochs),
                     "epochs_completed": len(history),
@@ -1377,7 +1799,7 @@ class UNetBinaryTrainer:
         )
         write_report(current_epoch=start_epoch, epoch_percent=0.0, eta_seconds=0.0, status_value=status)
 
-        def export_tracking_samples(epoch: int) -> tuple[list[dict[str, Any]], list[str]]:
+        def export_tracking_samples(epoch: int) -> tuple[list[dict[str, Any]], list[str], int]:
             selected_pairs, missing = _select_tracking_pairs(
                 val_pairs,
                 fixed_names=fixed_sample_names,
@@ -1386,7 +1808,7 @@ class UNetBinaryTrainer:
                 epoch=epoch,
             )
             if not selected_pairs:
-                return [], missing
+                return [], missing, 0
 
             out_epoch = samples_root / f"epoch_{epoch:03d}"
             out_epoch.mkdir(parents=True, exist_ok=True)
@@ -1415,17 +1837,21 @@ class UNetBinaryTrainer:
                     Image.fromarray((pred * 255).astype(np.uint8)).save(pred_path)
                     Image.fromarray((gt_bin * 255).astype(np.uint8)).save(gt_path)
 
+                    sample_metrics = _binary_sample_metrics(gt_bin, pred)
+                    scientific_metrics = scientific_distance_metrics(gt_bin, pred)
                     records.append(
                         {
                             "sample_name": img_path.name,
-                            "iou": _binary_iou_from_arrays(gt_bin, pred),
+                            "iou": float(sample_metrics.get("foreground_iou", _binary_iou_from_arrays(gt_bin, pred))),
                             "panel": _to_rel(panel_path, output_dir),
                             "pred": _to_rel(pred_path, output_dir),
                             "gt": _to_rel(gt_path, output_dir),
                             "is_fixed": img_path.name in fixed_sample_names,
+                            **sample_metrics,
+                            **scientific_metrics,
                         }
                     )
-            return records, missing
+            return records, missing, len(selected_pairs)
 
         try:
             for epoch in range(start_epoch, int(config.epochs) + 1):
@@ -1443,6 +1869,7 @@ class UNetBinaryTrainer:
                 for step, (x, y) in enumerate(train_loader, start=1):
                     x = x.to(device, non_blocking=pin_memory)
                     y = y.to(device, non_blocking=pin_memory)
+                    train_samples_processed += int(x.shape[0])
 
                     with torch.amp.autocast("cuda", enabled=use_amp):
                         logits = model(x)
@@ -1497,6 +1924,7 @@ class UNetBinaryTrainer:
                     for x, y in val_loader:
                         x = x.to(device, non_blocking=pin_memory)
                         y = y.to(device, non_blocking=pin_memory)
+                        val_samples_processed += int(x.shape[0])
                         with torch.amp.autocast("cuda", enabled=use_amp):
                             logits = model(x)
                             loss = criterion(logits, y)
@@ -1510,7 +1938,8 @@ class UNetBinaryTrainer:
                 val_iou = val_iou_sum / max(1, val_steps)
                 epoch_runtime = time.perf_counter() - epoch_start
 
-                latest_samples, missing_fixed = export_tracking_samples(epoch)
+                latest_samples, missing_fixed, tracked_count = export_tracking_samples(epoch)
+                tracking_samples_processed += int(tracked_count)
                 if missing_fixed:
                     logger.warning("missing fixed validation sample names for tracking: %s", ", ".join(missing_fixed))
 
@@ -1638,6 +2067,10 @@ class UNetBinaryTrainer:
             )
             raise
 
+        model_weight_stats = _model_weight_statistics(model)
+        peak_memory_mb = _current_gpu_peak_memory_mb(str(device))
+        if peak_memory_mb is not None:
+            runtime_hardware["gpu_peak_memory_allocated_mb"] = float(peak_memory_mb)
         final_runtime = time.perf_counter() - run_start
         write_report(
             current_epoch=max(start_epoch, len(history)),
@@ -1647,6 +2080,13 @@ class UNetBinaryTrainer:
         )
 
         model_path = best_path if best_path.exists() else last_path
+        model_checkpoint_size_bytes = int(model_path.stat().st_size) if model_path.exists() and model_path.is_file() else None
+        estimated_total_flops = None
+        if flops_per_sample_forward is not None:
+            estimated_total_flops = int(
+                int(flops_per_sample_forward)
+                * ((3 * int(train_samples_processed)) + int(val_samples_processed) + int(tracking_samples_processed))
+            )
         manifest = {
             "schema_version": "microseg.training_manifest.v2",
             "backend": backend_label,
@@ -1665,6 +2105,28 @@ class UNetBinaryTrainer:
             "val_pairs": len(val_pairs),
             "best_checkpoint": model_path.name if model_path.exists() else "",
             "last_checkpoint": last_path.name if last_path.exists() else "",
+            "model_parameter_count": model_parameter_count,
+            "model_trainable_parameter_count": model_trainable_parameter_count,
+            "model_weight_statistics": model_weight_stats,
+            "model_checkpoint_size_bytes": model_checkpoint_size_bytes,
+            "model_checkpoint_size_mb": (
+                float(model_checkpoint_size_bytes) / (1024.0 * 1024.0)
+                if model_checkpoint_size_bytes is not None
+                else None
+            ),
+            "runtime_hardware": runtime_hardware,
+            "compute_effort": {
+                "train_samples_processed": int(train_samples_processed),
+                "val_samples_processed": int(val_samples_processed),
+                "tracking_samples_processed": int(tracking_samples_processed),
+                "estimated_forward_flops_per_sample": flops_per_sample_forward,
+                "estimated_total_flops": estimated_total_flops,
+                "estimated_total_tflops": (
+                    float(estimated_total_flops) / 1_000_000_000_000.0
+                    if estimated_total_flops is not None
+                    else None
+                ),
+            },
             "report_path": report_path.name,
             "html_report_path": html_report_path.name if html_report_path.exists() else "",
             "runtime_seconds": final_runtime,
@@ -1687,6 +2149,22 @@ class UNetBinaryTrainer:
             "pretrained_init": pretrained_payload,
             "best_val_loss": float(best_val_loss) if best_val_loss != float("inf") else None,
             "epochs_completed": len(history),
+            "model_parameter_count": model_parameter_count,
+            "model_trainable_parameter_count": model_trainable_parameter_count,
+            "model_weight_statistics": model_weight_stats,
+            "runtime_hardware": runtime_hardware,
+            "compute_effort": {
+                "train_samples_processed": int(train_samples_processed),
+                "val_samples_processed": int(val_samples_processed),
+                "tracking_samples_processed": int(tracking_samples_processed),
+                "estimated_forward_flops_per_sample": flops_per_sample_forward,
+                "estimated_total_flops": estimated_total_flops,
+                "estimated_total_tflops": (
+                    float(estimated_total_flops) / 1_000_000_000_000.0
+                    if estimated_total_flops is not None
+                    else None
+                ),
+            },
         }
 
 

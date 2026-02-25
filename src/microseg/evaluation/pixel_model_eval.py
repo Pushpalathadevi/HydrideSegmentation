@@ -239,27 +239,82 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
     per_class_f1 = payload.get("per_class_f1", {})
     class_support = payload.get("class_support", {})
     confusion = payload.get("confusion_matrix", {})
-    rows = []
+
+    sample_metric_order = [
+        "pixel_accuracy",
+        "macro_f1",
+        "mean_iou",
+        "macro_precision",
+        "macro_recall",
+        "weighted_f1",
+        "balanced_accuracy",
+        "frequency_weighted_iou",
+        "foreground_precision",
+        "foreground_recall",
+        "foreground_specificity",
+        "foreground_iou",
+        "foreground_dice",
+        "false_positive_rate",
+        "false_negative_rate",
+        "matthews_corrcoef",
+        "mask_area_fraction_abs_error",
+        "hydride_count_abs_error",
+        "hydride_size_wasserstein",
+        "hydride_orientation_wasserstein",
+    ]
+
+    sample_columns = [key for key in sample_metric_order if any(key in sample for sample in samples)]
+    if not sample_columns:
+        sample_columns = ["pixel_accuracy", "macro_f1", "mean_iou"]
+
+    rows: list[str] = []
     for sample in samples:
-        fg_dice = float(sample.get("foreground_dice", 0.0)) if "foreground_dice" in sample else None
-        fg_cell = f"<td>{fg_dice:.4f}</td>" if fg_dice is not None else "<td>-</td>"
+        metric_cells: list[str] = []
+        for key in sample_columns:
+            value = sample.get(key)
+            if value is None:
+                metric_cells.append("<td>-</td>")
+                continue
+            try:
+                metric_cells.append(f"<td>{float(value):.6f}</td>")
+            except Exception:
+                metric_cells.append("<td>-</td>")
         rows.append(
             "<tr>"
             f"<td>{html.escape(str(sample.get('sample_name', '')))}</td>"
-            f"<td>{float(sample.get('pixel_accuracy', 0.0)):.4f}</td>"
-            f"<td>{float(sample.get('macro_f1', 0.0)):.4f}</td>"
-            f"<td>{float(sample.get('mean_iou', 0.0)):.4f}</td>"
-            + fg_cell
+            + "".join(metric_cells)
             + "</tr>"
         )
-    gallery = []
+
+    def _sample_metrics_block(sample: dict[str, Any]) -> str:
+        items: list[str] = []
+        for key in sample_columns:
+            if key not in sample:
+                continue
+            try:
+                value = float(sample.get(key))
+            except Exception:
+                continue
+            items.append(
+                "<li><b>"
+                + html.escape(key.replace("_", " "))
+                + "</b>: "
+                + f"{value:.6f}"
+                + "</li>"
+            )
+        if not items:
+            return ""
+        return "<ul style='margin:8px 0 0 18px;'>" + "".join(items) + "</ul>"
+
+    gallery: list[str] = []
     for sample in samples:
         panel = html.escape(str(sample.get("panel", "")))
         gallery.append(
             "<div style='margin:10px 0;padding:10px;border:1px solid #ddd;'>"
             f"<div><b>{html.escape(str(sample.get('sample_name', '')))}</b></div>"
             f"<img src='{panel}' style='max-width:100%;border:1px solid #333;'>"
-            "</div>"
+            + _sample_metrics_block(sample)
+            + "</div>"
         )
 
     class_rows: list[str] = []
@@ -351,10 +406,13 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         "</ul>"
         "<h2>Tracked Sample Metrics</h2>"
         "<table border='1' cellpadding='6' cellspacing='0'>"
-        "<tr><th>Sample</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Foreground Dice</th></tr>"
+        "<tr><th>Sample</th>"
+        + "".join(f"<th>{html.escape(col)}</th>" for col in sample_columns)
+        + "</tr>"
         + "".join(rows)
         + "</table>"
         "<h2>Tracked Samples (Input | GT | Pred | Diff)</h2>"
+        "<p>Each sample panel includes per-image values for all available run metrics.</p>"
         + "".join(gallery)
         + "</body></html>"
     )
@@ -470,26 +528,28 @@ class PixelModelEvaluator:
             y_true_blocks.append(gt.reshape(-1))
             y_pred_blocks.append(pred.reshape(-1))
 
-            labels_local = np.unique(np.concatenate([gt.reshape(-1), pred.reshape(-1)]))
-            acc_local = float(np.mean(gt == pred))
+            gt_flat = gt.reshape(-1)
+            pred_flat = pred.reshape(-1)
+            labels_local = np.unique(np.concatenate([gt_flat, pred_flat]))
+            acc_local = float(np.mean(gt_flat == pred_flat))
             f1_local = float(
-                f1_score(gt.reshape(-1), pred.reshape(-1), labels=labels_local, average="macro", zero_division=0)
+                f1_score(gt_flat, pred_flat, labels=labels_local, average="macro", zero_division=0)
             )
-            iou_local, _ = _mean_iou(gt.reshape(-1), pred.reshape(-1), labels_local)
+            iou_local, per_class_iou_local = _mean_iou(gt_flat, pred_flat, labels_local)
+            advanced_local, _, _, _, _ = _advanced_metrics(
+                gt_flat,
+                pred_flat,
+                labels_local,
+                per_class_iou_local,
+            )
 
             sample_item: dict[str, Any] = {
                 "sample_name": img_path.name,
                 "pixel_accuracy": acc_local,
                 "macro_f1": f1_local,
                 "mean_iou": iou_local,
+                **advanced_local,
             }
-            if set([int(v) for v in labels_local.tolist()]) == {0, 1}:
-                y_true_local = gt.reshape(-1)
-                y_pred_local = pred.reshape(-1)
-                tp = float(np.count_nonzero((y_true_local == 1) & (y_pred_local == 1)))
-                fp = float(np.count_nonzero((y_true_local == 0) & (y_pred_local == 1)))
-                fn = float(np.count_nonzero((y_true_local == 1) & (y_pred_local == 0)))
-                sample_item["foreground_dice"] = _safe_div(2.0 * tp, 2.0 * tp + fp + fn)
             sci = scientific_distance_metrics((gt > 0).astype(np.uint8), (pred > 0).astype(np.uint8))
             sample_item.update(sci)
             scientific_rows.append(sci)

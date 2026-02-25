@@ -2,56 +2,136 @@
 
 ## Purpose
 
-This is the single end-to-end runbook to execute the full hydride top-5 model comparison on an air-gapped GPU HPC system, for both:
+Run one full campaign on an air-gapped GPU HPC system for both:
 - scratch initialization
 - local-pretrained initialization
 
-It produces one consolidated benchmark dashboard with training curves, validation sample panels, and evaluation metrics.
+The campaign writes one consolidated view with:
+- run-level metrics
+- training curves
+- tracked-sample panels with per-image metrics
+- model/weight/compute summary statistics
 
-## Canonical Top-5 Model Matrix
+Primary outputs per campaign:
+- `summary.json`
+- `summary.html`
 
+Backward-compatible outputs are still written:
+- `benchmark_summary.json`
+- `benchmark_dashboard.html`
+- `benchmark_summary.csv`
+- `benchmark_aggregate.csv`
+
+## 0. Canonical Model Matrix
+
+Top-5 models in this runbook:
 1. `unet_binary`
 2. `hf_segformer_b0`
 3. `hf_segformer_b2`
 4. `transunet_tiny`
 5. `segformer_mini`
 
-Local-pretrained model IDs used in this runbook:
+Local-pretrained model IDs:
 - `unet_binary` -> `unet_binary_resnet18_imagenet_partial`
 - `hf_segformer_b0` -> `hf_segformer_b0_ade20k`
 - `hf_segformer_b2` -> `hf_segformer_b2_ade20k`
 - `transunet_tiny` -> `transunet_tiny_vit_tiny_patch16_imagenet`
 - `segformer_mini` -> `segformer_mini_vit_tiny_patch16_imagenet`
 
-## 1. Connected Machine Preparation (Internet Available)
+## 1. Connected Linux Machine (Internet + Browser)
 
-Install dependencies:
+All commands below assume repo root.
+
+### 1.1 Environment bootstrap (`.venv`)
+
 ```bash
-pip install -r requirements-core.txt
-pip install -e .
-pip install segmentation-models-pytorch
+cd /path/to/HydrideSegmentation
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-core.txt
+python -m pip install -e .
+python -m pip install segmentation-models-pytorch
 ```
 
-Download all pretrained bundles (writes to `pre_trained_weights/`):
-```bash
-python scripts/download_pretrained_weights.py --targets all --force
-```
+### 1.2 Browser download step (manual)
 
-Validate registry + checksums:
+Use browser downloads only and stage a complete `pre_trained_weights/` payload (bundle folders + `registry.json`).
+
+Reference for required model IDs and source URLs:
+- [docs/pretrained_model_catalog.md](docs/pretrained_model_catalog.md)
+
+After browser downloads, copy them under repo-root `pre_trained_weights/` so that:
+- `pre_trained_weights/registry.json` exists
+- all referenced bundle folders/files exist
+
+### 1.3 Validate pretrained payload before packaging
+
 ```bash
+source .venv/bin/activate
 microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict
 ```
 
-Generate provenance inventory report (for reporting/manuscript traceability):
+Expected output includes:
+- `pretrained registry valid: True`
+
+### 1.4 Package transfer archive + checksum
+
 ```bash
-python scripts/pretrained_inventory_report.py \
-  --registry-path pre_trained_weights/registry.json \
-  --output-path outputs/pretrained_weights/inventory_report.json
+mkdir -p transfer_bundle
+zip -r transfer_bundle/hydrideseg_repo_with_weights.zip . \
+  -x ".git/*" ".venv/*" "__pycache__/*" ".pytest_cache/*" ".ruff_cache/*" "outputs/*"
+sha256sum transfer_bundle/hydrideseg_repo_with_weights.zip > transfer_bundle/hydrideseg_repo_with_weights.zip.sha256
 ```
 
-## 2. Dataset Contract (Real Data)
+Optional local verification before physical transfer:
 
-Expected dataset layout on HPC:
+```bash
+sha256sum -c transfer_bundle/hydrideseg_repo_with_weights.zip.sha256
+```
+
+## 2. Air-Gapped HPC Machine
+
+### 2.1 Copy + verify + extract
+
+```bash
+mkdir -p /path/to/hpc_work
+cp /transfer_media/hydrideseg_repo_with_weights.zip /path/to/hpc_work/
+cp /transfer_media/hydrideseg_repo_with_weights.zip.sha256 /path/to/hpc_work/
+cd /path/to/hpc_work
+sha256sum -c hydrideseg_repo_with_weights.zip.sha256
+unzip -o hydrideseg_repo_with_weights.zip
+cd /path/to/hpc_work/HydrideSegmentation
+```
+
+### 2.2 HPC environment bootstrap (`.venv`)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-core.txt
+python -m pip install -e .
+python -m pip install segmentation-models-pytorch
+```
+
+### 2.3 Validate pretrained payload on HPC
+
+```bash
+source .venv/bin/activate
+microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict
+```
+
+### 2.4 Confirm GPU visibility (`nvidia-smi`)
+
+```bash
+nvidia-smi
+```
+
+## 3. Dataset Contract (Real Data)
+
+Expected dataset layout:
+
 ```text
 <dataset_root>/
   train/
@@ -65,12 +145,8 @@ Expected dataset layout on HPC:
     masks/*
 ```
 
-Rules:
-- image/mask filenames must match per split.
-- masks must be indexed class maps for binary segmentation (`0` background, `1` hydride).
-- no split leakage across `train`, `val`, `test`.
+Quick count sanity check:
 
-Optional quick count check before transfer:
 ```bash
 python - <<'PY'
 from pathlib import Path
@@ -82,35 +158,10 @@ for split in ['train', 'val', 'test']:
 PY
 ```
 
-## 3. Transfer to Air-Gapped HPC
+## 4. Recommended Debug Integrity Gate
 
-Copy these to HPC (external disk or secure transfer path):
-- full repository working tree
-- `pre_trained_weights/` folder
-- real dataset root (train/val/test layout)
-
-On HPC, verify pretrained registry after copy:
 ```bash
-microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.json --strict
-```
-
-## 4. HPC Environment Bootstrap
-
-Inside repo on HPC:
-```bash
-pip install -r requirements-core.txt
-pip install -e .
-```
-
-If missing in your environment:
-```bash
-pip install segmentation-models-pytorch
-```
-
-## 5. Mandatory Debug Integrity Run (Before Real Data)
-
-Build tiny debug dataset by duplicating repository sample image:
-```bash
+source .venv/bin/activate
 python scripts/build_debug_duplicate_dataset.py \
   --image-path test_data/syntheticHydrides.png \
   --output-dir outputs/debug_pretrained_dataset \
@@ -118,89 +169,74 @@ python scripts/build_debug_duplicate_dataset.py \
   --resize-height 64 \
   --train-count 4 \
   --val-count 2
-```
 
-Run combined scratch+pretrained top-5 debug benchmark:
-```bash
 python scripts/hydride_benchmark_suite.py \
   --config configs/hydride/benchmark_suite.top5_scratch_vs_pretrained.debug.yml \
   --strict
 ```
 
-Debug dashboard output:
-- `outputs/benchmarks/top5_suite_scratch_vs_pretrained_debug/benchmark_dashboard.html`
+Debug outputs:
+- `outputs/benchmarks/top5_suite_scratch_vs_pretrained_debug/summary.html`
+- `outputs/benchmarks/top5_suite_scratch_vs_pretrained_debug/summary.json`
 
-## 6. Real Data Full Benchmark (Single Dashboard)
+## 5. Real Campaign (Scratch + Local-Pretrained in One Run)
 
-Use this template config:
-- `configs/hydride/benchmark_suite.top5_scratch_vs_pretrained.realdata.template.yml`
+Copy template and edit only:
+- `dataset_dir`
+- `output_root`
+- `seeds`
+- `benchmark_mode`
 
-Copy and edit only these fields:
-1. `dataset_dir`
-2. `output_root`
-3. optionally `seeds` (`[42]` for first run, `[42, 43, 44]` for publication-grade comparison)
-4. `benchmark_mode` (`true` recommended; if `dataset_manifest.json` is missing, the suite now auto-generates it from `train/val/test` folders)
-
-Run:
 ```bash
+cp configs/hydride/benchmark_suite.top5_scratch_vs_pretrained.realdata.template.yml \
+   configs/hydride/benchmark_suite.top5_scratch_vs_pretrained.realdata.yml
+```
+
+Run campaign:
+
+```bash
+source .venv/bin/activate
 python scripts/hydride_benchmark_suite.py \
-  --config configs/hydride/benchmark_suite.top5_scratch_vs_pretrained.realdata.template.yml \
+  --config configs/hydride/benchmark_suite.top5_scratch_vs_pretrained.realdata.yml \
   --strict
 ```
 
-Primary outputs:
+## 6. Output Interpretation
+
+Main deliverables (single campaign view):
+- `summary.json`
+- `summary.html`
+
+Also written:
 - `benchmark_summary.json`
+- `benchmark_dashboard.html`
 - `benchmark_summary.csv`
 - `benchmark_aggregate.csv`
-- `benchmark_dashboard.html`
 - `curves/*_loss_curve.png`
 - `curves/*_accuracy_curve.png`
 - `curves/*_iou_curve.png`
 
-The dashboard includes:
-- per-run and per-model quality metrics:
-  - `pixel_accuracy`, `macro_f1`, `mean_iou`
-  - `macro_precision`, `macro_recall`, `weighted_f1`, `balanced_accuracy`, `frequency_weighted_iou`
-  - binary diagnostics (`foreground_precision`, `foreground_recall`, `foreground_specificity`, `foreground_iou`, `foreground_dice`, `FPR`, `FNR`, `MCC`) when labels are binary
-- scientific error metrics:
-  - `mask_area_fraction_abs_error`
-  - `hydride_count_abs_error`
-  - `hydride_size_wasserstein`
-  - `hydride_orientation_wasserstein`
-- runtime and model-size summaries
-- training curves for every run
-- tracked validation sample IoU summaries, tracked-sample IoU-vs-epoch evolution curves, and validation panel gallery
+`summary.html` and `summary.json` include:
+- scratch + local-pretrained runs in one campaign
+- total runtime and per-run runtime
+- parameter count + trainable parameter count
+- checkpoint size and weight statistics
+- compute-effort estimates (FLOPs estimates) and runtime GPU fields
+- tracked validation images with per-image metric blocks under each image
 
-## 7. Optional GA HPC Sweep Profiles (If You Want Candidate Search)
+## 7. Missing-Pretrained Behavior (Runner Hardening)
 
-Scratch top-5 GA profile:
-```bash
-microseg-cli hpc-ga-generate \
-  --config configs/hpc_ga.top5_scratch.default.yml \
-  --dataset-dir /path/to/real_dataset_root \
-  --output-dir /path/to/hpc_outputs/hpc_ga_top5_scratch
-```
+If pretrained artifacts are missing for a local-pretrained run:
+- run is marked `pretrained_missing`
+- actionable fix text is written in that run log
+- remaining runs continue (scratch runs are not blocked)
 
-Local-pretrained top-5 GA profile:
-```bash
-microseg-cli hpc-ga-generate \
-  --config configs/hpc_ga.top5_airgap_pretrained.default.yml \
-  --dataset-dir /path/to/real_dataset_root \
-  --output-dir /path/to/hpc_outputs/hpc_ga_top5_local_pretrained
-```
+Status appears in run-level table and JSON row `status`/`status_message`.
 
-## 8. Pretrained Provenance + Citation Sources
+## 8. Success Checklist
 
-- Runtime registry: `pre_trained_weights/registry.json`
-- Tracked metadata companions: `pre_trained_weights/metadata/*.meta.json`
-- Catalog for reporting: `docs/pretrained_model_catalog.md`
-- Catalog JSON: `docs/pretrained_model_catalog.json`
-- BibTeX: `docs/pretrained_model_citations.bib`
-
-## 9. Success Criteria Checklist
-
-1. `microseg-cli validate-pretrained --strict` passes on HPC.
-2. Debug suite passes and dashboard is generated.
-3. Real-data suite completes without failed runs (`--strict`).
-4. Combined dashboard exists and includes all 10 experiments (5 scratch + 5 local-pretrained).
-5. Summary JSON/CSV and aggregate CSV are archived with run config and environment notes.
+1. `validate-pretrained --strict` passes on HPC.
+2. Debug campaign passes.
+3. Real campaign completes with expected rows for all models/seeds.
+4. `summary.html` and `summary.json` exist in campaign output root.
+5. Logs and output folder are archived with the exact config used.
