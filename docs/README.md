@@ -31,6 +31,7 @@ Core planning and governance docs:
 - Phase 19 SOTA HF transformer integration status: `phase19_hf_sota_transformers.md`
 - Phase 20 benchmark suite orchestration status: `phase20_benchmark_suite_orchestration.md`
 - Phase 21 benchmark analytics hardening status: `phase21_benchmark_analytics_hardening.md`
+- Phase 23 enterprise desktop deployment readiness status: `phase23_enterprise_desktop_readiness.md`
 - Repository health audit: `repo_health_audit.md`
 - Frozen checkpoint registry guide: `frozen_checkpoint_registry.md`
 - HPC GA user guide: `hpc_ga_user_guide.md`
@@ -38,6 +39,7 @@ Core planning and governance docs:
 - Hydride end-to-end research workflow: `hydride_research_workflow.md`
 - Training data requirements: `training_data_requirements.md`
 - GUI usage guide: `gui_user_guide.md`
+- Windows offline installer workflow: `windows_offline_installer.md`
 - Configuration workflow: `configuration_workflow.md`
 - Input size policy and DataLoader sizing controls: `input_size_policy.md`
 - Offline pretrained transfer workflow: `offline_pretrained_transfer_workflow.md`

@@ -26,6 +26,7 @@ A local installable desktop application for microstructural segmentation workflo
 3. Analysis
 - Feature counts, area fraction, size and orientation distributions
 - Pluggable analysis modules by feature type
+- Optional spatial calibration (manual reference line or metadata-derived micron-per-pixel)
 
 4. Correction UI
 - Brush/eraser, polygon, lasso, connected-feature delete/relabel
@@ -53,7 +54,7 @@ A local installable desktop application for microstructural segmentation workflo
 - Metadata-first checkpoint lifecycle (`smoke`, `candidate`, `promoted`) with binaries local by default
 - Cross-platform packaging target (macOS, Linux, Windows)
 
-## Current Implementation Snapshot (Phase 15)
+## Current Implementation Snapshot (Phase 23)
 
 Implemented now:
 - Registry-backed model selector in GUI
@@ -74,6 +75,13 @@ Implemented now:
 - Validation sample tracking controls for training (fixed + random)
 - Training/evaluation JSON + HTML report generation
 - Dynamic model help from frozen checkpoint metadata registry
+- Dedicated Results Dashboard tab with adjustable orientation/size plotting controls
+- Runtime statistics panel for hydride fraction, count, density, orientation, and size distributions
+- Full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`)
+- Conventional-model parameter controls in GUI (CLAHE, adaptive threshold, morphology, area, crop)
+- Bundled sample images with direct `Load Sample` and `File -> Open Sample` flows
+- Persistent desktop file logging (`outputs/logs/desktop/`)
+- Windows packaging assets (`PyInstaller` spec + Inno Setup script + build script)
 - Tiny smoke-checkpoint generator for fast model-path sanity checks on fresh systems
 - Phase-gate closeout automation for test pass + stocktake + docs synchronization
 - Leakage-aware correction split planner and packaged dataset QA checks
@@ -87,7 +95,7 @@ Implemented now:
 Pending:
 - Advanced correction ergonomics (shape libraries, smarter snapping, uncertainty-driven guidance)
 - Active-learning policy integration over exported corrections
-- Installer-grade packaging and signed release workflows
+- Signed release and update-channel workflows
 
 ## GUI Framework Decision
 

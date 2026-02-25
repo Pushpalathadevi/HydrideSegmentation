@@ -2,11 +2,11 @@
 
 ## Primary Workflows
 
-1. Load image and select model.
+1. Load image (or bundled sample) and select model.
 2. Run segmentation.
-3. Inspect prediction in split view.
+3. Inspect prediction in split view and Results Dashboard.
 4. Correct annotations.
-5. Export corrected sample.
+5. Export corrected sample and/or full results package (`json` + `html` + `pdf`).
 6. Package datasets for training.
 7. Save session and resume later.
 8. Run full train/infer/evaluate/package jobs from Workflow Hub.
@@ -30,6 +30,12 @@ Inspection controls:
 - synchronized split-view pan/zoom
 - transparency sliders for predicted, corrected, and diff layers
 
+Conventional controls (Hydride Conventional model):
+- CLAHE clip limit and tile grid
+- adaptive threshold block size and `C`
+- morphology kernel and iterations
+- area threshold and optional crop percentage
+
 ## Exporting Corrections
 
 `Export Corrected Sample` supports selectable formats:
@@ -39,10 +45,39 @@ Inspection controls:
 
 Output includes correction metadata and provenance (`correction_record.json`).
 
+`Export Results Package` writes deployment-facing outputs:
+- `results_summary.json` with predicted/corrected statistics and analysis config
+- `results_report.html`
+- `results_report.pdf`
+- input/mask/overlay/orientation-map/distribution images for predicted and corrected masks
+
 ## Session Persistence
 
 - `Save Session` writes a restartable project folder with images, masks, class map, notes, and UI state.
 - `Load Session` restores run state and correction workspace.
+
+## Results Dashboard
+
+`Results Dashboard` provides:
+- side-by-side predicted/corrected scalar metrics
+- hydride fraction, hydride count, feature density, orientation summary, and size summary
+- orientation map + size/orientation distributions for predicted and corrected masks
+- adjustable plotting parameters:
+  - orientation bins
+  - size bins
+  - minimum feature-pixel threshold
+  - size axis scale (`linear`/`log`)
+  - orientation colormap
+
+## Spatial Calibration (Optional)
+
+Default reporting units are pixels.
+
+To enable micron-based reporting:
+- click `Scan Metadata Scale` to auto-detect TIFF/DPI scale metadata when available
+- or click `Calibrate Scale...`, draw a known line, and enter its real-world length
+
+When calibration is active, size-related metrics and report outputs include micron-based values (`um`, `um^2`) in addition to pixel metrics.
 
 ## Pipeline Hub
 
@@ -123,3 +158,11 @@ The model description area now includes metadata pulled from `frozen_checkpoints
 
 This helps users select the right model for optical/TEM or other microstructural contexts.
 Smoke-stage models are debug-only and are not intended for scientific reporting.
+
+## Sample Onboarding And Logs
+
+- Bundled sample images are available from:
+  - `File -> Open Sample`
+  - top-bar `Load Sample`
+- Desktop logs are written to:
+  - `outputs/logs/desktop/`

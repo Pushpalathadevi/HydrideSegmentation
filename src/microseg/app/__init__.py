@@ -1,6 +1,7 @@
 """Application assembly and runtime lifecycle helpers."""
 
 from .desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
+from .desktop_result_export import DesktopResultExportConfig, DesktopResultExporter
 from .facade import run_request
 from .hpc_ga import (
     HpcGaBundleResult,
@@ -20,6 +21,8 @@ from .workflow_profiles import read_workflow_profile, write_workflow_profile
 
 __all__ = [
     "DesktopRunRecord",
+    "DesktopResultExportConfig",
+    "DesktopResultExporter",
     "DesktopWorkflowManager",
     "generate_hpc_ga_bundle",
     "HpcGaBundleResult",

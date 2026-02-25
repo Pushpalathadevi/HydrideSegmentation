@@ -523,3 +523,39 @@ Exit criteria:
 - local-pretrained debug runs complete for at least one U-Net and one transformer backend
 - generated HPC scripts require no manual per-candidate edits for mapped pretrained backends
 - full tests and strict phase gate pass in same change
+
+## Phase 23 - Enterprise Desktop Deployment Readiness (Implemented)
+
+Goals:
+- Upgrade the Qt desktop UX for deployment-facing industrial usage.
+- Add in-app statistical dashboards and full run-report exports.
+- Package onboarding assets and Windows installer build workflow.
+
+Deliverables:
+- Qt GUI upgrades:
+  - sample image picker (`Load Sample` + `File -> Open Sample`)
+  - conventional model parameter controls (CLAHE/adaptive/morphology/crop/area)
+  - Results Dashboard tab with adjustable visualization controls
+  - model-details dialog and expanded professional menu actions
+  - persistent desktop file logging (`outputs/logs/desktop/`)
+- desktop results exporter:
+  - `src/microseg/app/desktop_result_export.py`
+  - report package artifacts (`results_summary.json`, `results_report.html`, `results_report.pdf`)
+- hydride statistics engine:
+  - `src/microseg/evaluation/hydride_statistics.py`
+  - scalar statistics + orientation/size visualizations
+- Windows packaging assets:
+  - `apps/desktop/windows/microseg_desktop.spec`
+  - `apps/desktop/windows/microseg_desktop.iss`
+  - `scripts/build_windows_installer.ps1`
+  - `docs/windows_offline_installer.md`
+- bundled sample assets:
+  - `data/sample_images/`
+
+Tests:
+- `tests/test_phase23_desktop_results.py`
+
+Exit criteria:
+- GUI supports model selection, sample onboarding, segmentation, correction, statistics review, and report export in one flow.
+- Results package contains machine-readable + human-readable deliverables suitable for audit handoff.
+- Windows offline installer process is documented and scriptable.

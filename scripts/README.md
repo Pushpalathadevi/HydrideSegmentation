@@ -41,3 +41,4 @@ Current scripts:
   - local-pretrained runs with missing weights are marked `pretrained_missing`, logged with actionable fixes, and remaining runs continue.
   - aggregate output includes mean/std rollups for quality and runtime metrics across seeds.
   - installed console entry point: `microseg-benchmark-suite`
+- `build_windows_installer.ps1` builds the Qt desktop executable (`PyInstaller`) and optional single offline installer (`Inno Setup`).

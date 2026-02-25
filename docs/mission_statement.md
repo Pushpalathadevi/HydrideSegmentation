@@ -25,6 +25,8 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Frozen-checkpoint metadata registry for model selection and guidance
 - Checkpoint lifecycle management (`smoke`, `candidate`, `promoted`) with git-tracked metadata and git-ignored binaries
 - Human-readable + machine-readable run reporting (`json` + `html`)
+- Deployment-grade result reporting (`json` + `html` + `pdf`) for audit and handoff
+- Offline installer workflows for enterprise desktop deployment (single-file setup artifacts)
 - Mandatory end-of-phase quality gates (tests + stocktake + gap review + docs sync)
 - HPC-ready orchestration artifact generation (scheduler scripts + manifests) for GPU environments
 - Feedback-informed HPC sweep planning from prior evaluation reports (quality/runtime-aware)
@@ -55,6 +57,8 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 15. Maintain a deterministic tiny smoke-checkpoint path to validate model plumbing on fresh systems without large artifacts.
 16. Provide GUI/CLI generation of multi-candidate HPC script bundles from architecture/hyperparameter search definitions.
 17. Provide feedback-aware candidate ranking for later HPC sweeps using prior run metrics and reproducible reporting artifacts.
+18. Deliver enterprise-ready desktop UX with professional menus, bundled sample inputs, and persistent operational logging.
+19. Provide installer-grade packaging instructions/scripts for offline Windows deployment.
 
 ## Success Criteria
 
@@ -67,3 +71,5 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Tiny smoke checkpoint generation remains available for quick pipeline sanity checks.
 - Saved project sessions can be reopened and resumed without data loss.
 - Hydride workflows remain stable while generalization is implemented.
+- Desktop users can export full run evidence packages (images + masks + metrics + HTML/PDF reports) without external tooling.
+- Desktop workflows support optional spatial calibration so size statistics can be reported in physical units when scale is available.

@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import sys
 from dataclasses import dataclass, field
+from datetime import datetime
+from math import hypot
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 from skimage.draw import disk, line
 
-from PySide6.QtCore import QProcess, Qt, Signal
-from PySide6.QtGui import QAction, QImage, QKeySequence, QPixmap, QShortcut
+from PySide6.QtCore import QProcess, QTimer, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -42,7 +47,10 @@ from PySide6.QtWidgets import (
 )
 
 from hydride_segmentation.version import __version__
+from hydride_segmentation.legacy_api import DEFAULT_CONVENTIONAL_PARAMS
 from src.microseg.app import (
+    DesktopResultExportConfig,
+    DesktopResultExporter,
     OrchestrationCommandBuilder,
     ProjectSaveRequest,
     ProjectStateStore,
@@ -69,9 +77,19 @@ from src.microseg.dataops import (
     prepare_training_dataset_layout,
     run_dataset_quality_checks,
 )
+from src.microseg.evaluation import (
+    HydrideVisualizationConfig,
+    compute_hydride_statistics,
+    render_hydride_visualizations,
+)
 from src.microseg.io import resolve_config
 from src.microseg.ui import AnnotationLayerSettings, compose_annotation_view
-from src.microseg.utils import to_rgb
+from src.microseg.utils import (
+    SpatialCalibration,
+    calibration_from_manual_line,
+    metadata_calibration_from_image,
+    to_rgb,
+)
 
 
 @dataclass
@@ -80,6 +98,26 @@ class _UiState:
     current_run: DesktopRunRecord | None = None
     correction_session: CorrectionSession | None = None
     class_map: SegmentationClassMap = field(default_factory=lambda: DEFAULT_CLASS_MAP)
+    spatial_calibration: SpatialCalibration | None = None
+    calibration_image_path: str | None = None
+
+
+def _discover_sample_images(repo_root: Path) -> list[Path]:
+    sample_dirs = [
+        repo_root / "data" / "sample_images",
+        repo_root / "test_data",
+    ]
+    patterns = ("*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp")
+    files: list[Path] = []
+    for folder in sample_dirs:
+        if not folder.exists():
+            continue
+        for pattern in patterns:
+            files.extend(sorted(folder.glob(pattern)))
+    unique: dict[str, Path] = {}
+    for path in files:
+        unique[str(path.resolve())] = path.resolve()
+    return list(unique.values())
 
 
 def _rgb_to_pixmap(arr: np.ndarray) -> QPixmap:
@@ -101,6 +139,16 @@ def _mask_to_pixmap(mask: np.ndarray, class_map: SegmentationClassMap) -> QPixma
     return _rgb_to_pixmap(colorize_index_mask(to_index_mask(mask), class_map))
 
 
+def _fmt_metric(value: object) -> str:
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.6f}"
+    return str(value)
+
+
 class _UiLogHandler(logging.Handler):
     """Logging handler that forwards records to a GUI callback."""
 
@@ -111,6 +159,78 @@ class _UiLogHandler(logging.Handler):
     def emit(self, record):  # noqa: D401
         msg = self.format(record)
         self.emit_callback(msg)
+
+
+class CalibrationLineCanvas(QLabel):
+    """Simple interactive canvas for drawing one calibration line."""
+
+    line_changed = Signal(float)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.setMouseTracking(True)
+        self._pixmap_base: QPixmap | None = None
+        self._p0: tuple[int, int] | None = None
+        self._p1: tuple[int, int] | None = None
+
+    def set_image(self, image: np.ndarray) -> None:
+        self._pixmap_base = _rgb_to_pixmap(image)
+        self._p0 = None
+        self._p1 = None
+        self._refresh()
+
+    def clear_line(self) -> None:
+        self._p0 = None
+        self._p1 = None
+        self._refresh()
+        self.line_changed.emit(0.0)
+
+    def line_distance_px(self) -> float:
+        if self._p0 is None or self._p1 is None:
+            return 0.0
+        return float(hypot(self._p1[0] - self._p0[0], self._p1[1] - self._p0[1]))
+
+    def _in_bounds(self, x: int, y: int) -> bool:
+        if self._pixmap_base is None:
+            return False
+        return 0 <= x < self._pixmap_base.width() and 0 <= y < self._pixmap_base.height()
+
+    def mousePressEvent(self, event):  # noqa: N802
+        if self._pixmap_base is None:
+            return
+        p = event.position().toPoint()
+        x = int(p.x())
+        y = int(p.y())
+        if not self._in_bounds(x, y):
+            return
+        if event.button() == Qt.LeftButton:
+            if self._p0 is None or (self._p0 is not None and self._p1 is not None):
+                self._p0 = (x, y)
+                self._p1 = None
+            else:
+                self._p1 = (x, y)
+            self._refresh()
+            self.line_changed.emit(self.line_distance_px())
+            return
+        if event.button() == Qt.RightButton:
+            self.clear_line()
+
+    def _refresh(self) -> None:
+        if self._pixmap_base is None:
+            return
+        pix = self._pixmap_base.copy()
+        if self._p0 is not None:
+            painter = QPainter(pix)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setPen(QPen(QColor(255, 40, 40), 2))
+            painter.drawEllipse(self._p0[0] - 3, self._p0[1] - 3, 6, 6)
+            if self._p1 is not None:
+                painter.drawLine(self._p0[0], self._p0[1], self._p1[0], self._p1[1])
+                painter.drawEllipse(self._p1[0] - 3, self._p1[1] - 3, 6, 6)
+            painter.end()
+        self.setPixmap(pix)
+        self.setFixedSize(pix.size())
 
 
 class CorrectedMaskCanvas(QLabel):
@@ -377,17 +497,45 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.workflow = DesktopWorkflowManager(max_history=400)
         self.exporter = CorrectionExporter()
+        self.result_exporter = DesktopResultExporter()
         self.project_store = ProjectStateStore()
         self.orchestrator = OrchestrationCommandBuilder.discover(start=Path(__file__))
         self._job_process: QProcess | None = None
         self._job_name: str = ""
+        self._sample_images: list[Path] = _discover_sample_images(self.orchestrator.repo_root)
         self._dataset_preview_rows: list[dict[str, object]] = []
         self._dataset_preview_split_counts: dict[str, int] = {}
         self._last_dataset_qa_ok: bool | None = None
         self._last_dataset_qa_dir: str = ""
         self._review_summary_a = None
         self._review_summary_b = None
+        self._results_dirty = False
+        self._latest_results_payload: dict[str, object] = {}
         self.state = _UiState()
+
+        self.logger = logging.getLogger("MicroSegQtGUI")
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False
+        if not self.logger.handlers:
+            stream = logging.StreamHandler()
+            stream.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+            self.logger.addHandler(stream)
+        log_dir = self.orchestrator.repo_root / "outputs" / "logs" / "desktop"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"microseg_desktop_{datetime.now().strftime('%Y%m%d')}.log"
+        if not any(
+            isinstance(h, logging.FileHandler) and Path(getattr(h, "baseFilename", "")) == log_path
+            for h in self.logger.handlers
+        ):
+            file_handler = logging.FileHandler(log_path, encoding="utf-8")
+            file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+            self.logger.addHandler(file_handler)
+        self.logger.info("Desktop log file: %s", log_path)
+
+        self._results_refresh_timer = QTimer(self)
+        self._results_refresh_timer.setSingleShot(True)
+        self._results_refresh_timer.timeout.connect(self._update_results_dashboard)
+
         try:
             resolved_class_map, class_map_source = resolve_class_map()
             self.state.class_map = resolved_class_map
@@ -397,12 +545,6 @@ class QtSegmentationMainWindow(QMainWindow):
         self._model_specs = {spec["display_name"]: spec for spec in self.workflow.model_specs()}
 
         self._sync_scroll_guard = False
-        self.logger = logging.getLogger("MicroSegQtGUI")
-        self.logger.setLevel(logging.INFO)
-        if not self.logger.handlers:
-            stream = logging.StreamHandler()
-            stream.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-            self.logger.addHandler(stream)
 
         self._build_ui()
         self._configure_menu()
@@ -412,6 +554,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self._ui_handler = _UiLogHandler(self._log)
         self._ui_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
         self.logger.addHandler(self._ui_handler)
+        self._refresh_sample_picker()
+        self._update_calibration_status_label()
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -433,9 +577,28 @@ class QtSegmentationMainWindow(QMainWindow):
         act_open.triggered.connect(self.on_load_image)
         file_menu.addAction(act_open)
 
+        self._sample_menu = file_menu.addMenu("Open Sample")
+        self._populate_sample_menu()
+
         act_batch = QAction("Open Batch", self)
         act_batch.triggered.connect(self.on_run_batch)
         file_menu.addAction(act_batch)
+
+        file_menu.addSeparator()
+        act_scan_cal = QAction("Scan Metadata Scale", self)
+        act_scan_cal.triggered.connect(self.on_scan_metadata_calibration)
+        file_menu.addAction(act_scan_cal)
+        act_manual_cal = QAction("Calibrate Scale...", self)
+        act_manual_cal.triggered.connect(self.on_calibrate_scale)
+        file_menu.addAction(act_manual_cal)
+        act_clear_cal = QAction("Clear Scale", self)
+        act_clear_cal.triggered.connect(self.on_clear_calibration)
+        file_menu.addAction(act_clear_cal)
+
+        file_menu.addSeparator()
+        act_export_results = QAction("Export Results Package", self)
+        act_export_results.triggered.connect(self.on_export_results_package)
+        file_menu.addAction(act_export_results)
 
         act_export = QAction("Export Corrected Sample", self)
         act_export.triggered.connect(self.on_export_correction)
@@ -448,6 +611,10 @@ class QtSegmentationMainWindow(QMainWindow):
         act_load_project = QAction("Load Project Session", self)
         act_load_project.triggered.connect(self.on_load_project)
         file_menu.addAction(act_load_project)
+
+        act_export_log = QAction("Open Log Folder", self)
+        act_export_log.triggered.connect(self.on_open_log_folder)
+        file_menu.addAction(act_export_log)
 
         file_menu.addSeparator()
         act_exit = QAction("Exit", self)
@@ -463,10 +630,13 @@ class QtSegmentationMainWindow(QMainWindow):
         view_menu.addAction("Zoom In", self.corrected_canvas.zoom_in)
         view_menu.addAction("Zoom Out", self.corrected_canvas.zoom_out)
         view_menu.addAction("Zoom Reset", self.corrected_canvas.zoom_reset)
+        view_menu.addAction("Results Dashboard", self.on_open_results_dashboard)
+        view_menu.addAction("Workflow Hub", self.on_open_workflow_hub)
 
         help_menu = menu.addMenu("Help")
         help_menu.addAction("Shortcuts", self.on_show_shortcuts)
         help_menu.addAction("Guide", self.on_show_guide)
+        help_menu.addAction("Model Details", self.on_show_model_details)
         help_menu.addAction("About", self.on_show_about)
 
     def _build_ui(self) -> None:
@@ -485,10 +655,22 @@ class QtSegmentationMainWindow(QMainWindow):
         self.btn_load.clicked.connect(self.on_load_image)
         controls.addWidget(self.btn_load)
 
+        self.sample_combo = QComboBox()
+        self.sample_combo.setMinimumWidth(260)
+        controls.addWidget(self.sample_combo)
+
+        self.btn_load_sample = QPushButton("Load Sample")
+        self.btn_load_sample.clicked.connect(self.on_load_sample)
+        controls.addWidget(self.btn_load_sample)
+
         self.model_combo = QComboBox()
         self.model_combo.addItems(self.workflow.model_options())
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
         controls.addWidget(self.model_combo)
+
+        self.btn_model_details = QPushButton("Model Details")
+        self.btn_model_details.clicked.connect(self.on_show_model_details)
+        controls.addWidget(self.btn_model_details)
 
         self.btn_run = QPushButton("Run Segmentation")
         self.btn_run.clicked.connect(self.on_run_segmentation)
@@ -514,6 +696,89 @@ class QtSegmentationMainWindow(QMainWindow):
         self.config_overrides_edit = QLineEdit()
         self.config_overrides_edit.setPlaceholderText("Overrides: key=value,key2=value2")
         config_row.addWidget(self.config_overrides_edit, stretch=3)
+
+        calibration_row = QHBoxLayout()
+        layout.addLayout(calibration_row)
+        self.calibration_status_label = QLabel("Scale: pixels (no calibration)")
+        self.calibration_status_label.setWordWrap(True)
+        calibration_row.addWidget(self.calibration_status_label, stretch=4)
+        self.btn_scan_metadata_calibration = QPushButton("Scan Metadata Scale")
+        self.btn_scan_metadata_calibration.clicked.connect(self.on_scan_metadata_calibration)
+        calibration_row.addWidget(self.btn_scan_metadata_calibration)
+        self.btn_calibrate_line = QPushButton("Calibrate Scale...")
+        self.btn_calibrate_line.clicked.connect(self.on_calibrate_scale)
+        calibration_row.addWidget(self.btn_calibrate_line)
+        self.btn_clear_calibration = QPushButton("Clear Scale")
+        self.btn_clear_calibration.clicked.connect(self.on_clear_calibration)
+        calibration_row.addWidget(self.btn_clear_calibration)
+
+        self.conventional_row_widget = QWidget()
+        conventional_row = QHBoxLayout(self.conventional_row_widget)
+        conventional_row.setContentsMargins(0, 0, 0, 0)
+        conventional_row.addWidget(QLabel("Conventional Controls"))
+
+        conventional_row.addWidget(QLabel("CLAHE clip"))
+        self.conv_clip_spin = QDoubleSpinBox()
+        self.conv_clip_spin.setDecimals(2)
+        self.conv_clip_spin.setRange(0.1, 20.0)
+        self.conv_clip_spin.setSingleStep(0.1)
+        self.conv_clip_spin.setValue(float(DEFAULT_CONVENTIONAL_PARAMS["clahe"]["clip_limit"]))
+        conventional_row.addWidget(self.conv_clip_spin)
+
+        conventional_row.addWidget(QLabel("Tile"))
+        self.conv_tile_x = QSpinBox()
+        self.conv_tile_x.setRange(1, 64)
+        self.conv_tile_x.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["clahe"]["tile_grid_size"][0]))
+        conventional_row.addWidget(self.conv_tile_x)
+        self.conv_tile_y = QSpinBox()
+        self.conv_tile_y.setRange(1, 64)
+        self.conv_tile_y.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["clahe"]["tile_grid_size"][1]))
+        conventional_row.addWidget(self.conv_tile_y)
+
+        conventional_row.addWidget(QLabel("Adaptive block"))
+        self.conv_block_spin = QSpinBox()
+        self.conv_block_spin.setRange(3, 401)
+        self.conv_block_spin.setSingleStep(2)
+        self.conv_block_spin.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["adaptive"]["block_size"]))
+        conventional_row.addWidget(self.conv_block_spin)
+
+        conventional_row.addWidget(QLabel("Adaptive C"))
+        self.conv_c_spin = QSpinBox()
+        self.conv_c_spin.setRange(-200, 200)
+        self.conv_c_spin.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["adaptive"]["C"]))
+        conventional_row.addWidget(self.conv_c_spin)
+
+        conventional_row.addWidget(QLabel("Kernel"))
+        self.conv_kernel_x = QSpinBox()
+        self.conv_kernel_x.setRange(1, 64)
+        self.conv_kernel_x.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["morph"]["kernel_size"][0]))
+        conventional_row.addWidget(self.conv_kernel_x)
+        self.conv_kernel_y = QSpinBox()
+        self.conv_kernel_y.setRange(1, 64)
+        self.conv_kernel_y.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["morph"]["kernel_size"][1]))
+        conventional_row.addWidget(self.conv_kernel_y)
+
+        conventional_row.addWidget(QLabel("Morph iters"))
+        self.conv_iterations_spin = QSpinBox()
+        self.conv_iterations_spin.setRange(0, 20)
+        self.conv_iterations_spin.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["morph"]["iterations"]))
+        conventional_row.addWidget(self.conv_iterations_spin)
+
+        conventional_row.addWidget(QLabel("Area >="))
+        self.conv_area_spin = QSpinBox()
+        self.conv_area_spin.setRange(0, 100000)
+        self.conv_area_spin.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["area_threshold"]))
+        conventional_row.addWidget(self.conv_area_spin)
+
+        self.conv_crop_check = QCheckBox("Crop")
+        self.conv_crop_check.setChecked(bool(DEFAULT_CONVENTIONAL_PARAMS["crop"]))
+        conventional_row.addWidget(self.conv_crop_check)
+        self.conv_crop_percent = QSpinBox()
+        self.conv_crop_percent.setRange(0, 80)
+        self.conv_crop_percent.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["crop_percent"]))
+        conventional_row.addWidget(self.conv_crop_percent)
+        conventional_row.addStretch(1)
+        layout.addWidget(self.conventional_row_widget)
 
         self.corrected_canvas = CorrectedMaskCanvas()
         self.corrected_canvas.zoom_changed.connect(self._on_zoom_changed)
@@ -635,9 +900,21 @@ class QtSegmentationMainWindow(QMainWindow):
         self.chk_fmt_npy.setChecked(False)
         layer_row.addWidget(self.chk_fmt_npy)
 
+        self.chk_report_html = QCheckBox("report.html")
+        self.chk_report_html.setChecked(True)
+        layer_row.addWidget(self.chk_report_html)
+
+        self.chk_report_pdf = QCheckBox("report.pdf")
+        self.chk_report_pdf.setChecked(True)
+        layer_row.addWidget(self.chk_report_pdf)
+
         self.btn_export = QPushButton("Export Corrected Sample")
         self.btn_export.clicked.connect(self.on_export_correction)
         layer_row.addWidget(self.btn_export)
+
+        self.btn_export_results = QPushButton("Export Results Package")
+        self.btn_export_results.clicked.connect(self.on_export_results_package)
+        layer_row.addWidget(self.btn_export_results)
 
         self.btn_save_project = QPushButton("Save Session")
         self.btn_save_project.clicked.connect(self.on_save_project)
@@ -682,6 +959,86 @@ class QtSegmentationMainWindow(QMainWindow):
         self.splitter.setSizes([700, 900])
 
         self.tabs.addTab(self.split_widget, "Correction Split View")
+
+        self.results_widget = QWidget()
+        results_root = QVBoxLayout(self.results_widget)
+
+        results_controls = QHBoxLayout()
+        results_root.addLayout(results_controls)
+        results_controls.addWidget(QLabel("Orientation bins"))
+        self.results_orientation_bins = QSpinBox()
+        self.results_orientation_bins.setRange(6, 180)
+        self.results_orientation_bins.setValue(18)
+        results_controls.addWidget(self.results_orientation_bins)
+
+        results_controls.addWidget(QLabel("Size bins"))
+        self.results_size_bins = QSpinBox()
+        self.results_size_bins.setRange(4, 180)
+        self.results_size_bins.setValue(20)
+        results_controls.addWidget(self.results_size_bins)
+
+        results_controls.addWidget(QLabel("Min feature px"))
+        self.results_min_feature = QSpinBox()
+        self.results_min_feature.setRange(1, 100000)
+        self.results_min_feature.setValue(1)
+        results_controls.addWidget(self.results_min_feature)
+
+        results_controls.addWidget(QLabel("Size scale"))
+        self.results_size_scale = QComboBox()
+        self.results_size_scale.addItems(["linear", "log"])
+        self.results_size_scale.setCurrentText("linear")
+        results_controls.addWidget(self.results_size_scale)
+
+        results_controls.addWidget(QLabel("Orientation map"))
+        self.results_cmap = QComboBox()
+        self.results_cmap.addItems(["coolwarm", "viridis", "plasma", "turbo", "magma", "cividis"])
+        self.results_cmap.setCurrentText("coolwarm")
+        results_controls.addWidget(self.results_cmap)
+
+        self.btn_results_refresh = QPushButton("Recompute Stats")
+        self.btn_results_refresh.clicked.connect(self._update_results_dashboard)
+        results_controls.addWidget(self.btn_results_refresh)
+
+        self.btn_results_export = QPushButton("Export Results")
+        self.btn_results_export.clicked.connect(self.on_export_results_package)
+        results_controls.addWidget(self.btn_results_export)
+        results_controls.addStretch(1)
+
+        self.results_summary_label = QLabel("Results: run segmentation to populate dashboard")
+        self.results_summary_label.setWordWrap(True)
+        results_root.addWidget(self.results_summary_label)
+
+        self.results_table = QTableWidget(0, 3)
+        self.results_table.setHorizontalHeaderLabels(["Metric", "Predicted", "Corrected"])
+        self.results_table.horizontalHeader().setStretchLastSection(True)
+        self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.results_table.setAlternatingRowColors(True)
+        results_root.addWidget(self.results_table, stretch=1)
+
+        self.results_plot_tabs = QTabWidget()
+        results_root.addWidget(self.results_plot_tabs, stretch=2)
+
+        self.results_pred_widget = QWidget()
+        pred_layout = QHBoxLayout(self.results_pred_widget)
+        self.results_pred_orientation_label = QLabel("Orientation map")
+        self.results_pred_size_label = QLabel("Size distribution")
+        self.results_pred_angle_label = QLabel("Orientation distribution")
+        pred_layout.addWidget(self._in_scroll(self.results_pred_orientation_label), stretch=1)
+        pred_layout.addWidget(self._in_scroll(self.results_pred_size_label), stretch=1)
+        pred_layout.addWidget(self._in_scroll(self.results_pred_angle_label), stretch=1)
+        self.results_plot_tabs.addTab(self.results_pred_widget, "Predicted")
+
+        self.results_corr_widget = QWidget()
+        corr_layout = QHBoxLayout(self.results_corr_widget)
+        self.results_corr_orientation_label = QLabel("Orientation map")
+        self.results_corr_size_label = QLabel("Size distribution")
+        self.results_corr_angle_label = QLabel("Orientation distribution")
+        corr_layout.addWidget(self._in_scroll(self.results_corr_orientation_label), stretch=1)
+        corr_layout.addWidget(self._in_scroll(self.results_corr_size_label), stretch=1)
+        corr_layout.addWidget(self._in_scroll(self.results_corr_angle_label), stretch=1)
+        self.results_plot_tabs.addTab(self.results_corr_widget, "Corrected")
+
+        self.tabs.addTab(self.results_widget, "Results Dashboard")
 
         self.workflow_widget = QWidget()
         wf_root = QVBoxLayout(self.workflow_widget)
@@ -1282,6 +1639,13 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self._connect_scroll_sync()
         self._reload_class_combo()
+        self._toggle_conventional_controls(self.model_combo.currentText())
+
+        self.results_orientation_bins.valueChanged.connect(self._queue_results_refresh)
+        self.results_size_bins.valueChanged.connect(self._queue_results_refresh)
+        self.results_min_feature.valueChanged.connect(self._queue_results_refresh)
+        self.results_size_scale.currentTextChanged.connect(self._queue_results_refresh)
+        self.results_cmap.currentTextChanged.connect(self._queue_results_refresh)
 
         status = QHBoxLayout()
         layout.addLayout(status)
@@ -1439,8 +1803,278 @@ class QtSegmentationMainWindow(QMainWindow):
             fmts.add("numpy_npy")
         return fmts or {"indexed_png"}
 
+    def _selected_model_spec(self, model_name: str | None = None) -> dict[str, str]:
+        selected = model_name or self.model_combo.currentText()
+        spec = self._model_specs.get(selected, {})
+        return {str(k): str(v) for k, v in spec.items()}
+
+    def _selected_model_id(self, model_name: str | None = None) -> str:
+        return str(self._selected_model_spec(model_name).get("model_id", ""))
+
+    def _toggle_conventional_controls(self, model_name: str) -> None:
+        if not hasattr(self, "conventional_row_widget"):
+            return
+        visible = self._selected_model_id(model_name) == "hydride_conventional"
+        self.conventional_row_widget.setVisible(visible)
+        self.conventional_row_widget.setEnabled(visible)
+
+    def _collect_conventional_params(self) -> dict[str, object]:
+        block_size = int(self.conv_block_spin.value())
+        if block_size % 2 == 0:
+            block_size += 1
+            self.conv_block_spin.setValue(block_size)
+        return {
+            "clahe": {
+                "clip_limit": float(self.conv_clip_spin.value()),
+                "tile_grid_size": [int(self.conv_tile_x.value()), int(self.conv_tile_y.value())],
+            },
+            "adaptive": {
+                "block_size": int(block_size),
+                "C": int(self.conv_c_spin.value()),
+            },
+            "morph": {
+                "kernel_size": [int(self.conv_kernel_x.value()), int(self.conv_kernel_y.value())],
+                "iterations": int(self.conv_iterations_spin.value()),
+            },
+            "area_threshold": int(self.conv_area_spin.value()),
+            "crop": bool(self.conv_crop_check.isChecked()),
+            "crop_percent": int(self.conv_crop_percent.value()),
+        }
+
+    def _analysis_config_from_ui(self) -> HydrideVisualizationConfig:
+        return HydrideVisualizationConfig(
+            orientation_bins=int(self.results_orientation_bins.value()),
+            size_bins=int(self.results_size_bins.value()),
+            min_feature_pixels=int(self.results_min_feature.value()),
+            orientation_cmap=self.results_cmap.currentText(),
+            size_scale=self.results_size_scale.currentText(),
+        )
+
+    def _results_export_config_from_ui(self) -> DesktopResultExportConfig:
+        cal = self.state.spatial_calibration
+        return DesktopResultExportConfig(
+            orientation_bins=int(self.results_orientation_bins.value()),
+            size_bins=int(self.results_size_bins.value()),
+            min_feature_pixels=int(self.results_min_feature.value()),
+            orientation_cmap=self.results_cmap.currentText(),
+            size_scale=self.results_size_scale.currentText(),
+            microns_per_pixel=None if cal is None else float(cal.microns_per_pixel),
+            calibration_source="none" if cal is None else cal.source,
+            calibration_notes="" if cal is None else cal.notes,
+            write_html_report=bool(self.chk_report_html.isChecked()),
+            write_pdf_report=bool(self.chk_report_pdf.isChecked()),
+        )
+
+    def _apply_calibration(self, calibration: SpatialCalibration | None, *, image_path: str | None = None) -> None:
+        self.state.spatial_calibration = calibration
+        if image_path is not None:
+            self.state.calibration_image_path = str(image_path)
+        self._update_calibration_status_label()
+        self._queue_results_refresh()
+
+    def _update_calibration_status_label(self) -> None:
+        if not hasattr(self, "calibration_status_label"):
+            return
+        cal = self.state.spatial_calibration
+        if cal is None:
+            self.calibration_status_label.setText("Scale: pixels (no calibration)")
+            return
+        details = f"{float(cal.microns_per_pixel):.6g} um/px ({cal.source})"
+        if cal.notes:
+            details += f" | {cal.notes}"
+        self.calibration_status_label.setText(f"Scale: {details}")
+
+    def _try_auto_calibration_from_metadata(self, image_path: str, *, user_initiated: bool = False) -> None:
+        if (
+            self.state.spatial_calibration is not None
+            and self.state.spatial_calibration.source == "manual_line"
+            and str(self.state.calibration_image_path or "") == str(image_path)
+            and not user_initiated
+        ):
+            self._update_calibration_status_label()
+            return
+        if (
+            self.state.spatial_calibration is not None
+            and self.state.spatial_calibration.source == "manual_line"
+            and self.state.calibration_image_path
+            and str(self.state.calibration_image_path) != str(image_path)
+        ):
+            self.state.spatial_calibration = None
+        cal = metadata_calibration_from_image(image_path)
+        if cal is None:
+            if user_initiated:
+                QMessageBox.information(
+                    self,
+                    "Metadata Scale",
+                    "No usable micron-per-pixel metadata was found. Scale remains in pixels.",
+                )
+            if self.state.spatial_calibration is None or self.state.spatial_calibration.source != "manual_line":
+                self._apply_calibration(None, image_path=image_path)
+            return
+        self._apply_calibration(cal, image_path=image_path)
+        self.logger.info(
+            "Loaded metadata calibration for %s: %.6g um/px (%s)",
+            image_path,
+            cal.microns_per_pixel,
+            cal.source,
+        )
+        if user_initiated:
+            QMessageBox.information(
+                self,
+                "Metadata Scale",
+                f"Detected scale: {cal.microns_per_pixel:.6g} um/px\nSource: {cal.source}",
+            )
+
+    def _queue_results_refresh(self, *_args) -> None:
+        self._results_dirty = True
+        self._results_refresh_timer.start(250)
+
+    def _update_results_dashboard(self) -> None:
+        run = self.state.current_run
+        if run is None:
+            self.results_summary_label.setText("Results: run segmentation to populate dashboard")
+            self.results_table.setRowCount(0)
+            return
+        sess = self.state.correction_session
+        pred_mask = to_index_mask(np.array(run.mask_image))
+        corr_mask = to_index_mask(sess.current_mask) if sess is not None else pred_mask
+        cfg = self._analysis_config_from_ui()
+        cal = self.state.spatial_calibration
+        um_per_px = None if cal is None else float(cal.microns_per_pixel)
+        try:
+            pred_stats = compute_hydride_statistics(
+                pred_mask,
+                orientation_bins=cfg.orientation_bins,
+                size_bins=cfg.size_bins,
+                min_feature_pixels=cfg.min_feature_pixels,
+                microns_per_pixel=um_per_px,
+            )
+            corr_stats = compute_hydride_statistics(
+                corr_mask,
+                orientation_bins=cfg.orientation_bins,
+                size_bins=cfg.size_bins,
+                min_feature_pixels=cfg.min_feature_pixels,
+                microns_per_pixel=um_per_px,
+            )
+            pred_visuals = render_hydride_visualizations(pred_stats, cfg)
+            corr_visuals = render_hydride_visualizations(corr_stats, cfg)
+
+            self._set_image_preview(self.results_pred_orientation_label, pred_visuals["orientation_map_rgb"])
+            self._set_image_preview(self.results_pred_size_label, pred_visuals["size_distribution_rgb"])
+            self._set_image_preview(self.results_pred_angle_label, pred_visuals["orientation_distribution_rgb"])
+            self._set_image_preview(self.results_corr_orientation_label, corr_visuals["orientation_map_rgb"])
+            self._set_image_preview(self.results_corr_size_label, corr_visuals["size_distribution_rgb"])
+            self._set_image_preview(self.results_corr_angle_label, corr_visuals["orientation_distribution_rgb"])
+
+            pred_metrics = dict(pred_stats.scalar_metrics)
+            corr_metrics = dict(corr_stats.scalar_metrics)
+            preferred = [
+                "hydride_area_fraction_percent",
+                "hydride_count",
+                "hydride_total_area_um2" if um_per_px is not None else "hydride_total_area_pixels",
+                "equivalent_diameter_mean_um" if um_per_px is not None else "equivalent_diameter_mean_px",
+                "hydride_density_per_megapixel",
+                "size_mean_um2" if um_per_px is not None else "size_mean_pixels",
+                "size_p90_um2" if um_per_px is not None else "size_p90_pixels",
+                "orientation_mean_deg",
+                "orientation_std_deg",
+                "orientation_alignment_index",
+                "orientation_entropy_bits",
+                "excluded_small_features",
+            ]
+            metric_keys = [k for k in preferred if k in pred_metrics or k in corr_metrics]
+            extra_keys = sorted((set(pred_metrics.keys()) | set(corr_metrics.keys())) - set(metric_keys))
+            metric_keys.extend(extra_keys)
+            self.results_table.setRowCount(len(metric_keys))
+            for r, key in enumerate(metric_keys):
+                self.results_table.setItem(r, 0, QTableWidgetItem(str(key)))
+                self.results_table.setItem(r, 1, QTableWidgetItem(_fmt_metric(pred_metrics.get(key, ""))))
+                self.results_table.setItem(r, 2, QTableWidgetItem(_fmt_metric(corr_metrics.get(key, ""))))
+
+            self.results_summary_label.setText(
+                "Results | predicted area={:.3f}% count={} | corrected area={:.3f}% count={} | bins(o={}, s={}) | units={}".format(
+                    float(pred_metrics.get("hydride_area_fraction_percent", 0.0)),
+                    int(pred_metrics.get("hydride_count", 0)),
+                    float(corr_metrics.get("hydride_area_fraction_percent", 0.0)),
+                    int(corr_metrics.get("hydride_count", 0)),
+                    int(cfg.orientation_bins),
+                    int(cfg.size_bins),
+                    "um (calibrated)" if um_per_px is not None else "pixels",
+                )
+            )
+            self._latest_results_payload = {
+                "predicted_metrics": pred_metrics,
+                "corrected_metrics": corr_metrics,
+                "analysis_config": {
+                    "orientation_bins": cfg.orientation_bins,
+                    "size_bins": cfg.size_bins,
+                    "min_feature_pixels": cfg.min_feature_pixels,
+                    "orientation_cmap": cfg.orientation_cmap,
+                    "size_scale": cfg.size_scale,
+                },
+                "spatial_calibration": None if cal is None else cal.as_dict(),
+            }
+            self._results_dirty = False
+        except Exception as exc:
+            self.logger.exception("Results dashboard update failed")
+            self.results_summary_label.setText(f"Results update failed: {exc}")
+
+    def _refresh_sample_picker(self) -> None:
+        if not hasattr(self, "sample_combo"):
+            return
+        self.sample_combo.blockSignals(True)
+        self.sample_combo.clear()
+        for path in self._sample_images:
+            rel = path
+            try:
+                rel = path.relative_to(self.orchestrator.repo_root)
+            except Exception:
+                rel = path
+            self.sample_combo.addItem(str(rel), str(path))
+        self.sample_combo.blockSignals(False)
+        self._populate_sample_menu()
+
+    def _populate_sample_menu(self) -> None:
+        if not hasattr(self, "_sample_menu"):
+            return
+        self._sample_menu.clear()
+        if not self._sample_images:
+            disabled = QAction("(no sample images found)", self)
+            disabled.setEnabled(False)
+            self._sample_menu.addAction(disabled)
+            return
+        for sample_path in self._sample_images:
+            label = sample_path.name
+            action = QAction(label, self)
+            action.triggered.connect(lambda checked=False, p=sample_path: self._load_sample_path(p))
+            self._sample_menu.addAction(action)
+
+    def _load_sample_path(self, sample_path: Path) -> None:
+        if not sample_path.exists():
+            QMessageBox.warning(self, "Missing sample", f"Sample path not found:\n{sample_path}")
+            return
+        self.path_edit.setText(str(sample_path))
+        self.orch_infer_image_edit.setText(str(sample_path))
+        self.state.image_path = str(sample_path)
+        self._preview_input_image(str(sample_path))
+        self._try_auto_calibration_from_metadata(str(sample_path), user_initiated=False)
+        self.tabs.setCurrentIndex(0)
+        self.logger.info("Loaded sample image: %s", sample_path)
+
+    def on_load_sample(self) -> None:
+        if self.sample_combo.count() == 0:
+            QMessageBox.warning(self, "No samples", "No sample images are available in data/sample_images or test_data.")
+            return
+        sample_raw = self.sample_combo.currentData()
+        if not sample_raw:
+            QMessageBox.warning(self, "No sample", "Select a sample image first.")
+            return
+        sample_path = Path(str(sample_raw))
+        self._load_sample_path(sample_path)
+
     def _on_model_changed(self, model_name: str) -> None:
         spec = self._model_specs.get(model_name)
+        self._toggle_conventional_controls(model_name)
         if not spec:
             self.model_desc.setText("")
             return
@@ -1464,6 +2098,7 @@ class QtSegmentationMainWindow(QMainWindow):
         if spec.get("quality_report_path") and str(spec.get("quality_report_path")).lower() != "n/a":
             lines.append(f"<b>Quality report:</b> {spec.get('quality_report_path')}")
         self.model_desc.setText("<br>".join([line for line in lines if line]))
+        self.logger.info("Selected model: %s (%s)", model_name, spec.get("model_id", ""))
 
     def _on_class_changed(self, class_label: str) -> None:
         class_index = self._selected_class_index()
@@ -2360,6 +2995,7 @@ class QtSegmentationMainWindow(QMainWindow):
 
     def _on_correction_changed(self) -> None:
         self._update_action_label()
+        self._queue_results_refresh()
 
     def _on_tool_changed(self, tool: str) -> None:
         self.corrected_canvas.set_tool(tool)
@@ -2391,16 +3027,19 @@ class QtSegmentationMainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Correction Guide",
-            "1. Run segmentation.\n"
+            "1. Load a file or sample image and run segmentation.\n"
             "2. Open 'Correction Split View'.\n"
             "3. Pick class index/color map and select tool/mode.\n"
             "4. For wrong objects: feature-select + erase to delete component.\n"
             "5. Redraw with brush/polygon/lasso in add mode.\n"
-            "6. Tune layer transparency and export indexed/color/npy masks.\n"
-            "7. Use Workflow Hub for train/infer/evaluate/package orchestration jobs.\n"
-            "8. Use Dataset Prep + QA for split preview, colormap conversion, and QA gating.\n"
-            "9. Use Run Review to compare training/evaluation reports.\n"
-            "10. Use HPC GA Planner to generate Slurm/PBS/local job bundles.",
+            "6. Tune layer transparency and inspect 'Results Dashboard'.\n"
+            "7. Optionally calibrate scale (manual line or TIFF metadata) for micron-based reporting.\n"
+            "8. Export correction masks and full JSON/HTML/PDF result packages.\n"
+            "9. Tune conventional model controls when running Hydride Conventional.\n"
+            "10. Use Workflow Hub for train/infer/evaluate/package orchestration jobs.\n"
+            "11. Use Dataset Prep + QA for split preview, colormap conversion, and QA gating.\n"
+            "12. Use Run Review to compare training/evaluation reports.\n"
+            "13. Use HPC GA Planner to generate Slurm/PBS/local job bundles.",
         )
 
     def on_show_about(self) -> None:
@@ -2412,6 +3051,180 @@ class QtSegmentationMainWindow(QMainWindow):
             "Designed for field deployment workflows.",
         )
 
+    def on_show_model_details(self) -> None:
+        spec = self._selected_model_spec()
+        if not spec:
+            QMessageBox.information(self, "Model Details", "No model metadata available.")
+            return
+        lines = []
+        for key in [
+            "display_name",
+            "model_id",
+            "feature_family",
+            "description",
+            "details",
+            "model_nickname",
+            "model_type",
+            "framework",
+            "input_dimensions",
+            "checkpoint_path_hint",
+            "artifact_stage",
+            "application_remarks",
+            "short_description",
+            "detailed_description",
+            "quality_report_path",
+        ]:
+            value = str(spec.get(key, "")).strip()
+            if not value:
+                continue
+            lines.append(f"<b>{key}</b>: {value}")
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Model Details")
+        dlg.resize(760, 480)
+        root = QVBoxLayout(dlg)
+        body = QTextEdit()
+        body.setReadOnly(True)
+        body.setHtml("<br>".join(lines))
+        root.addWidget(body)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dlg.reject)
+        buttons.accepted.connect(dlg.accept)
+        root.addWidget(buttons)
+        dlg.exec()
+
+    def on_open_results_dashboard(self) -> None:
+        idx = self.tabs.indexOf(self.results_widget)
+        if idx >= 0:
+            self.tabs.setCurrentIndex(idx)
+            self._update_results_dashboard()
+
+    def on_open_workflow_hub(self) -> None:
+        idx = self.tabs.indexOf(self.workflow_widget)
+        if idx >= 0:
+            self.tabs.setCurrentIndex(idx)
+
+    def on_open_log_folder(self) -> None:
+        log_dir = self.orchestrator.repo_root / "outputs" / "logs" / "desktop"
+        opened = False
+        try:
+            if sys.platform.startswith("darwin"):
+                opened = bool(QProcess.startDetached("open", [str(log_dir)]))
+            elif os.name == "nt":
+                opened = bool(QProcess.startDetached("explorer", [str(log_dir)]))
+            else:
+                opened = bool(QProcess.startDetached("xdg-open", [str(log_dir)]))
+        except Exception:
+            opened = False
+        if not opened:
+            QMessageBox.information(self, "Log Folder", f"Desktop logs:\n{log_dir}")
+
+    def on_clear_calibration(self) -> None:
+        self._apply_calibration(None, image_path=self.state.image_path)
+        self.logger.info("Spatial calibration cleared; reporting units reverted to pixels.")
+
+    def on_scan_metadata_calibration(self) -> None:
+        image_path = self.path_edit.text().strip() or (self.state.image_path or "")
+        if not image_path:
+            QMessageBox.warning(self, "Missing image", "Load an image first to scan metadata calibration.")
+            return
+        self._try_auto_calibration_from_metadata(image_path, user_initiated=True)
+
+    def on_calibrate_scale(self) -> None:
+        image_path = self.path_edit.text().strip() or (self.state.image_path or "")
+        if not image_path:
+            QMessageBox.warning(self, "Missing image", "Load an image first before calibration.")
+            return
+        try:
+            image_arr = np.array(Image.open(image_path))
+        except Exception as exc:
+            QMessageBox.critical(self, "Calibration Error", f"Failed to load image:\n{exc}")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Spatial Calibration")
+        dlg.resize(980, 760)
+        root = QVBoxLayout(dlg)
+
+        info = QLabel(
+            "Draw a known reference line with two left-clicks. Right-click clears the line.\n"
+            "Then enter the real length and apply calibration."
+        )
+        info.setWordWrap(True)
+        root.addWidget(info)
+
+        canvas = CalibrationLineCanvas()
+        canvas.set_image(image_arr)
+        scroll = self._in_scroll(canvas)
+        root.addWidget(scroll, stretch=1)
+
+        form = QFormLayout()
+        known_length = QDoubleSpinBox()
+        known_length.setDecimals(6)
+        known_length.setRange(0.000001, 1_000_000.0)
+        known_length.setValue(100.0)
+        known_unit = QComboBox()
+        known_unit.addItems(["um", "mm", "nm"])
+        known_unit.setCurrentText("um")
+        distance_label = QLabel("Line distance: 0.000 px")
+        derived_label = QLabel("Derived scale: n/a")
+        form.addRow("Known length", known_length)
+        form.addRow("Length unit", known_unit)
+        form.addRow("Measured line", distance_label)
+        form.addRow("Scale", derived_label)
+        root.addLayout(form)
+
+        def _refresh_labels(distance_px: float) -> None:
+            distance_label.setText(f"Line distance: {distance_px:.3f} px")
+            if distance_px <= 0:
+                derived_label.setText("Derived scale: n/a")
+                return
+            try:
+                cal = calibration_from_manual_line(distance_px, known_length.value(), known_unit.currentText())
+                derived_label.setText(f"Derived scale: {cal.microns_per_pixel:.6g} um/px")
+            except Exception as exc:
+                derived_label.setText(f"Derived scale: invalid ({exc})")
+
+        canvas.line_changed.connect(_refresh_labels)
+        known_length.valueChanged.connect(lambda *_args: _refresh_labels(canvas.line_distance_px()))
+        known_unit.currentTextChanged.connect(lambda *_args: _refresh_labels(canvas.line_distance_px()))
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        root.addWidget(buttons)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        distance_px = canvas.line_distance_px()
+        if distance_px <= 0:
+            QMessageBox.warning(self, "Calibration", "Draw a calibration line before applying.")
+            return
+        try:
+            cal = calibration_from_manual_line(distance_px, known_length.value(), known_unit.currentText())
+            self._apply_calibration(cal, image_path=image_path)
+            self.logger.info(
+                "Applied manual calibration for %s: %.6g um/px",
+                image_path,
+                cal.microns_per_pixel,
+            )
+            QMessageBox.information(
+                self,
+                "Calibration Applied",
+                f"Scale set to {cal.microns_per_pixel:.6g} um/px\nSource: manual line",
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Calibration Error", str(exc))
+
+    def _preview_input_image(self, path: str) -> None:
+        try:
+            with Image.open(path) as img:
+                arr = np.array(img)
+            self._set_image_preview(self.input_label, arr)
+            self._set_image_preview(self.raw_corr_label, arr, zoom=self.corrected_canvas.zoom_value())
+        except Exception as exc:
+            self.logger.warning("Failed to preview input image: %s", exc)
+
     def on_load_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -2422,7 +3235,11 @@ class QtSegmentationMainWindow(QMainWindow):
         if not path:
             return
         self.path_edit.setText(path)
+        self.orch_infer_image_edit.setText(path)
         self.state.image_path = path
+        self._preview_input_image(path)
+        self._try_auto_calibration_from_metadata(path, user_initiated=False)
+        self.tabs.setCurrentIndex(0)
         self.logger.info("Loaded image path: %s", path)
 
     def on_run_segmentation(self) -> None:
@@ -2430,12 +3247,17 @@ class QtSegmentationMainWindow(QMainWindow):
         if not path:
             QMessageBox.warning(self, "Missing image", "Select an image first")
             return
+        self.state.image_path = path
+        self._try_auto_calibration_from_metadata(path, user_initiated=False)
 
         try:
             cfg = self._resolve_run_config()
-            model_name = cfg.get("model_name", self.model_combo.currentText())
+            model_name = str(cfg.get("model_name") or self.model_combo.currentText())
+            self.model_combo.setCurrentText(model_name)
             include_analysis = bool(cfg.get("include_analysis", True))
             params = dict(cfg.get("params", {}))
+            if self._selected_model_id(model_name) == "hydride_conventional":
+                params.update(self._collect_conventional_params())
             params["image_path"] = path
             self.logger.info("Running segmentation on %s with %s", path, model_name)
             record = self.workflow.run_single(
@@ -2459,11 +3281,16 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         if not paths:
             return
+        self.state.image_path = str(paths[0])
+        self._try_auto_calibration_from_metadata(str(paths[0]), user_initiated=False)
         try:
             cfg = self._resolve_run_config()
-            model_name = cfg.get("model_name", self.model_combo.currentText())
+            model_name = str(cfg.get("model_name") or self.model_combo.currentText())
+            self.model_combo.setCurrentText(model_name)
             include_analysis = bool(cfg.get("include_analysis", False))
             params = dict(cfg.get("params", {}))
+            if self._selected_model_id(model_name) == "hydride_conventional":
+                params.update(self._collect_conventional_params())
             params.setdefault("image_path", paths[0])
             self.logger.info("Running batch of %d images with %s", len(paths), model_name)
             records = self.workflow.run_batch(
@@ -2487,6 +3314,9 @@ class QtSegmentationMainWindow(QMainWindow):
     def _show_record(self, record: DesktopRunRecord, corrected_mask: np.ndarray | None = None) -> None:
         self.state.current_run = record
         self.path_edit.setText(record.image_path)
+        self.state.image_path = record.image_path
+        self.orch_infer_image_edit.setText(record.image_path)
+        self._try_auto_calibration_from_metadata(record.image_path, user_initiated=False)
         if self.model_combo.findText(record.model_name) >= 0:
             self.model_combo.setCurrentText(record.model_name)
         base = np.array(record.input_image)
@@ -2503,6 +3333,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.corrected_canvas.update_layer_settings(self._layer_settings())
         self._update_split_input_view()
         self._update_action_label()
+        self._update_results_dashboard()
 
         self.logger.info("Active run: %s", record.history_label)
         if record.metrics:
@@ -2526,6 +3357,7 @@ class QtSegmentationMainWindow(QMainWindow):
         if sess.undo():
             self.corrected_canvas._refresh()
             self._update_action_label()
+            self._queue_results_refresh()
             self.logger.info("Correction undo")
 
     def on_redo(self) -> None:
@@ -2535,6 +3367,7 @@ class QtSegmentationMainWindow(QMainWindow):
         if sess.redo():
             self.corrected_canvas._refresh()
             self._update_action_label()
+            self._queue_results_refresh()
             self.logger.info("Correction redo")
 
     def on_reset_corrections(self) -> None:
@@ -2544,6 +3377,7 @@ class QtSegmentationMainWindow(QMainWindow):
         sess.reset_to_initial()
         self.corrected_canvas._refresh()
         self._update_action_label()
+        self._queue_results_refresh()
         self.logger.info("Corrections reset to initial prediction")
 
     def on_export_correction(self) -> None:
@@ -2572,6 +3406,32 @@ class QtSegmentationMainWindow(QMainWindow):
         except Exception as exc:
             self.logger.exception("Correction export failed")
             QMessageBox.critical(self, "Export Error", str(exc))
+
+    def on_export_results_package(self) -> None:
+        run = self.state.current_run
+        if run is None:
+            QMessageBox.warning(self, "No run", "Run segmentation first")
+            return
+        out_dir = QFileDialog.getExistingDirectory(self, "Select results export directory")
+        if not out_dir:
+            return
+        sess = self.state.correction_session
+        corrected_mask = sess.current_mask if sess is not None else None
+        try:
+            export_dir = self.result_exporter.export(
+                run,
+                output_dir=out_dir,
+                corrected_mask=corrected_mask,
+                annotator=self.annotator_edit.text().strip() or "unknown",
+                notes=self.notes_edit.text().strip(),
+                class_map=self.state.class_map,
+                config=self._results_export_config_from_ui(),
+            )
+            self.logger.info("Exported desktop results package: %s", export_dir)
+            QMessageBox.information(self, "Results Exported", f"Saved results package:\n{export_dir}")
+        except Exception as exc:
+            self.logger.exception("Results package export failed")
+            QMessageBox.critical(self, "Results Export Error", str(exc))
 
     def on_save_project(self) -> None:
         run = self.state.current_run
@@ -2602,6 +3462,28 @@ class QtSegmentationMainWindow(QMainWindow):
                     "diff_alpha": self.slider_diff.value(),
                     "config_path": self.config_path_edit.text().strip(),
                     "config_overrides": self.config_overrides_edit.text().strip(),
+                    "conv_clip": float(self.conv_clip_spin.value()),
+                    "conv_tile_x": int(self.conv_tile_x.value()),
+                    "conv_tile_y": int(self.conv_tile_y.value()),
+                    "conv_block_size": int(self.conv_block_spin.value()),
+                    "conv_c": int(self.conv_c_spin.value()),
+                    "conv_kernel_x": int(self.conv_kernel_x.value()),
+                    "conv_kernel_y": int(self.conv_kernel_y.value()),
+                    "conv_iterations": int(self.conv_iterations_spin.value()),
+                    "conv_area_threshold": int(self.conv_area_spin.value()),
+                    "conv_crop": bool(self.conv_crop_check.isChecked()),
+                    "conv_crop_percent": int(self.conv_crop_percent.value()),
+                    "results_orientation_bins": int(self.results_orientation_bins.value()),
+                    "results_size_bins": int(self.results_size_bins.value()),
+                    "results_min_feature": int(self.results_min_feature.value()),
+                    "results_size_scale": self.results_size_scale.currentText(),
+                    "results_cmap": self.results_cmap.currentText(),
+                    "report_html": bool(self.chk_report_html.isChecked()),
+                    "report_pdf": bool(self.chk_report_pdf.isChecked()),
+                    "calibration": (
+                        None if self.state.spatial_calibration is None else self.state.spatial_calibration.as_dict()
+                    ),
+                    "calibration_image_path": self.state.calibration_image_path or "",
                 },
             )
             out = self.project_store.save(req, out_dir)
@@ -2638,6 +3520,39 @@ class QtSegmentationMainWindow(QMainWindow):
             self.slider_pred.setValue(int(loaded.ui_state.get("pred_alpha", 35)))
             self.slider_corr.setValue(int(loaded.ui_state.get("corr_alpha", 45)))
             self.slider_diff.setValue(int(loaded.ui_state.get("diff_alpha", 70)))
+            self.conv_clip_spin.setValue(float(loaded.ui_state.get("conv_clip", self.conv_clip_spin.value())))
+            self.conv_tile_x.setValue(int(loaded.ui_state.get("conv_tile_x", self.conv_tile_x.value())))
+            self.conv_tile_y.setValue(int(loaded.ui_state.get("conv_tile_y", self.conv_tile_y.value())))
+            self.conv_block_spin.setValue(int(loaded.ui_state.get("conv_block_size", self.conv_block_spin.value())))
+            self.conv_c_spin.setValue(int(loaded.ui_state.get("conv_c", self.conv_c_spin.value())))
+            self.conv_kernel_x.setValue(int(loaded.ui_state.get("conv_kernel_x", self.conv_kernel_x.value())))
+            self.conv_kernel_y.setValue(int(loaded.ui_state.get("conv_kernel_y", self.conv_kernel_y.value())))
+            self.conv_iterations_spin.setValue(int(loaded.ui_state.get("conv_iterations", self.conv_iterations_spin.value())))
+            self.conv_area_spin.setValue(int(loaded.ui_state.get("conv_area_threshold", self.conv_area_spin.value())))
+            self.conv_crop_check.setChecked(bool(loaded.ui_state.get("conv_crop", self.conv_crop_check.isChecked())))
+            self.conv_crop_percent.setValue(int(loaded.ui_state.get("conv_crop_percent", self.conv_crop_percent.value())))
+            self.results_orientation_bins.setValue(
+                int(loaded.ui_state.get("results_orientation_bins", self.results_orientation_bins.value()))
+            )
+            self.results_size_bins.setValue(int(loaded.ui_state.get("results_size_bins", self.results_size_bins.value())))
+            self.results_min_feature.setValue(int(loaded.ui_state.get("results_min_feature", self.results_min_feature.value())))
+            self.results_size_scale.setCurrentText(
+                str(loaded.ui_state.get("results_size_scale", self.results_size_scale.currentText()))
+            )
+            self.results_cmap.setCurrentText(str(loaded.ui_state.get("results_cmap", self.results_cmap.currentText())))
+            self.chk_report_html.setChecked(bool(loaded.ui_state.get("report_html", self.chk_report_html.isChecked())))
+            self.chk_report_pdf.setChecked(bool(loaded.ui_state.get("report_pdf", self.chk_report_pdf.isChecked())))
+            cal_payload = loaded.ui_state.get("calibration")
+            cal_obj = None
+            if isinstance(cal_payload, dict):
+                try:
+                    cal_obj = SpatialCalibration.from_dict(cal_payload)
+                except Exception:
+                    cal_obj = None
+            self.state.calibration_image_path = str(
+                loaded.ui_state.get("calibration_image_path", loaded.record.image_path)
+            )
+            self._apply_calibration(cal_obj, image_path=self.state.calibration_image_path)
 
             wanted_cls = int(loaded.ui_state.get("class_index", 1))
             for i in range(self.class_combo.count()):
@@ -2645,6 +3560,7 @@ class QtSegmentationMainWindow(QMainWindow):
                     self.class_combo.setCurrentIndex(i)
                     break
             self._update_layer_settings()
+            self._update_results_dashboard()
 
             self.logger.info("Loaded project session from %s", loaded.root_dir)
             QMessageBox.information(self, "Session Loaded", f"Loaded project:\n{loaded.root_dir}")

@@ -79,7 +79,9 @@ def _prepare_demo_reports(repo_root: Path) -> tuple[Path, Path]:
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     out_dir = repo_root / "artifacts" / "screenshots"
-    test_image = repo_root / "test_data" / "3PB_SRT_data_generation_1817_OD_side1_8.png"
+    test_image = repo_root / "data" / "sample_images" / "hydride_optical_sample.png"
+    if not test_image.exists():
+        test_image = repo_root / "test_data" / "3PB_SRT_data_generation_1817_OD_side1_8.png"
 
     app = QApplication.instance() or QApplication([])
     win = QtSegmentationMainWindow()
@@ -131,6 +133,16 @@ def main() -> None:
     win.on_compare_review_reports()
     _save(win, app, out_dir / "qt_gui_phase13_workflow_run_review_v0160.png")
 
+    # 6) Results dashboard tab.
+    win.tabs.setCurrentIndex(_tab_index(win.tabs, "Results Dashboard"))
+    win.results_orientation_bins.setValue(24)
+    win.results_size_bins.setValue(24)
+    win.results_min_feature.setValue(8)
+    win.results_size_scale.setCurrentText("linear")
+    win.results_cmap.setCurrentText("viridis")
+    win._update_results_dashboard()  # noqa: SLF001 - screenshot utility drives UI state
+    _save(win, app, out_dir / "qt_gui_phase23_results_dashboard_v0230.png")
+
     print("Screenshots written to:")
     for name in [
         "qt_gui_phase13_input_v0160.png",
@@ -138,10 +150,10 @@ def main() -> None:
         "qt_gui_phase13_workflow_training_v0160.png",
         "qt_gui_phase13_workflow_dataset_prep_qa_v0160.png",
         "qt_gui_phase13_workflow_run_review_v0160.png",
+        "qt_gui_phase23_results_dashboard_v0230.png",
     ]:
         print(str(out_dir / name))
 
 
 if __name__ == "__main__":
     main()
-

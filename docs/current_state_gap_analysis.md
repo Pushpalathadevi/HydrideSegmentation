@@ -33,6 +33,12 @@ Implemented:
 - HPC GA pretrained-init hardening (`scratch/auto/local` modes, backend-to-model mapping, and explicit backend/model_architecture script overrides)
 - Single-script top-5 hydride benchmark orchestration with consolidated JSON/CSV/HTML summary outputs
 - Single dashboard benchmark analytics now includes tracked validation sample IoU summaries and panel galleries
+- Results Dashboard in Qt GUI with adjustable plotting controls and predicted/corrected distribution panels
+- Full desktop results-package export with JSON + HTML + PDF reports
+- Conventional-model parameter controls exposed directly in Qt GUI
+- Bundled sample image onboarding (`Load Sample` + `File -> Open Sample`)
+- Persistent desktop operational logs in `outputs/logs/desktop/`
+- Windows packaging assets for offline installer build (PyInstaller spec + Inno Setup script + build script)
 
 ## Remaining Gaps To World-Class Target
 
@@ -46,7 +52,7 @@ High-priority gaps:
 Medium-priority gaps:
 - Multi-feature default registries beyond hydrides
 - Rich experiment tracking backends
-- Installer and update channels for field distribution
+- Signed installer and update channels for field distribution
 
 ## Risks
 

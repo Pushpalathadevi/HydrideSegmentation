@@ -20,14 +20,22 @@ See `docs/mission_statement.md`.
 
 - Registry-backed segmentation orchestration (`src/microseg`)
 - Qt desktop GUI (`hydride-gui`) with:
+  - file/edit/view/help desktop-style menus
+  - bundled sample image onboarding (`Load Sample` / `File -> Open Sample`)
   - brush/polygon/lasso tools
   - connected-feature delete/relabel
   - class index + color map editing
+  - conventional-pipeline controls (CLAHE/adaptive/morphology/crop/area threshold)
+  - optional spatial calibration (manual line-draw or TIFF metadata scan) for micron-based reporting
   - split-view synchronized zoom/pan and layer transparency
+  - Results Dashboard with adjustable orientation/size plotting controls
+  - scalar statistics panel (fraction/count/density/orientation/size summaries)
+  - full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`)
   - project/session save-load
   - Dataset Prep + QA workspace (preview, prepare, QA, training gate)
   - Run Review workspace for report summary + metric-delta comparison
   - HPC GA Planner for scheduler-ready multi-candidate bundle generation and feedback analysis
+  - persistent desktop logs under `outputs/logs/desktop/`
 - Correction export schema `microseg.correction.v1`
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
@@ -60,6 +68,12 @@ Qt GUI dependency:
 ```bash
 pip install PySide6
 ```
+
+Windows offline installer build tooling:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows_installer.ps1
+```
+See `docs/windows_offline_installer.md`.
 
 ## Primary Usage
 
@@ -255,6 +269,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Repository health audit: `docs/repo_health_audit.md`
 - Training data requirements: `docs/training_data_requirements.md`
 - GUI user guide: `docs/gui_user_guide.md`
+- Windows offline installer workflow: `docs/windows_offline_installer.md`
 - HPC GA user guide: `docs/hpc_ga_user_guide.md`
 - HPC GA developer guide: `docs/hpc_ga_developer_guide.md`
 - Hydride end-to-end research workflow: `docs/hydride_research_workflow.md`

@@ -10,6 +10,10 @@ def to_rgb(image: np.ndarray) -> np.ndarray:
 
     if image.ndim == 2:
         return np.stack([image] * 3, axis=-1)
+    if image.ndim == 3 and image.shape[2] == 1:
+        return np.repeat(image, 3, axis=2)
+    if image.ndim == 3 and image.shape[2] >= 3:
+        return image[..., :3]
     return image
 
 
