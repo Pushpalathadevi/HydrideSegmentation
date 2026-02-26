@@ -201,6 +201,16 @@ python scripts/hydride_benchmark_suite.py \
   --strict
 ```
 
+Optional anti-hang watchdog settings (add to the suite YAML for long HPC jobs):
+- `command_idle_timeout_seconds`: timeout when no new bytes are written to a run log for N seconds.
+- `command_wall_timeout_seconds`: timeout after N total seconds of a run.
+- `command_terminate_grace_seconds`: graceful terminate window before force-kill (default `30`).
+- `command_poll_interval_seconds`: watchdog polling interval (default `1`).
+
+During execution, each run writes live logs to:
+- `output_root/logs/<run_tag>/train.log`
+- `output_root/logs/<run_tag>/eval.log`
+
 ## 6. Output Interpretation
 
 Main deliverables (single campaign view):

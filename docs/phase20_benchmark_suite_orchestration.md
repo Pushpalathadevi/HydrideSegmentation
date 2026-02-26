@@ -14,6 +14,8 @@
   - train + eval execution loops across models and seeds
   - strict mode fail handling
   - dry-run planning mode
+  - live per-run log streaming to `logs/<run_tag>/train.log|eval.log`
+  - optional watchdog timeouts (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`)
   - consolidated JSON/CSV summary outputs
   - HTML dashboard generation
 

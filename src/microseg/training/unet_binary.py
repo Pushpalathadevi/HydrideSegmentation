@@ -1387,9 +1387,12 @@ def _tracking_panel(image: np.ndarray, gt: np.ndarray, pred: np.ndarray) -> np.n
 
 
 def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
-    history = payload.get("history", [])
+    history_raw = payload.get("history", [])
+    history = history_raw if isinstance(history_raw, list) else []
     rows: list[str] = []
     for item in history:
+        if not isinstance(item, dict):
+            continue
         rows.append(
             "<tr>"
             f"<td>{int(item.get('epoch', 0))}</td>"
@@ -1402,8 +1405,10 @@ def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
             "</tr>"
         )
 
-    samples = payload.get("latest_tracked_samples", [])
+    samples_raw = payload.get("latest_tracked_samples", [])
+    samples = samples_raw if isinstance(samples_raw, list) else []
     sample_metric_order = [
+        "iou",
         "pixel_accuracy",
         "macro_f1",
         "mean_iou",
@@ -1425,19 +1430,58 @@ def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
         "hydride_size_wasserstein",
         "hydride_orientation_wasserstein",
     ]
-    gallery: list[str] = []
-    for sample in samples:
+
+    def _sample_card(sample: dict[str, Any]) -> str:
         panel = html.escape(str(sample.get("panel", "")))
         name = html.escape(str(sample.get("sample_name", "")))
-        iou = float(sample.get("iou", 0.0))
+        iou_raw = sample.get("iou")
+        try:
+            iou = float(iou_raw)
+            iou_text = f" | IoU={iou:.4f}"
+        except Exception:
+            iou_text = ""
         metrics_html = _sample_metrics_block(sample, sample_metric_order)
-        gallery.append(
+        return (
             "<div style='margin:10px 0;padding:10px;border:1px solid #ddd;'>"
-            f"<div><b>{name}</b> | IoU={iou:.4f}</div>"
+            f"<div><b>{name}</b>{iou_text}</div>"
             f"<img src='{panel}' style='max-width:100%;border:1px solid #333;' alt='{name}'>"
             + metrics_html
             + "</div>"
         )
+
+    latest_gallery: list[str] = []
+    for sample in samples:
+        if not isinstance(sample, dict):
+            continue
+        latest_gallery.append(_sample_card(sample))
+
+    epoch_gallery: list[str] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        tracked_raw = item.get("tracked_samples", [])
+        tracked = tracked_raw if isinstance(tracked_raw, list) else []
+        cards: list[str] = []
+        for sample in tracked:
+            if not isinstance(sample, dict):
+                continue
+            cards.append(_sample_card(sample))
+        if not cards:
+            continue
+        epoch_num = int(item.get("epoch", 0))
+        epoch_gallery.append(f"<h3>Epoch {epoch_num}</h3>")
+        epoch_gallery.append(
+            "<p><b>Train Acc:</b> "
+            + f"{float(item.get('train_accuracy', 0.0)):.4f}"
+            + " | <b>Val Acc:</b> "
+            + f"{float(item.get('val_accuracy', 0.0)):.4f}"
+            + " | <b>Train IoU:</b> "
+            + f"{float(item.get('train_iou', 0.0)):.4f}"
+            + " | <b>Val IoU:</b> "
+            + f"{float(item.get('val_iou', 0.0)):.4f}"
+            + "</p>"
+        )
+        epoch_gallery.extend(cards)
 
     progress = payload.get("progress", {})
     html_text = (
@@ -1454,8 +1498,10 @@ def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
         "<tr><th>Epoch</th><th>Train Loss</th><th>Train Acc</th><th>Train IoU</th><th>Val Loss</th><th>Val Acc</th><th>Val IoU</th></tr>"
         + "".join(rows)
         + "</table>"
-        "<h2>Tracked Validation Samples (Input | GT | Pred | Diff)</h2>"
-        + "".join(gallery)
+        "<h2>Tracked Validation Samples (Latest Epoch: Input | GT | Pred | Diff)</h2>"
+        + ("".join(latest_gallery) if latest_gallery else "<p>No tracked samples recorded yet.</p>")
+        + "<h2>Tracked Validation Samples By Epoch (Input | GT | Pred | Diff)</h2>"
+        + ("".join(epoch_gallery) if epoch_gallery else "<p>No per-epoch tracked samples recorded.</p>")
         + "</body></html>"
     )
     output_path.write_text(html_text, encoding="utf-8")

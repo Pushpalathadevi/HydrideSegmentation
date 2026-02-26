@@ -7,11 +7,14 @@ import csv
 import html
 import json
 import math
+import os
 from pathlib import Path
 import re
+import signal
 import statistics
 import subprocess
 import sys
+import time
 from typing import Any
 
 import yaml
@@ -265,16 +268,135 @@ def _write_skip_log(
     log_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _run_cmd(cmd: list[str], log_path: Path, *, dry_run: bool) -> int:
+def _safe_positive_seconds(value: object) -> float | None:
+    try:
+        sec = float(value)
+    except Exception:
+        return None
+    if sec <= 0.0:
+        return None
+    return float(sec)
+
+
+def _terminate_process(proc: subprocess.Popen[str], *, grace_seconds: float) -> None:
+    if proc.poll() is not None:
+        return
+
+    sent_term = False
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+            sent_term = True
+        except Exception:
+            sent_term = False
+    if not sent_term:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+    try:
+        proc.wait(timeout=max(1.0, float(grace_seconds)))
+        return
+    except Exception:
+        pass
+
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            pass
+    else:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+
+
+def _run_cmd(
+    cmd: list[str],
+    log_path: Path,
+    *,
+    dry_run: bool,
+    run_label: str,
+    idle_timeout_seconds: float | None,
+    wall_timeout_seconds: float | None,
+    terminate_grace_seconds: float,
+    poll_interval_seconds: float,
+) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd_text = " ".join(cmd)
     if dry_run:
-        log_path.write_text("$ " + " ".join(cmd) + "\n[dry-run]\n", encoding="utf-8")
+        log_path.write_text("$ " + cmd_text + "\n[dry-run]\n", encoding="utf-8")
+        print(f"[suite] {run_label} dry-run planned | log={log_path}")
         return 0
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    log_text = "$ " + " ".join(cmd) + "\n\n" + proc.stdout + ("\n" if proc.stdout else "") + proc.stderr
-    log_path.write_text(log_text, encoding="utf-8")
-    return int(proc.returncode)
+    print(f"[suite] {run_label} starting | log={log_path}")
+    with log_path.open("w", encoding="utf-8") as log_file:
+        log_file.write("$ " + cmd_text + "\n\n")
+        log_file.flush()
+
+        popen_kwargs: dict[str, Any] = {
+            "stdout": log_file,
+            "stderr": subprocess.STDOUT,
+            "text": True,
+        }
+        if os.name != "nt":
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+
+        started = time.monotonic()
+        last_activity = started
+        try:
+            last_size = log_path.stat().st_size
+        except Exception:
+            last_size = 0
+
+        poll_seconds = max(0.1, float(poll_interval_seconds))
+        grace_seconds = max(1.0, float(terminate_grace_seconds))
+
+        timeout_reason = ""
+        timeout_seconds = 0.0
+        while True:
+            rc = proc.poll()
+            if rc is not None:
+                print(f"[suite] {run_label} finished | rc={int(rc)} | log={log_path}")
+                return int(rc)
+
+            now = time.monotonic()
+            try:
+                size_now = log_path.stat().st_size
+            except Exception:
+                size_now = last_size
+            if size_now > last_size:
+                last_size = size_now
+                last_activity = now
+
+            if wall_timeout_seconds is not None and (now - started) > float(wall_timeout_seconds):
+                timeout_reason = "wall_timeout"
+                timeout_seconds = float(wall_timeout_seconds)
+                break
+            if idle_timeout_seconds is not None and (now - last_activity) > float(idle_timeout_seconds):
+                timeout_reason = "idle_timeout"
+                timeout_seconds = float(idle_timeout_seconds)
+                break
+            time.sleep(poll_seconds)
+
+        log_file.write(
+            f"\n[watchdog] {timeout_reason} triggered after {timeout_seconds:.1f}s; "
+            "terminating subprocess and continuing suite.\n"
+        )
+        log_file.flush()
+        _terminate_process(proc, grace_seconds=grace_seconds)
+        print(
+            f"[suite] {run_label} watchdog {timeout_reason} after {timeout_seconds:.1f}s | "
+            f"returning rc=124 | log={log_path}"
+        )
+        return 124
 
 
 def _resolve_model_path(train_dir: Path) -> Path:
@@ -970,6 +1092,22 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             return ""
         return "<ul style='margin:8px 0 0 18px;'>" + "".join(items) + "</ul>"
 
+    def _metrics_block_html(items: list[tuple[str, object]]) -> str:
+        rows_html: list[str] = []
+        for label, raw_value in items:
+            value = _safe_float(raw_value)
+            value_text = f"{float(value):.6f}" if value is not None else "n/a"
+            rows_html.append(
+                "<li><b>"
+                + html.escape(str(label))
+                + "</b>: "
+                + value_text
+                + "</li>"
+            )
+        if not rows_html:
+            return ""
+        return "<ul style='margin:8px 0 0 18px;'>" + "".join(rows_html) + "</ul>"
+
     style = (
         "<style>"
         "body{font-family:Arial,sans-serif;margin:16px;line-height:1.35;}"
@@ -1137,17 +1275,42 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         if loss_curve:
             lines.append(
                 "<div><div><b>Loss vs Epoch</b></div>"
-                f"<img src='{html.escape(loss_curve)}' style='max-width:520px;border:1px solid #333;'></div>"
+                f"<img src='{html.escape(loss_curve)}' style='max-width:520px;border:1px solid #333;'>"
+                + _metrics_block_html(
+                    [
+                        ("Last Train Loss", row.get("last_train_loss")),
+                        ("Last Val Loss", row.get("last_val_loss")),
+                        ("Best Val Loss", row.get("best_val_loss_train")),
+                    ]
+                )
+                + "</div>"
             )
         if acc_curve:
             lines.append(
                 "<div><div><b>Accuracy vs Epoch</b></div>"
-                f"<img src='{html.escape(acc_curve)}' style='max-width:520px;border:1px solid #333;'></div>"
+                f"<img src='{html.escape(acc_curve)}' style='max-width:520px;border:1px solid #333;'>"
+                + _metrics_block_html(
+                    [
+                        ("Last Train Accuracy", row.get("last_train_accuracy")),
+                        ("Last Val Accuracy", row.get("last_val_accuracy")),
+                        ("Eval Pixel Accuracy", row.get("pixel_accuracy")),
+                    ]
+                )
+                + "</div>"
             )
         if iou_curve:
             lines.append(
                 "<div><div><b>IoU vs Epoch</b></div>"
-                f"<img src='{html.escape(iou_curve)}' style='max-width:520px;border:1px solid #333;'></div>"
+                f"<img src='{html.escape(iou_curve)}' style='max-width:520px;border:1px solid #333;'>"
+                + _metrics_block_html(
+                    [
+                        ("Last Train IoU", row.get("last_train_iou")),
+                        ("Last Val IoU", row.get("last_val_iou")),
+                        ("Eval Mean IoU", row.get("mean_iou")),
+                        ("Tracked Samples Mean IoU", row.get("tracked_samples_mean_iou")),
+                    ]
+                )
+                + "</div>"
             )
         lines.append("</div>")
     lines.extend(["<h2>Tracked Sample Evolution (IoU vs Epoch)</h2>"])
@@ -1238,6 +1401,10 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
     benchmark_mode = bool(cfg.get("benchmark_mode", True))
     expected_manifest_sha = str(cfg.get("expected_dataset_manifest_sha256", "")).strip().lower()
     expected_split_id_file = str(cfg.get("expected_split_id_file", "")).strip()
+    idle_timeout_seconds = _safe_positive_seconds(cfg.get("command_idle_timeout_seconds"))
+    wall_timeout_seconds = _safe_positive_seconds(cfg.get("command_wall_timeout_seconds"))
+    terminate_grace_seconds = _safe_positive_seconds(cfg.get("command_terminate_grace_seconds")) or 30.0
+    poll_interval_seconds = _safe_positive_seconds(cfg.get("command_poll_interval_seconds")) or 1.0
 
     if not dataset_dir:
         raise ValueError("dataset_dir is required in suite config")
@@ -1271,6 +1438,13 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
     repo_root = Path(__file__).resolve().parents[1]
     cli = repo_root / "scripts" / "microseg_cli.py"
     output_root.mkdir(parents=True, exist_ok=True)
+
+    print(
+        "[suite] execution policy: "
+        f"idle_timeout={idle_timeout_seconds if idle_timeout_seconds is not None else 'off'}s "
+        f"wall_timeout={wall_timeout_seconds if wall_timeout_seconds is not None else 'off'}s "
+        f"terminate_grace={terminate_grace_seconds:.1f}s poll_interval={poll_interval_seconds:.1f}s"
+    )
 
     rows: list[dict[str, Any]] = []
     failures = 0
@@ -1334,10 +1508,25 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 for item in train_overrides:
                     train_cmd.extend(["--set", item])
                 if status == "ok":
-                    rc = _run_cmd(train_cmd, train_log, dry_run=dry_run)
+                    rc = _run_cmd(
+                        train_cmd,
+                        train_log,
+                        dry_run=dry_run,
+                        run_label=f"{run_tag}:train",
+                        idle_timeout_seconds=idle_timeout_seconds,
+                        wall_timeout_seconds=wall_timeout_seconds,
+                        terminate_grace_seconds=terminate_grace_seconds,
+                        poll_interval_seconds=poll_interval_seconds,
+                    )
                     if rc != 0:
                         status = f"train_failed({rc})"
-                        status_message = f"training command failed with exit code {rc}"
+                        if rc == 124:
+                            status_message = (
+                                "training command timed out by suite watchdog; "
+                                "see train.log for timeout reason and partial output"
+                            )
+                        else:
+                            status_message = f"training command failed with exit code {rc}"
                         failures += 1
             if status == "ok" and not skip_eval:
                 try:
@@ -1368,10 +1557,25 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                     ]
                     for item in eval_overrides:
                         eval_cmd.extend(["--set", item])
-                    rc = _run_cmd(eval_cmd, eval_log, dry_run=dry_run)
+                    rc = _run_cmd(
+                        eval_cmd,
+                        eval_log,
+                        dry_run=dry_run,
+                        run_label=f"{run_tag}:eval",
+                        idle_timeout_seconds=idle_timeout_seconds,
+                        wall_timeout_seconds=wall_timeout_seconds,
+                        terminate_grace_seconds=terminate_grace_seconds,
+                        poll_interval_seconds=poll_interval_seconds,
+                    )
                     if rc != 0:
                         status = f"eval_failed({rc})"
-                        status_message = f"evaluation command failed with exit code {rc}"
+                        if rc == 124:
+                            status_message = (
+                                "evaluation command timed out by suite watchdog; "
+                                "see eval.log for timeout reason and partial output"
+                            )
+                        else:
+                            status_message = f"evaluation command failed with exit code {rc}"
                         failures += 1
 
             eval_payload = _read_json(eval_report)

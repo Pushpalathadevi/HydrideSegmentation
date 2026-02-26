@@ -115,6 +115,9 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
     assert "Training Curve Gallery" in dashboard_text
     assert "Accuracy vs Epoch" in dashboard_text
     assert "Tracked Sample Evolution" in dashboard_text
+    assert "Last Val Accuracy" in dashboard_text
+    assert "Last Train Loss" in dashboard_text
+    assert "Eval Mean IoU" in dashboard_text
 
     with (output_root / "benchmark_aggregate.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

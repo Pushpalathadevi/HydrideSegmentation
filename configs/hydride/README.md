@@ -45,6 +45,13 @@ Benchmark suite presets:
   - `benchmark_suite.top5_local_pretrained.realdata.template.yml`
   - `benchmark_suite.top5_scratch_vs_pretrained.realdata.template.yml`
 
+Suite execution hardening knobs (optional, in benchmark suite YAML):
+- `command_idle_timeout_seconds`: kill a run if its log file has no new bytes for this many seconds.
+- `command_wall_timeout_seconds`: kill a run after this total runtime budget in seconds.
+- `command_terminate_grace_seconds`: grace period before force-kill after timeout (default `30`).
+- `command_poll_interval_seconds`: watchdog polling cadence in seconds (default `1`).
+- Per-run logs are written continuously to `output_root/logs/<run_tag>/{train,eval}.log` while jobs run.
+
 Run combined debug suite + dashboard:
 ```bash
 python scripts/hydride_benchmark_suite.py \

@@ -292,7 +292,7 @@ CLI inference/package commands persist `resolved_config.json` with outputs.
 CLI training/evaluation commands also persist `resolved_config.json` beside artifacts/reports.
 Training additionally writes:
 - `report.json` with status/progress/ETA/history
-- `training_report.html` for rapid visual review
+- `training_report.html` for rapid visual review (tracked sample panels include per-image metrics, including epoch-by-epoch section)
 - `eval_samples/epoch_XXX` tracked validation panels
 
 Phase closeout checks:

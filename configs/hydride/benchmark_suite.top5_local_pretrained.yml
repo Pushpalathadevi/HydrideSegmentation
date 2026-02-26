@@ -4,6 +4,8 @@ eval_config: configs/hydride/evaluate.hydride.yml
 eval_split: test
 python_executable: python
 seeds: [42, 43, 44]
+command_idle_timeout_seconds: 1800
+command_wall_timeout_seconds: 3600
 benchmark_mode: true
 experiments:
   - name: unet_binary_local_pretrained

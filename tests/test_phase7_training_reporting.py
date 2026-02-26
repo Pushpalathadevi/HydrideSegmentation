@@ -79,3 +79,8 @@ def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Pa
     first = payload["history"][0]
     assert "train_accuracy" in first
     assert "val_accuracy" in first
+
+    html_text = (out / "training_report.html").read_text(encoding="utf-8")
+    assert "Tracked Validation Samples By Epoch" in html_text
+    assert "Epoch 1" in html_text
+    assert "pixel accuracy" in html_text

@@ -33,6 +33,7 @@ Strengthen the platform foundation for scientific publication and field deployme
   - fixed examples from config
   - random remainder
   - panel images: input | GT | pred | diff
+- `training_report.html` now renders tracked sample panels with per-image metrics and an epoch-by-epoch sample section.
 
 3. Evaluation reporting upgrades
 - Extended evaluation config with HTML and tracked samples controls.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import numpy as np
 from PIL import Image
@@ -10,6 +11,20 @@ import subprocess
 import sys
 
 import yaml
+
+
+def _load_suite_module() -> object:
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "scripts" / "hydride_benchmark_suite.py"
+    spec = importlib.util.spec_from_file_location("hydride_benchmark_suite_test", script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load hydride benchmark suite module: {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+suite = _load_suite_module()
 
 
 def _write_png(path: Path, arr: np.ndarray) -> None:
@@ -164,3 +179,58 @@ def test_phase20_missing_pretrained_weights_skips_and_continues(tmp_path: Path) 
     text = skip_log.read_text(encoding="utf-8")
     assert "download_pretrained_weights.py" in text
     assert "validate-pretrained" in text
+
+
+def test_phase20_run_cmd_streams_log_file(tmp_path: Path) -> None:
+    log_path = tmp_path / "train.log"
+    cmd = [
+        sys.executable,
+        "-c",
+        (
+            "import sys,time; "
+            "print('first-line', flush=True); "
+            "time.sleep(0.1); "
+            "print('second-line', flush=True)"
+        ),
+    ]
+    rc = suite._run_cmd(
+        cmd,
+        log_path,
+        dry_run=False,
+        run_label="unit:stream",
+        idle_timeout_seconds=None,
+        wall_timeout_seconds=None,
+        terminate_grace_seconds=1.0,
+        poll_interval_seconds=0.1,
+    )
+    assert rc == 0
+    text = log_path.read_text(encoding="utf-8")
+    assert "first-line" in text
+    assert "second-line" in text
+
+
+def test_phase20_run_cmd_idle_watchdog_timeout(tmp_path: Path) -> None:
+    log_path = tmp_path / "train_timeout.log"
+    cmd = [
+        sys.executable,
+        "-c",
+        (
+            "import time; "
+            "print('start', flush=True); "
+            "time.sleep(2.0)"
+        ),
+    ]
+    rc = suite._run_cmd(
+        cmd,
+        log_path,
+        dry_run=False,
+        run_label="unit:watchdog",
+        idle_timeout_seconds=0.4,
+        wall_timeout_seconds=None,
+        terminate_grace_seconds=0.5,
+        poll_interval_seconds=0.1,
+    )
+    assert rc == 124
+    text = log_path.read_text(encoding="utf-8")
+    assert "start" in text
+    assert "[watchdog] idle_timeout triggered" in text
