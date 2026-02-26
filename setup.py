@@ -21,6 +21,7 @@ setup(
             'microseg-cli=scripts.microseg_cli:main',
             'microseg-phase-gate=scripts.run_phase_gate:main',
             'microseg-benchmark-suite=scripts.hydride_benchmark_suite:main',
+            'prep-dataset=src.microseg.data_preparation.cli:main',
         ]
     },
 )
