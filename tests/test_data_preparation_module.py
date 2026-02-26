@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import sys
 
@@ -33,6 +34,25 @@ def _build_paired_dataset(tmp_path: Path, n: int = 6) -> Path:
     return input_dir
 
 
+def _build_nonbinary_edge_dataset(tmp_path: Path) -> Path:
+    input_dir = tmp_path / "pairs_nonbinary"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    base = np.asarray(Image.open(Path("data") / "sample_images" / "hydride_synthetic_sample.png").convert("L"), dtype=np.uint8)
+    image = np.stack([base, np.roll(base, 1, axis=1), np.roll(base, 2, axis=0)], axis=-1)
+    mask = np.zeros_like(base, dtype=np.uint8)
+    mask[base >= 120] = 255
+
+    # Simulate compression/anti-alias artifacts by introducing gray edge values.
+    edge_map = cv2.morphologyEx(mask, cv2.MORPH_GRADIENT, np.ones((3, 3), dtype=np.uint8)) > 0
+    noisy_mask = mask.copy()
+    noisy_mask[edge_map] = 96
+
+    Image.fromarray(image).save(input_dir / "sample_nonbinary.png")
+    Image.fromarray(noisy_mask).save(input_dir / "sample_nonbinary_mask.png")
+    return input_dir
+
+
 def test_pair_collector_default_patterns(tmp_path: Path) -> None:
     input_dir = _build_paired_dataset(tmp_path, n=4)
     pairs = PairCollector(
@@ -43,6 +63,7 @@ def test_pair_collector_default_patterns(tmp_path: Path) -> None:
     ).collect(input_dir)
     assert len(pairs) == 4
     assert pairs[0].stem == "sample_0"
+    assert pairs[0].mask_path.name == "sample_0_mask.png"
 
 
 def test_mask_binarizer_modes() -> None:
@@ -89,6 +110,7 @@ def test_pipeline_exports_manifest_and_debug_outputs(tmp_path: Path) -> None:
         "input_dir": str(input_dir),
         "output_dir": str(output_dir),
         "styles": ["oxford", "mado"],
+        "mask_name_patterns": ["{stem}_mask.png", "{stem}.png"],
         "debug": {"enabled": True, "limit_pairs": 5, "inspection_limit": 3},
         "target_size": (64, 64),
         "mask_ext": ".png",
@@ -102,11 +124,43 @@ def test_pipeline_exports_manifest_and_debug_outputs(tmp_path: Path) -> None:
     assert (output_dir / "mado" / "train" / "images").exists()
     assert (output_dir / "debug_inspection").exists()
     assert len(list((output_dir / "debug_inspection").rglob("*_panel.png"))) == 3
+    assert len(list((output_dir / "debug_inspection").rglob("*_mask_difference.png"))) == 3
 
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["split_counts"]["train"] + manifest["split_counts"]["val"] + manifest["split_counts"]["test"] == 5
     assert len(manifest["records"]) == 5
     assert "resolved_config" in manifest
+
+
+def test_pipeline_warns_and_surfaces_nonbinary_mask_values(tmp_path: Path, caplog) -> None:
+    input_dir = _build_nonbinary_edge_dataset(tmp_path)
+    output_dir = tmp_path / "out_nonbinary"
+    cfg = DatasetPrepConfig.from_dict({
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "styles": ["oxford", "mado"],
+        "mask_name_patterns": ["{stem}_mask.png", "{stem}.png"],
+        "debug": {"enabled": True, "limit_pairs": 2, "inspection_limit": 2},
+        "target_size": (64, 64),
+        "mask_ext": ".png",
+        "image_ext": ".png",
+    })
+
+    caplog.set_level(logging.WARNING, logger="microseg.data_preparation")
+    DatasetPreparer(cfg).run()
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    record = manifest["records"][0]
+    warnings = record["warnings"]
+    assert warnings
+    assert any("non-binary values" in warning for warning in warnings)
+    assert any("sample_nonbinary" in warning for warning in manifest["warnings_summary"])
+    assert any("non-binary values" in rec.getMessage() for rec in caplog.records)
+
+    difference = list((output_dir / "debug_inspection").rglob("*_mask_difference.png"))
+    assert difference
+    assert record["mask_stats"]["non_binary_pixel_count"] > 0
+    assert 96 in set(record["mask_stats"]["non_binary_values"])
 
 
 def test_cli_dry_run_writes_manifest_only(tmp_path: Path) -> None:

@@ -1,0 +1,55 @@
+# Default configuration for `prep-dataset` (src.microseg.data_preparation).
+# input_dir and output_dir are provided from CLI flags (--input/--output).
+
+strict_pairing: true
+
+image_extensions:
+  - .jpg
+  - .jpeg
+  - .png
+  - .tif
+  - .tiff
+mask_extensions:
+  - .png
+  - .tif
+  - .tiff
+  - .jpg
+  - .jpeg
+mask_name_patterns:
+  - "{stem}_mask.png"
+  - "{stem}.png"
+  - "{stem}_mask.tif"
+  - "{stem}.tif"
+  - "{stem}_mask.tiff"
+  - "{stem}.tiff"
+
+binarization_mode: nonzero
+threshold: 127
+threshold_strict: false
+foreground_values:
+  - 255
+percentile: 90.0
+invert_mask: false
+
+morphology:
+  open_kernel: 0
+  close_kernel: 0
+  remove_small_components: 0
+  fill_holes: false
+
+target_size:
+  - 512
+  - 512
+resize_policy: letterbox_pad
+image_pad_mode: constant
+image_pad_value: 0
+image_interpolation: area
+
+image_ext: .png
+mask_ext: .png
+debug_ext: .png
+mask_foreground_value: 255
+expected_raw_binary_values:
+  - 0
+  - 255
+path_mode: relative

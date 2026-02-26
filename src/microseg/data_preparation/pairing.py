@@ -33,6 +33,8 @@ class PairCollector:
             found = None
             for pattern in self.mask_name_patterns:
                 candidate = image.with_name(pattern.format(stem=stem))
+                if candidate.exists() and candidate.resolve() == image.resolve():
+                    continue
                 if candidate.exists() and candidate.suffix.lower() in self.mask_extensions:
                     found = candidate
                     break

@@ -13,6 +13,7 @@ It currently targets binary segmentation and is designed to extend to multiclass
 ## Key Features
 
 - Config model with YAML loading fallback to in-code dictionary defaults.
+- Default config file: `configs/data_prep.default.yml` (auto-loaded by `prep-dataset` when `--config` is omitted).
 - Pairing with strict/permissive modes and configurable mask naming patterns.
 - Binarization modes:
   - `nonzero`
@@ -21,6 +22,7 @@ It currently targets binary segmentation and is designed to extend to multiclass
   - `otsu`
   - `percentile`
 - Optional morphology: open/close, small-component removal, hole filling.
+- Raw mask quality checks for unexpected non-binary values (default expected values: `0`, `255`).
 - Resizing policies:
   - `letterbox_pad` (default)
   - `center_crop`
@@ -28,7 +30,8 @@ It currently targets binary segmentation and is designed to extend to multiclass
   - `keep_aspect_no_pad`
 - Multi-format export (`.png`, `.tif/.tiff`) with Pillow TIFF fallback.
 - Deterministic `manifest.json` with split counts, record-level stats, and warnings.
-- Debug mode subset processing plus inspection artifacts (image/raw mask/binary/overlay/panel).
+- Debug mode subset processing plus inspection artifacts (image/raw mask/binary/difference/overlay/panel).
+- Run-time warnings and manifest warnings for any raw-mask pixels outside expected binary values.
 
 ## CLI Usage
 
@@ -37,7 +40,7 @@ prep-dataset \
   --input path/to/paired_data \
   --output outputs/prepared_binary \
   --style oxford,mado \
-  --config configs/data_prep.yml \
+  --config configs/data_prep.default.yml \
   --seed 42
 ```
 
@@ -81,6 +84,7 @@ print(result.manifest_path)
 - per-record source paths and export paths
 - original/output shapes
 - mask stats (raw/binary unique values, foreground count/ratio)
+- non-binary raw-value diagnostics (unexpected values, affected pixel count/ratio, warning text)
 - item-level and overall warnings summary
 
 ## Extending To Multiclass

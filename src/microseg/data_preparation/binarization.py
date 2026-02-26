@@ -17,10 +17,28 @@ class MaskBinarizer:
 
     def apply(self, raw_mask: np.ndarray) -> tuple[np.ndarray, dict[str, object]]:
         gray = self._to_gray(raw_mask)
+        unique_raw = sorted(np.unique(gray).astype(int).tolist())
+        expected = sorted({int(v) for v in self.cfg.expected_raw_binary_values})
+        non_binary_map = ~np.isin(gray, expected)
+        non_binary_count = int(np.count_nonzero(non_binary_map))
+        non_binary_ratio = float(non_binary_count / gray.size) if gray.size else 0.0
+
         stats: dict[str, object] = {
-            "unique_raw_values": sorted(np.unique(gray).astype(int).tolist()),
+            "unique_raw_values": unique_raw,
+            "expected_raw_binary_values": expected,
+            "non_binary_pixel_count": non_binary_count,
+            "non_binary_pixel_ratio": non_binary_ratio,
             "warnings": [],
         }
+        if non_binary_count > 0:
+            non_binary_values = sorted(np.unique(gray[non_binary_map]).astype(int).tolist())
+            stats["non_binary_values"] = non_binary_values
+            stats["non_binary_value_count"] = len(non_binary_values)
+            stats["warnings"].append(
+                "raw mask contains non-binary values outside expected "
+                f"{expected}: values={non_binary_values[:20]}{'...' if len(non_binary_values) > 20 else ''} "
+                f"pixels={non_binary_count}/{gray.size} ({non_binary_ratio:.4%})"
+            )
 
         mode = self.cfg.binarization_mode
         if mode == "nonzero":

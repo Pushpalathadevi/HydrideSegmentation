@@ -136,6 +136,7 @@ Unsplit `source/masks` auto-prepare (leakage-aware default + global IDs):
 microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml
 ```
 See [docs/data_preparation.md](docs/data_preparation.md) for the dedicated binary segmentation data preparation subsystem (pairing, binarization, resizing, manifesting, and Oxford/MaDo exports).
+In debug mode, dataset preparation now also exports raw-vs-binarized mask difference views and emits explicit warnings when raw masks contain values outside expected binary levels (`0/255` by default).
 
 
 RGB mask colormap conversion during auto-prepare:

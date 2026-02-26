@@ -63,6 +63,7 @@ class DatasetPrepConfig:
     mask_ext: str = ".png"
     debug_ext: str = ".png"
     mask_foreground_value: int = 255
+    expected_raw_binary_values: list[int] = field(default_factory=lambda: [0, 255])
     path_mode: Literal["absolute", "relative"] = "relative"
     skip_sanity: bool = False
     debug: DebugConfig = field(default_factory=DebugConfig)

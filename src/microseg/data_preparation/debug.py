@@ -34,23 +34,30 @@ class DebugInspector:
         debug_root.mkdir(parents=True, exist_ok=True)
         raw_vis = self._to_display(mask_raw)
         bin_vis = (mask_binary.astype(np.uint8) * 255)
+        raw_for_diff = raw_vis
+        if raw_for_diff.shape != bin_vis.shape:
+            raw_for_diff = cv2.resize(raw_for_diff, (bin_vis.shape[1], bin_vis.shape[0]), interpolation=cv2.INTER_NEAREST)
+        diff_vis = cv2.absdiff(raw_for_diff.astype(np.uint8), bin_vis.astype(np.uint8))
         overlay = self._overlay(image_raw, mask_binary, draw_contours=draw_contours)
 
         base = debug_root / split / stem
         write_image(base.with_name(f"{stem}_image{ext}"), image_raw)
         write_image(base.with_name(f"{stem}_mask_raw{ext}"), raw_vis)
         write_image(base.with_name(f"{stem}_mask_binary{ext}"), bin_vis)
+        write_image(base.with_name(f"{stem}_mask_difference{ext}"), diff_vis)
         write_image(base.with_name(f"{stem}_overlay{ext}"), overlay)
 
-        fig, axs = plt.subplots(1, 4, figsize=(15, 4))
+        fig, axs = plt.subplots(1, 5, figsize=(19, 4))
         axs[0].imshow(cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGB) if image_raw.ndim == 3 else image_raw, cmap="gray")
         axs[0].set_title("original")
         axs[1].imshow(raw_vis, cmap="gray")
         axs[1].set_title("raw mask")
         axs[2].imshow(bin_vis, cmap="gray")
         axs[2].set_title("binarized")
-        axs[3].imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
-        axs[3].set_title("overlay")
+        axs[3].imshow(diff_vis, cmap="inferno")
+        axs[3].set_title("abs(raw-binary)")
+        axs[4].imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
+        axs[4].set_title("overlay")
         for ax in axs:
             ax.axis("off")
         fig.suptitle(annotation)

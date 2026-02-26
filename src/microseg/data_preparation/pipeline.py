@@ -71,7 +71,11 @@ class DatasetPreparer:
                 raise ValueError(f"failed to read pair: {pair}")
             mask_binary, mask_stats = self.binarizer.apply(mask_raw)
             image_out, mask_out, resize_warnings = self.resizer.apply(image, mask_binary)
-            warnings_all.extend(resize_warnings)
+            mask_warnings = [str(w) for w in mask_stats.get("warnings", [])]
+            pair_warnings = [f"{pair.stem}: {w}" for w in [*mask_warnings, *resize_warnings]]
+            for warning in pair_warnings:
+                self.log.warning(warning)
+            warnings_all.extend(pair_warnings)
 
             mask_export = (mask_out * self.cfg.mask_foreground_value).astype(np.uint8)
             image_file_name = f"{pair.stem}{self.cfg.image_ext}"
@@ -86,7 +90,7 @@ class DatasetPreparer:
                 "original_shape": list(image.shape[:2]),
                 "output_shape": list(image_out.shape[:2]),
                 "mask_stats": mask_stats,
-                "warnings": resize_warnings,
+                "warnings": [*mask_warnings, *resize_warnings],
                 "image_out": image_out,
                 "mask_out": mask_export,
             }
