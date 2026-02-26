@@ -135,6 +135,8 @@ Unsplit `source/masks` auto-prepare (leakage-aware default + global IDs):
 ```bash
 microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml
 ```
+See [docs/data_preparation.md](docs/data_preparation.md) for the dedicated binary segmentation data preparation subsystem (pairing, binarization, resizing, manifesting, and Oxford/MaDo exports).
+
 
 RGB mask colormap conversion during auto-prepare:
 ```bash
