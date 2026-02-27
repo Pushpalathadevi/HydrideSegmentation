@@ -33,5 +33,6 @@ Current phase coverage includes:
 - `test_phase21_benchmark_dashboard_enrichment.py` benchmark dashboard enrichment with training curves, training-history metrics, and aggregate comparison fields
 - `test_phase22_pretrained_offline.py` offline local pretrained registry validation, checksum verification, and local-bundle initialization smoke tests for `unet_binary`, `smp_unet_resnet18`, `hf_segformer_b0`, `transunet_tiny`, and `segformer_mini`
 
+- `test_data_preparation_module.py` paired image/mask collector, RGB red-threshold mask binarization, short-side resize+crop alignment, manifests, QA reports, and dry-run behavior
 - `test_mask_binary_normalization.py` binary-mask auto-normalization option (`two_value_zero_background`) for 2-value indexed masks
 - `test_service.py` legacy Flask service request validation for model selection, parameter parsing, and response behavior

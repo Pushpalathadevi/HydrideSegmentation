@@ -31,6 +31,12 @@ foreground_values:
 percentile: 90.0
 invert_mask: false
 
+rgb_mask_mode: false
+mask_r_min: 200
+mask_g_max: 60
+mask_b_max: 60
+enforce_gb_thresholds: true
+
 morphology:
   open_kernel: 0
   close_kernel: 0
@@ -41,6 +47,11 @@ target_size:
   - 512
   - 512
 resize_policy: letterbox_pad
+crop_mode_train: random
+crop_mode_eval: center
+progress_log_interval: 20
+qa_report_name: dataset_qa_report.json
+html_report_name: dataset_qa_report.html
 image_pad_mode: constant
 image_pad_value: 0
 image_interpolation: area

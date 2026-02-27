@@ -136,6 +136,22 @@ Unsplit `source/masks` auto-prepare (leakage-aware default + global IDs):
 microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml
 ```
 See [docs/data_preparation.md](docs/data_preparation.md) for the dedicated binary segmentation data preparation subsystem (pairing, binarization, resizing, manifesting, and Oxford/MaDo exports).
+
+Paired JPG + RGB PNG mask to MaDo-style dataset prep:
+```bash
+python scripts/microseg_cli.py prepare_dataset \
+  --config configs/hydride/prepare_dataset.paired_rgb_mask.mado.yml \
+  --input-dir D:/data/hydride_pairs \
+  --output-root D:/data/HydrideData7.0 \
+  --style mado \
+  --target-size 512 \
+  --crop-train random \
+  --crop-eval center \
+  --mask-r-min 200 --mask-g-max 60 --mask-b-max 60 \
+  --seed 42 --train-frac 0.8 --val-frac 0.1
+```
+Use `--dry-run` to validate pairing and inspect planned outputs without writing dataset files.
+
 In debug mode, dataset preparation now also exports raw-vs-binarized mask difference views and emits explicit warnings when raw masks contain values outside expected binary levels (`0/255` by default).
 
 
