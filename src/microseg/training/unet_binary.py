@@ -55,9 +55,78 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    _append_jsonl_logged(path, payload, logger=None)
+
+
+class _Heartbeat:
+    def __init__(self, interval_seconds: float, logger: logging.Logger) -> None:
+        self.interval_seconds = max(1.0, float(interval_seconds))
+        self.logger = logger
+        self._last = time.perf_counter()
+
+    def beat(self, message: str, *args: Any) -> None:
+        now = time.perf_counter()
+        if (now - self._last) >= self.interval_seconds:
+            self.logger.info(message, *args)
+            self._last = now
+
+    def force(self, message: str, *args: Any) -> None:
+        self.logger.info(message, *args)
+        self._last = time.perf_counter()
+
+
+def _append_jsonl_logged(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    logger: logging.Logger | None,
+    context: str = "jsonl_append",
+    retries: int = 2,
+    retry_backoff_seconds: float = 0.25,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    line = json.dumps(payload, separators=(",", ":")) + "\n"
+    for attempt in range(1, max(1, int(retries)) + 2):
+        try:
+            open_start = time.perf_counter()
+            if logger is not None:
+                logger.info("%s | JSONL_OPEN_START path=%s attempt=%d", context, path, attempt)
+            with path.open("a", encoding="utf-8") as f:
+                if logger is not None:
+                    logger.info(
+                        "%s | JSONL_OPEN_END path=%s elapsed=%s",
+                        context,
+                        path,
+                        _format_seconds(time.perf_counter() - open_start),
+                    )
+                write_start = time.perf_counter()
+                if logger is not None:
+                    logger.info("%s | JSONL_WRITE_START path=%s bytes=%d", context, path, len(line.encode("utf-8")))
+                f.write(line)
+                f.flush()
+                if logger is not None:
+                    logger.info("%s | JSONL_FSYNC_START path=%s", context, path)
+                os.fsync(f.fileno())
+                if logger is not None:
+                    logger.info(
+                        "%s | JSONL_WRITE_END path=%s elapsed=%s",
+                        context,
+                        path,
+                        _format_seconds(time.perf_counter() - write_start),
+                    )
+            return
+        except Exception as exc:
+            if logger is not None:
+                logger.warning(
+                    "%s | JSONL_APPEND_RETRY path=%s attempt=%d error=%s",
+                    context,
+                    path,
+                    attempt,
+                    exc,
+                )
+            if attempt > int(retries):
+                raise
+            time.sleep(float(retry_backoff_seconds) * attempt)
 
 
 def _format_seconds(seconds: float) -> str:
@@ -1243,6 +1312,8 @@ class UNetBinaryTrainingConfig:
     val_tracking_seed: int = 17
     write_html_report: bool = True
     progress_log_interval_pct: int = 10
+    post_epoch_heartbeat_seconds: float = 30.0
+    val_progress_log_every_batches: int = 25
     model_architecture: str = "unet_binary"
     model_base_channels: int = 16
     transformer_depth: int = 2
@@ -1830,7 +1901,7 @@ class UNetBinaryTrainer:
             int(config.epochs),
             int(config.batch_size),
         )
-        _append_jsonl(
+        _append_jsonl_logged(
             events_path,
             {
                 "event": "run_started",
@@ -1842,6 +1913,8 @@ class UNetBinaryTrainer:
                 "model_initialization": init_mode,
                 "pretrained_init": pretrained_payload,
             },
+            logger=logger,
+            context="RUN_STARTED_EVENT",
         )
         write_report(current_epoch=start_epoch, epoch_percent=0.0, eta_seconds=0.0, status_value=status)
 
@@ -1853,38 +1926,57 @@ class UNetBinaryTrainer:
                 seed=int(config.val_tracking_seed),
                 epoch=epoch,
             )
+            logger.info("TRACK_EXPORT_START | epoch=%d selected=%d", epoch, len(selected_pairs))
             if not selected_pairs:
+                logger.info("TRACK_EXPORT_END | epoch=%d selected=0 elapsed=%s", epoch, _format_seconds(0.0))
                 return [], missing, 0
 
             out_epoch = samples_root / f"epoch_{epoch:03d}"
             out_epoch.mkdir(parents=True, exist_ok=True)
             records: list[dict[str, Any]] = []
+            export_start = time.perf_counter()
+            heartbeat = _Heartbeat(float(config.post_epoch_heartbeat_seconds), logger)
 
             model.eval()
             with torch.no_grad():
-                for img_path, mask_path in selected_pairs:
+                for sample_idx, (img_path, mask_path) in enumerate(selected_pairs, start=1):
+                    sample_start = time.perf_counter()
+                    logger.info("TRACK_SAMPLE_START | epoch=%d sample=%d/%d name=%s", epoch, sample_idx, len(selected_pairs), img_path.name)
+                    io_start = time.perf_counter()
                     image = np.asarray(Image.open(img_path).convert("RGB"), dtype=np.uint8)
                     gt = normalize_binary_index_mask(
                         np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8),
                         mode=config.binary_mask_normalization,
                     )
                     gt_bin = (gt > 0).astype(np.uint8)
+                    logger.info("TRACK_SAMPLE_IMAGE_LOAD_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - io_start))
 
+                    prep_start = time.perf_counter()
                     x = torch.from_numpy((image.astype(np.float32) / 255.0).transpose(2, 0, 1)[None, ...]).to(device)
+                    logger.info("TRACK_SAMPLE_TENSOR_PREP_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - prep_start))
+
+                    fw_start = time.perf_counter()
                     logits = model(x)
+                    logger.info("TRACK_SAMPLE_FORWARD_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - fw_start))
+
+                    post_start = time.perf_counter()
                     pred = (torch.sigmoid(logits) > 0.5).to(torch.uint8).cpu().numpy()[0, 0].astype(np.uint8)
+                    sample_metrics = _binary_sample_metrics(gt_bin, pred)
+                    scientific_metrics = scientific_distance_metrics(gt_bin, pred)
+                    logger.info("TRACK_SAMPLE_POSTPROC_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - post_start))
 
                     stem = img_path.stem
                     panel_path = out_epoch / f"{stem}_panel.png"
                     pred_path = out_epoch / f"{stem}_pred.png"
                     gt_path = out_epoch / f"{stem}_gt.png"
 
+                    write_start = time.perf_counter()
+                    logger.info("TRACK_SAMPLE_FILE_WRITE_START | sample=%s gt=%s pred=%s panel=%s", img_path.name, gt_path, pred_path, panel_path)
                     Image.fromarray(_tracking_panel(image, gt_bin, pred)).save(panel_path)
                     Image.fromarray((pred * 255).astype(np.uint8)).save(pred_path)
                     Image.fromarray((gt_bin * 255).astype(np.uint8)).save(gt_path)
+                    logger.info("TRACK_SAMPLE_FILE_WRITE_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - write_start))
 
-                    sample_metrics = _binary_sample_metrics(gt_bin, pred)
-                    scientific_metrics = scientific_distance_metrics(gt_bin, pred)
                     records.append(
                         {
                             "sample_name": img_path.name,
@@ -1897,10 +1989,21 @@ class UNetBinaryTrainer:
                             **scientific_metrics,
                         }
                     )
+                    logger.info("TRACK_SAMPLE_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - sample_start))
+                    heartbeat.beat("HEARTBEAT | phase=tracking_export epoch=%d sample=%d/%d elapsed=%s", epoch, sample_idx, len(selected_pairs), _format_seconds(time.perf_counter() - export_start))
+            logger.info("TRACK_EXPORT_END | epoch=%d selected=%d elapsed=%s", epoch, len(selected_pairs), _format_seconds(time.perf_counter() - export_start))
             return records, missing, len(selected_pairs)
 
         try:
+            logger.info(
+                "POST_EPOCH_CONTEXT | output_dir=%s pid=%d host=%s cwd=%s",
+                output_dir,
+                os.getpid(),
+                socket.gethostname(),
+                Path.cwd(),
+            )
             for epoch in range(start_epoch, int(config.epochs) + 1):
+                epoch_timings: dict[str, float] = {}
                 epoch_start = time.perf_counter()
                 model.train()
                 train_loss_sum = 0.0
@@ -1960,14 +2063,21 @@ class UNetBinaryTrainer:
                 train_loss = train_loss_sum / max(1, train_steps)
                 train_acc = train_acc_sum / max(1, train_steps)
                 train_iou = train_iou_sum / max(1, train_steps)
+                epoch_timings["train"] = time.perf_counter() - epoch_start
+                logger.info("VAL_START | epoch=%d train_elapsed=%s", epoch, _format_seconds(epoch_timings["train"]))
+                logger.info("VAL_DATALOADER_READY | epoch=%d batches=%d", epoch, len(val_loader))
 
+                val_start = time.perf_counter()
                 model.eval()
                 val_loss_sum = 0.0
                 val_acc_sum = 0.0
                 val_iou_sum = 0.0
                 val_steps = 0
+                total_val_steps = max(1, len(val_loader))
+                val_log_every = max(1, min(int(config.val_progress_log_every_batches), int(total_val_steps * 0.05) or 1))
+                val_heartbeat = _Heartbeat(float(config.post_epoch_heartbeat_seconds), logger)
                 with torch.no_grad():
-                    for x, y in val_loader:
+                    for step, (x, y) in enumerate(val_loader, start=1):
                         x = x.to(device, non_blocking=pin_memory)
                         y = y.to(device, non_blocking=pin_memory)
                         val_samples_processed += int(x.shape[0])
@@ -1978,13 +2088,39 @@ class UNetBinaryTrainer:
                         val_acc_sum += _binary_accuracy_from_logits(logits, y)
                         val_iou_sum += _binary_iou_from_logits(logits, y)
                         val_steps += 1
+                        if step == 1 or step == total_val_steps or step % val_log_every == 0:
+                            elapsed = time.perf_counter() - val_start
+                            eta = (elapsed / step) * (total_val_steps - step)
+                            logger.info(
+                                "VAL_PROGRESS | epoch=%d batch=%d/%d loss=%.6f iou=%.4f elapsed=%s eta=%s",
+                                epoch,
+                                step,
+                                total_val_steps,
+                                float(loss.item()),
+                                _binary_iou_from_logits(logits, y),
+                                _format_seconds(elapsed),
+                                _format_seconds(eta),
+                            )
+                        val_heartbeat.beat(
+                            "HEARTBEAT | phase=validation epoch=%d batch=%d/%d elapsed=%s",
+                            epoch,
+                            step,
+                            total_val_steps,
+                            _format_seconds(time.perf_counter() - val_start),
+                        )
+                epoch_timings["validation"] = time.perf_counter() - val_start
+                logger.info("VAL_END | epoch=%d elapsed=%s", epoch, _format_seconds(epoch_timings["validation"]))
 
+                logger.info("METRIC_REDUCTION_START | epoch=%d val_steps=%d", epoch, val_steps)
                 val_loss = val_loss_sum / max(1, val_steps)
                 val_acc = val_acc_sum / max(1, val_steps)
                 val_iou = val_iou_sum / max(1, val_steps)
+                logger.info("METRIC_REDUCTION_END | epoch=%d val_loss=%.6f val_iou=%.4f", epoch, val_loss, val_iou)
                 epoch_runtime = time.perf_counter() - epoch_start
 
+                export_start = time.perf_counter()
                 latest_samples, missing_fixed, tracked_count = export_tracking_samples(epoch)
+                epoch_timings["export_tracking"] = time.perf_counter() - export_start
                 tracking_samples_processed += int(tracked_count)
                 if missing_fixed:
                     logger.warning("missing fixed validation sample names for tracking: %s", ", ".join(missing_fixed))
@@ -2000,8 +2136,12 @@ class UNetBinaryTrainer:
                     "epoch_runtime_seconds": epoch_runtime,
                     "tracked_samples": latest_samples,
                 }
+                history_start = time.perf_counter()
+                logger.info("EPOCH_HISTORY_WRITE_START | epoch=%d path=%s", epoch, history_jsonl_path)
                 history.append(record)
-                _append_jsonl(history_jsonl_path, record)
+                _append_jsonl_logged(history_jsonl_path, record, logger=logger, context="EPOCH_HISTORY_WRITE")
+                epoch_timings["history_write"] = time.perf_counter() - history_start
+                logger.info("EPOCH_HISTORY_WRITE_END | epoch=%d elapsed=%s", epoch, _format_seconds(epoch_timings["history_write"]))
 
                 checkpoint = {
                     "schema_version": _checkpoint_schema_for_architecture(architecture),
@@ -2018,22 +2158,30 @@ class UNetBinaryTrainer:
                     "optimizer_state_dict": optimizer.state_dict(),
                 }
 
+                ckpt_start = time.perf_counter()
+                logger.info("CKPT_SAVE_START | epoch=%d path=%s", epoch, last_path)
                 torch.save(checkpoint, last_path)
+                logger.info("CKPT_SAVE_END | epoch=%d path=%s size_bytes=%d", epoch, last_path, int(last_path.stat().st_size))
                 checkpoint_files.append(_to_rel(last_path, output_dir))
                 if int(config.checkpoint_every) > 0 and epoch % int(config.checkpoint_every) == 0:
                     epoch_ckpt = output_dir / f"epoch_{epoch:03d}.pt"
+                    logger.info("CKPT_SAVE_START | epoch=%d path=%s", epoch, epoch_ckpt)
                     torch.save(checkpoint, epoch_ckpt)
+                    logger.info("CKPT_SAVE_END | epoch=%d path=%s size_bytes=%d", epoch, epoch_ckpt, int(epoch_ckpt.stat().st_size))
                     checkpoint_files.append(_to_rel(epoch_ckpt, output_dir))
 
                 improved = val_loss < (best_val_loss - float(config.early_stopping_min_delta))
                 if improved:
                     best_val_loss = val_loss
                     checkpoint["best_val_loss"] = best_val_loss
+                    logger.info("CKPT_SAVE_START | epoch=%d path=%s", epoch, best_path)
                     torch.save(checkpoint, best_path)
+                    logger.info("CKPT_SAVE_END | epoch=%d path=%s size_bytes=%d", epoch, best_path, int(best_path.stat().st_size))
                     checkpoint_files.append(_to_rel(best_path, output_dir))
                     no_improve = 0
                 else:
                     no_improve += 1
+                epoch_timings["checkpoint_save"] = time.perf_counter() - ckpt_start
 
                 elapsed_total = time.perf_counter() - run_start
                 completed = len(history)
@@ -2048,7 +2196,7 @@ class UNetBinaryTrainer:
                     _format_seconds(elapsed_total),
                     _format_seconds(eta_total),
                 )
-                _append_jsonl(
+                _append_jsonl_logged(
                     events_path,
                     {
                         "event": "epoch_completed",
@@ -2063,12 +2211,34 @@ class UNetBinaryTrainer:
                         "epoch_runtime_seconds": epoch_runtime,
                         "eta_seconds": eta_total,
                     },
+                    logger=logger,
+                    context="EPOCH_COMPLETED_EVENT",
+                )
+                report_start = time.perf_counter()
+                logger.info(
+                    "REPORT_UPDATE_START | epoch=%d progress_epoch=%d/%d percent=100.0 path=%s",
+                    epoch,
+                    epoch,
+                    int(config.epochs),
+                    html_report_path,
                 )
                 write_report(
                     current_epoch=epoch,
                     epoch_percent=100.0,
                     eta_seconds=eta_total,
                     status_value=status,
+                )
+                epoch_timings["report_write"] = time.perf_counter() - report_start
+                logger.info("REPORT_UPDATE_END | epoch=%d elapsed=%s", epoch, _format_seconds(epoch_timings["report_write"]))
+                logger.info(
+                    "EPOCH_TIMINGS | epoch=%d train=%s val=%s export_tracking=%s history_write=%s ckpt_save=%s report_write=%s",
+                    epoch,
+                    _format_seconds(epoch_timings.get("train", 0.0)),
+                    _format_seconds(epoch_timings.get("validation", 0.0)),
+                    _format_seconds(epoch_timings.get("export_tracking", 0.0)),
+                    _format_seconds(epoch_timings.get("history_write", 0.0)),
+                    _format_seconds(epoch_timings.get("checkpoint_save", 0.0)),
+                    _format_seconds(epoch_timings.get("report_write", 0.0)),
                 )
 
                 if no_improve >= int(config.early_stopping_patience):
@@ -2077,7 +2247,7 @@ class UNetBinaryTrainer:
                         epoch,
                         int(config.early_stopping_patience),
                     )
-                    _append_jsonl(
+                    _append_jsonl_logged(
                         events_path,
                         {
                             "event": "early_stopping",
@@ -2085,6 +2255,8 @@ class UNetBinaryTrainer:
                             "epoch": epoch,
                             "patience": int(config.early_stopping_patience),
                         },
+                        logger=logger,
+                        context="EARLY_STOPPING_EVENT",
                     )
                     break
 
@@ -2093,7 +2265,7 @@ class UNetBinaryTrainer:
             interrupted = True
             status = "interrupted"
             logger.warning("training interrupted by user; writing partial artifacts")
-            _append_jsonl(events_path, {"event": "interrupted", "ts_utc": _utc_now(), "epoch": len(history)})
+            _append_jsonl_logged(events_path, {"event": "interrupted", "ts_utc": _utc_now(), "epoch": len(history)}, logger=logger, context="INTERRUPTED_EVENT")
         except Exception as exc:
             status = "failed"
             error_payload = {

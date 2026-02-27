@@ -41,9 +41,11 @@ def _dataset(root: Path) -> Path:
     return ds
 
 
-def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Path) -> None:
+def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Path, caplog) -> None:
     ds = _dataset(tmp_path)
     out = tmp_path / "training"
+
+    caplog.set_level("INFO", logger="microseg.training.unet_binary")
 
     result = UNetBinaryTrainer().train(
         UNetBinaryTrainingConfig(
@@ -84,3 +86,16 @@ def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Pa
     assert "Tracked Validation Samples By Epoch" in html_text
     assert "Epoch 1" in html_text
     assert "pixel accuracy" in html_text
+
+    log_text = "\n".join(caplog.messages)
+    assert "VAL_START" in log_text
+    assert "VAL_PROGRESS" in log_text
+    assert "VAL_END" in log_text
+    assert "TRACK_EXPORT_START" in log_text
+    assert "TRACK_EXPORT_END" in log_text
+    assert "EPOCH_HISTORY_WRITE_START" in log_text
+    assert "EPOCH_HISTORY_WRITE_END" in log_text
+    assert "CKPT_SAVE_START" in log_text
+    assert "CKPT_SAVE_END" in log_text
+    assert "REPORT_UPDATE_START" in log_text
+    assert "REPORT_UPDATE_END" in log_text
