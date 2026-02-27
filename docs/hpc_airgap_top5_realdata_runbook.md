@@ -201,6 +201,15 @@ python scripts/hydride_benchmark_suite.py \
   --strict
 ```
 
+Optional Slurm single-job wrapper from repo root (robust to Slurm script staging/spooling):
+
+```bash
+./submitJob_1GPU.sh ./run_training_jobs.sh --dataset tiny --profile smoke
+./submitJob_1GPU.sh ./run_training_jobs.sh --dataset custom --dataset_dir /path/to/HydrideData6.0/mado_style --profile full
+```
+
+The wrapper exports `HYDRIDE_REPO_ROOT` at submission time. `run_training_jobs.sh` uses that value (or `SLURM_SUBMIT_DIR`) to restore repo-root working directory and enforce `./.venv/bin/python` inside the job.
+
 Optional anti-hang watchdog settings (add to the suite YAML for long HPC jobs):
 - `command_idle_timeout_seconds`: timeout when no new bytes are written to a run log for N seconds.
 - `command_wall_timeout_seconds`: timeout after N total seconds of a run.
