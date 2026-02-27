@@ -15,6 +15,17 @@ class ImageMaskPair:
     mask_path: Path
 
 
+@dataclass(frozen=True)
+class PairCollectionReport:
+    """Pairing diagnostics for dataset ingestion."""
+
+    total_images: int
+    total_masks: int
+    pair_count: int
+    missing_masks: list[str]
+    missing_images: list[str]
+
+
 class PairCollector:
     """Collect paired segmentation image/mask files from an input folder."""
 
@@ -25,9 +36,17 @@ class PairCollector:
         self.strict = strict
 
     def collect(self, input_dir: Path) -> list[ImageMaskPair]:
-        images = sorted([p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in self.image_extensions and "_mask" not in p.stem])
+        pairs, _ = self.collect_with_report(input_dir)
+        return pairs
+
+    def collect_with_report(self, input_dir: Path) -> tuple[list[ImageMaskPair], PairCollectionReport]:
+        files = [p for p in input_dir.iterdir() if p.is_file()]
+        images = sorted([p for p in files if p.suffix.lower() in self.image_extensions and "_mask" not in p.stem])
+        all_masks = sorted([p for p in files if p.suffix.lower() in self.mask_extensions])
+        image_stems = {p.stem for p in images}
+        mask_stems = {p.stem for p in all_masks}
         pairs: list[ImageMaskPair] = []
-        missing: list[str] = []
+        missing_masks: list[str] = []
         for image in images:
             stem = image.stem
             found = None
@@ -39,12 +58,24 @@ class PairCollector:
                     found = candidate
                     break
             if found is None:
-                missing.append(stem)
+                missing_masks.append(stem)
                 continue
             pairs.append(ImageMaskPair(stem=stem, image_path=image, mask_path=found))
 
+        missing_images = sorted(mask_stems - image_stems)
+        report = PairCollectionReport(
+            total_images=len(images),
+            total_masks=len(all_masks),
+            pair_count=len(pairs),
+            missing_masks=sorted(missing_masks),
+            missing_images=missing_images,
+        )
+
         if not pairs:
             raise RuntimeError(f"no image/mask pairs found in {input_dir}")
-        if missing and self.strict:
-            raise ValueError(f"missing masks for stems: {missing[:10]}")
-        return sorted(pairs, key=lambda p: p.stem)
+        if self.strict and (missing_masks or missing_images):
+            raise ValueError(
+                "pairing mismatch detected: "
+                f"missing_masks={missing_masks[:10]} missing_images={missing_images[:10]}"
+            )
+        return sorted(pairs, key=lambda p: p.stem), report

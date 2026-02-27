@@ -22,6 +22,8 @@ from src.microseg.app.hpc_ga import (
     summarize_feedback_sources,
 )
 from src.microseg.corrections import CorrectionDatasetPackager
+from src.microseg.data_preparation.config import DatasetPrepConfig
+from src.microseg.data_preparation.pipeline import DatasetPreparer
 from src.microseg.dataops import (
     CorrectionSplitConfig,
     DatasetPrepareConfig,
@@ -608,6 +610,45 @@ def _dataset_prepare(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def _prepare_dataset_paired(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    input_dir = args.input_dir or cfg.get("input_dir")
+    if not input_dir:
+        raise ValueError("input directory is required (--input-dir or config:input_dir)")
+    output_root = args.output_root or cfg.get("output_dir") or cfg.get("output_root")
+    if not output_root:
+        raise ValueError("output root is required (--output-root or config:output_dir)")
+
+    resolved = DatasetPrepConfig.from_dict({
+        **cfg,
+        "input_dir": str(input_dir),
+        "output_dir": str(output_root),
+        "styles": [part.strip() for part in str(args.style or cfg.get("style", "mado")).split(",") if part.strip()],
+        "train_pct": float(cfg.get("train_pct", args.train_frac)),
+        "val_pct": float(cfg.get("val_pct", args.val_frac)),
+        "seed": int(cfg.get("seed", args.seed)),
+        "dry_run": bool(cfg.get("dry_run", args.dry_run)),
+        "target_size": int(cfg.get("target_size", args.target_size)),
+        "resize_policy": str(cfg.get("resize_policy", "short_side_to_target_crop")),
+        "crop_mode_train": str(cfg.get("crop_mode_train", args.crop_train)),
+        "crop_mode_eval": str(cfg.get("crop_mode_eval", args.crop_eval)),
+        "rgb_mask_mode": bool(cfg.get("rgb_mask_mode", True)),
+        "mask_r_min": int(cfg.get("mask_r_min", args.mask_r_min)),
+        "mask_g_max": int(cfg.get("mask_g_max", args.mask_g_max)),
+        "mask_b_max": int(cfg.get("mask_b_max", args.mask_b_max)),
+        "image_extensions": cfg.get("image_extensions", [".jpg", ".jpeg"]),
+        "mask_extensions": cfg.get("mask_extensions", [".png"]),
+        "mask_name_patterns": cfg.get("mask_name_patterns", ["{stem}.png"]),
+    })
+
+    result = DatasetPreparer(resolved).run()
+    print(f"prepared dataset: {output_root}")
+    print(f"dataset directory for training: {Path(output_root) / 'mado'}")
+    print(f"manifest: {result.manifest_path}")
+    print(f"split counts: {result.split_counts}")
+    return 0
+
 def _hpc_ga_generate(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     dataset_dir = args.dataset_dir or cfg.get("dataset_dir")
@@ -1023,6 +1064,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     prep.add_argument("--class-map-path", type=str, default="")
     prep.set_defaults(handler=_dataset_prepare)
+
+    paired = sub.add_parser("prepare_dataset", help="Prepare paired JPG + RGB PNG masks into MaDo/Oxford layout")
+    paired.add_argument("--config", type=str, help="YAML config path")
+    paired.add_argument("--set", action="append", default=[], help="Override key=value")
+    paired.add_argument("--input-dir", type=str, help="Input paired folder containing {stem}.jpg + {stem}.png")
+    paired.add_argument("--output-root", type=str, help="Output dataset root")
+    paired.add_argument("--style", type=str, default="mado", help="Comma-separated styles")
+    paired.add_argument("--target-size", type=int, default=512)
+    paired.add_argument("--crop-train", choices=["center", "random"], default="random")
+    paired.add_argument("--crop-eval", choices=["center", "random"], default="center")
+    paired.add_argument("--mask-r-min", type=int, default=200)
+    paired.add_argument("--mask-g-max", type=int, default=60)
+    paired.add_argument("--mask-b-max", type=int, default=60)
+    paired.add_argument("--seed", type=int, default=42)
+    paired.add_argument("--train-frac", type=float, default=0.8)
+    paired.add_argument("--val-frac", type=float, default=0.1)
+    paired.add_argument("--dry-run", action="store_true")
+    paired.set_defaults(handler=_prepare_dataset_paired)
 
     hpc_ga = sub.add_parser("hpc-ga-generate", help="Generate GA-planned HPC job bundle")
     hpc_ga.add_argument("--config", type=str, help="YAML config path")

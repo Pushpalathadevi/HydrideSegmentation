@@ -15,45 +15,68 @@ It currently targets binary segmentation and is designed to extend to multiclass
 - Config model with YAML loading fallback to in-code dictionary defaults.
 - Default config file: `configs/data_prep.default.yml` (auto-loaded by `prep-dataset` when `--config` is omitted).
 - Pairing with strict/permissive modes and configurable mask naming patterns.
+- **Paired JPG + RGB PNG mask ingestion** (`{stem}.jpg` + `{stem}.png` in the same folder).
 - Binarization modes:
   - `nonzero`
   - `threshold` (`>=T` or `>T`)
   - `value_equals`
   - `otsu`
   - `percentile`
+  - `rgb_mask_mode` (red-channel threshold with optional G/B suppression)
 - Optional morphology: open/close, small-component removal, hole filling.
 - Raw mask quality checks for unexpected non-binary values (default expected values: `0`, `255`).
 - Resizing policies:
-  - `letterbox_pad` (default)
+  - `letterbox_pad`
   - `center_crop`
   - `stretch`
   - `keep_aspect_no_pad`
+  - `short_side_to_target_crop` (scale shortest side to target, then crop)
+- Split-aware crop modes (`crop_mode_train`, `crop_mode_eval`).
 - Multi-format export (`.png`, `.tif/.tiff`) with Pillow TIFF fallback.
 - Deterministic `manifest.json` with split counts, record-level stats, and warnings.
+- Dataset QA artifacts: `dataset_qa_report.json` and `dataset_qa_report.html`.
+- Progress + ETA logging plus `dataset_prepare.log` in output folder.
 - Debug mode subset processing plus inspection artifacts (image/raw mask/binary/difference/overlay/panel).
-- Run-time warnings and manifest warnings for any raw-mask pixels outside expected binary values.
 
 ## CLI Usage
 
 ```bash
 prep-dataset \
-  --input path/to/paired_data \
-  --output outputs/prepared_binary \
-  --style oxford,mado \
-  --config configs/data_prep.default.yml \
+  --input-dir path/to/paired_data \
+  --output-root outputs/prepared_binary \
+  --style mado \
+  --target-size 512 \
+  --crop-train random \
+  --crop-eval center \
+  --mask-r-min 200 \
+  --mask-g-max 60 \
+  --mask-b-max 60 \
   --seed 42
+```
+
+Dry run:
+
+```bash
+python scripts/microseg_cli.py prepare_dataset \
+  --input-dir D:/data/hydride_pairs \
+  --output-root D:/data/HydrideData7.0 \
+  --style mado \
+  --target-size 512 \
+  --crop-train random \
+  --crop-eval center \
+  --mask-r-min 200 \
+  --mask-g-max 60 \
+  --mask-b-max 60 \
+  --seed 42 \
+  --train-frac 0.8 \
+  --val-frac 0.1 \
+  --dry-run
 ```
 
 Python module invocation:
 
 ```bash
 python -m src.microseg.data_preparation.cli --input ... --output ... --debug
-```
-
-Dry run (manifest-only planning):
-
-```bash
-prep-dataset --input ... --output ... --dry-run --style oxford,mado
 ```
 
 ## Programmatic Usage
@@ -65,15 +88,21 @@ from src.microseg.data_preparation.pipeline import DatasetPreparer
 cfg = DatasetPrepConfig.from_dict({
     "input_dir": "data/paired",
     "output_dir": "outputs/prepared",
-    "styles": ["oxford", "mado"],
-    "binarization_mode": "threshold",
-    "threshold": 128,
+    "styles": ["mado"],
+    "rgb_mask_mode": True,
+    "mask_r_min": 200,
+    "mask_g_max": 60,
+    "mask_b_max": 60,
+    "resize_policy": "short_side_to_target_crop",
+    "target_size": 512,
+    "crop_mode_train": "random",
+    "crop_mode_eval": "center",
 })
 result = DatasetPreparer(cfg).run()
 print(result.manifest_path)
 ```
 
-## Manifest Fields
+## Manifest / QA Fields
 
 `manifest.json` includes:
 
@@ -84,8 +113,15 @@ print(result.manifest_path)
 - per-record source paths and export paths
 - original/output shapes
 - mask stats (raw/binary unique values, foreground count/ratio)
-- non-binary raw-value diagnostics (unexpected values, affected pixel count/ratio, warning text)
 - item-level and overall warnings summary
+
+`dataset_qa_report.json` includes:
+
+- pair/missing diagnostics
+- split counts
+- read failure list
+- aggregate foreground coverage stats
+- elapsed stage timing
 
 ## Extending To Multiclass
 

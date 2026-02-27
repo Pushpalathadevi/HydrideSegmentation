@@ -180,3 +180,97 @@ def test_cli_dry_run_writes_manifest_only(tmp_path: Path) -> None:
     assert code == 0
     assert (output_dir / "manifest.json").exists()
     assert not (output_dir / "oxford" / "images").exists()
+
+
+def test_mask_binarizer_rgb_threshold_mode() -> None:
+    raw = np.zeros((4, 4, 3), dtype=np.uint8)
+    raw[:, :, 2] = np.array([
+        [255, 220, 199, 100],
+        [210, 205, 180, 0],
+        [255, 255, 255, 255],
+        [200, 201, 202, 203],
+    ], dtype=np.uint8)
+    raw[:, :, 1] = np.array([
+        [0, 40, 30, 0],
+        [61, 55, 10, 0],
+        [0, 30, 60, 10],
+        [0, 10, 20, 100],
+    ], dtype=np.uint8)
+    cfg = DatasetPrepConfig(
+        input_dir="in",
+        output_dir="out",
+        rgb_mask_mode=True,
+        mask_r_min=200,
+        mask_g_max=60,
+        mask_b_max=60,
+    )
+    out, stats = MaskBinarizer(cfg).apply(raw)
+    assert set(np.unique(out).tolist()) == {0, 1}
+    assert stats["mode"] == "rgb_threshold"
+    assert int(out[0, 0]) == 1
+    assert int(out[0, 2]) == 0
+    assert int(out[1, 0]) == 0
+
+
+def test_resize_policy_short_side_to_target_crop_alignment() -> None:
+    img = np.zeros((20, 40, 3), dtype=np.uint8)
+    mask = np.zeros((20, 40), dtype=np.uint8)
+    img[:, 20:24, :] = 255
+    mask[:, 20:24] = 1
+
+    cfg = DatasetPrepConfig(
+        input_dir="in",
+        output_dir="out",
+        resize_policy="short_side_to_target_crop",
+        target_size=(16, 16),
+        crop_mode_train="random",
+        crop_mode_eval="center",
+        seed=13,
+    )  # type: ignore[arg-type]
+
+    out_img, out_mask, _ = Resizer(cfg).apply(img, mask, split="train", sample_seed=777)
+    assert out_img.shape[:2] == (16, 16)
+    assert out_mask.shape == (16, 16)
+    assert set(np.unique(out_mask).tolist()).issubset({0, 1})
+    bright = out_img[:, :, 0] > 0
+    assert np.array_equal(bright, out_mask > 0)
+
+
+def test_pipeline_paired_jpg_rgb_png_outputs_mado(tmp_path: Path) -> None:
+    input_dir = tmp_path / "pairs_rgb"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(6):
+        image = np.full((48, 64, 3), 110 + i, dtype=np.uint8)
+        mask_rgb = np.zeros((48, 64, 3), dtype=np.uint8)
+        mask_rgb[:, 20:30, 0] = 0
+        mask_rgb[:, 20:30, 1] = 20
+        mask_rgb[:, 20:30, 2] = 230
+        Image.fromarray(image).save(input_dir / f"pair_{i}.jpg")
+        Image.fromarray(mask_rgb).save(input_dir / f"pair_{i}.png")
+
+    output_dir = tmp_path / "out_rgb"
+    cfg = DatasetPrepConfig.from_dict({
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "styles": ["mado"],
+        "image_extensions": [".jpg", ".jpeg"],
+        "mask_extensions": [".png"],
+        "mask_name_patterns": ["{stem}.png"],
+        "rgb_mask_mode": True,
+        "resize_policy": "short_side_to_target_crop",
+        "target_size": 32,
+        "crop_mode_train": "random",
+        "crop_mode_eval": "center",
+    })
+    result = DatasetPreparer(cfg).run()
+    assert result.total_pairs == 6
+
+    for split in ["train", "val", "test"]:
+        for path in (output_dir / "mado" / split / "masks").glob("*.png"):
+            arr = np.asarray(Image.open(path).convert("L"), dtype=np.uint8)
+            assert arr.shape == (32, 32)
+            assert set(np.unique(arr).tolist()).issubset({0, 255})
+
+    qa = json.loads((output_dir / "dataset_qa_report.json").read_text(encoding="utf-8"))
+    assert qa["pairing"]["pair_count"] == 6
+    assert qa["split_counts"]["train"] + qa["split_counts"]["val"] + qa["split_counts"]["test"] == 6

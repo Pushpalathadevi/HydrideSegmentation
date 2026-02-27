@@ -16,6 +16,8 @@ class MaskBinarizer:
         self.cfg = cfg
 
     def apply(self, raw_mask: np.ndarray) -> tuple[np.ndarray, dict[str, object]]:
+        if self.cfg.rgb_mask_mode:
+            return self._apply_rgb_threshold(raw_mask)
         gray = self._to_gray(raw_mask)
         unique_raw = sorted(np.unique(gray).astype(int).tolist())
         expected = sorted({int(v) for v in self.cfg.expected_raw_binary_values})
@@ -66,6 +68,48 @@ class MaskBinarizer:
         stats["unique_binary_values"] = sorted(np.unique(cleaned).astype(int).tolist())
         stats["fg_pixel_count"] = int(cleaned.sum())
         stats["fg_ratio"] = float(cleaned.mean())
+        return cleaned.astype(np.uint8), stats
+
+    def _apply_rgb_threshold(self, raw_mask: np.ndarray) -> tuple[np.ndarray, dict[str, object]]:
+        warnings: list[str] = []
+        if raw_mask.ndim == 2:
+            warnings.append("mask is grayscale but rgb_mask_mode=true; falling back to grayscale threshold on red/min channel")
+            red = raw_mask
+            green = np.zeros_like(raw_mask)
+            blue = np.zeros_like(raw_mask)
+        elif raw_mask.ndim == 3 and raw_mask.shape[2] >= 3:
+            blue = raw_mask[:, :, 0]
+            green = raw_mask[:, :, 1]
+            red = raw_mask[:, :, 2]
+        else:
+            raise ValueError(f"unsupported mask shape for RGB binarization: {raw_mask.shape}")
+
+        red_sel = red >= int(self.cfg.mask_r_min)
+        if self.cfg.enforce_gb_thresholds:
+            binary = red_sel & (green <= int(self.cfg.mask_g_max)) & (blue <= int(self.cfg.mask_b_max))
+        else:
+            binary = red_sel
+        if self.cfg.invert_mask:
+            binary = ~binary
+
+        cleaned = self._morphology(binary.astype(np.uint8))
+        stats: dict[str, object] = {
+            "mode": "rgb_threshold",
+            "thresholds": {
+                "mask_r_min": int(self.cfg.mask_r_min),
+                "mask_g_max": int(self.cfg.mask_g_max),
+                "mask_b_max": int(self.cfg.mask_b_max),
+                "enforce_gb_thresholds": bool(self.cfg.enforce_gb_thresholds),
+            },
+            "warnings": warnings,
+            "raw_mask_channels": 1 if raw_mask.ndim == 2 else int(raw_mask.shape[2]),
+            "red_unique_values": sorted(np.unique(red).astype(int).tolist())[:256],
+            "green_unique_values": sorted(np.unique(green).astype(int).tolist())[:256],
+            "blue_unique_values": sorted(np.unique(blue).astype(int).tolist())[:256],
+            "unique_binary_values": sorted(np.unique(cleaned).astype(int).tolist()),
+            "fg_pixel_count": int(cleaned.sum()),
+            "fg_ratio": float(cleaned.mean()),
+        }
         return cleaned.astype(np.uint8), stats
 
     def _morphology(self, binary: np.ndarray) -> np.ndarray:

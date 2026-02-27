@@ -48,6 +48,11 @@ class DatasetPrepConfig:
     mask_extensions: list[str] = field(default_factory=lambda: [".png", ".tif", ".tiff", ".jpg", ".jpeg"])
     mask_name_patterns: list[str] = field(default_factory=lambda: ["{stem}.png", "{stem}_mask.png", "{stem}.tif", "{stem}.tiff"])
     binarization_mode: Literal["nonzero", "threshold", "value_equals", "otsu", "percentile"] = "nonzero"
+    rgb_mask_mode: bool = False
+    mask_r_min: int = 200
+    mask_g_max: int = 60
+    mask_b_max: int = 60
+    enforce_gb_thresholds: bool = True
     threshold: int = 127
     threshold_strict: bool = False
     foreground_values: list[int] = field(default_factory=lambda: [255])
@@ -55,7 +60,13 @@ class DatasetPrepConfig:
     invert_mask: bool = False
     morphology: MorphologyConfig = field(default_factory=MorphologyConfig)
     target_size: tuple[int, int] = (512, 512)
-    resize_policy: Literal["letterbox_pad", "center_crop", "stretch", "keep_aspect_no_pad"] = "letterbox_pad"
+    resize_policy: Literal["letterbox_pad", "center_crop", "stretch", "keep_aspect_no_pad", "short_side_to_target_crop"] = "letterbox_pad"
+    crop_mode_train: Literal["center", "random"] = "random"
+    crop_mode_eval: Literal["center", "random"] = "center"
+    progress_log_interval: int = 20
+    qa_report_name: str = "dataset_qa_report.json"
+    html_report_name: str = "dataset_qa_report.html"
+    debug_sample_count: int = 0
     image_pad_mode: Literal["constant", "edge", "reflect"] = "constant"
     image_pad_value: int = 0
     image_interpolation: Literal["linear", "area", "cubic"] = "area"
@@ -71,6 +82,15 @@ class DatasetPrepConfig:
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "DatasetPrepConfig":
         data = dict(raw)
+        if isinstance(data.get("target_size"), int):
+            size = int(data["target_size"])
+            data["target_size"] = (size, size)
+        elif isinstance(data.get("target_size"), list):
+            target = data["target_size"]
+            if len(target) == 1:
+                data["target_size"] = (int(target[0]), int(target[0]))
+            elif len(target) == 2:
+                data["target_size"] = (int(target[0]), int(target[1]))
         morphology = MorphologyConfig(**data.pop("morphology", {}))
         debug = DebugConfig(**data.pop("debug", {}))
         cfg = cls(**data)
