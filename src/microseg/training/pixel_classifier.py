@@ -170,11 +170,19 @@ class PixelClassifierTrainer:
             tol=1e-3,
             random_state=int(config.seed),
         )
+        logger.info("VAL_START | backend=pixel_classifier epoch=0 note=not_applicable")
+        logger.info("VAL_END | backend=pixel_classifier epoch=0 note=not_applicable")
+        logger.info("METRIC_REDUCTION_START | backend=pixel_classifier epoch=0")
+        logger.info("METRIC_REDUCTION_END | backend=pixel_classifier epoch=0")
+        logger.info("TRACK_EXPORT_START | backend=pixel_classifier epoch=0 selected=0 note=unsupported")
+        logger.info("TRACK_EXPORT_END | backend=pixel_classifier epoch=0 selected=0 elapsed=00:00:00")
         clf.fit(x, y)
 
         model_path = output_dir / "pixel_classifier.joblib"
         metadata_path = output_dir / "training_manifest.json"
+        logger.info("CKPT_SAVE_START | backend=pixel_classifier path=%s", model_path)
         joblib.dump(clf, model_path)
+        logger.info("CKPT_SAVE_END | backend=pixel_classifier path=%s size_bytes=%d", model_path, int(model_path.stat().st_size))
 
         payload = {
             "schema_version": "microseg.pixel_classifier.v1",
@@ -185,7 +193,9 @@ class PixelClassifierTrainer:
             "classes": [int(v) for v in np.unique(y).tolist()],
             "model_file": model_path.name,
         }
+        logger.info("REPORT_UPDATE_START | backend=pixel_classifier path=%s", metadata_path)
         metadata_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        logger.info("REPORT_UPDATE_END | backend=pixel_classifier path=%s", metadata_path)
 
         return {
             "model_path": str(model_path),

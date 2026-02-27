@@ -180,7 +180,15 @@ class TorchPixelClassifierTrainer:
 
         n = x.shape[0]
         batch_size = max(1, int(config.batch_size))
-        for _epoch in range(int(config.epochs)):
+        logger.info("VAL_START | backend=torch_pixel epoch=0 note=not_applicable")
+        logger.info("VAL_END | backend=torch_pixel epoch=0 note=not_applicable")
+        logger.info("METRIC_REDUCTION_START | backend=torch_pixel epoch=0")
+        logger.info("METRIC_REDUCTION_END | backend=torch_pixel epoch=0")
+        logger.info("TRACK_EXPORT_START | backend=torch_pixel epoch=0 selected=0 note=unsupported")
+        logger.info("TRACK_EXPORT_END | backend=torch_pixel epoch=0 selected=0 elapsed=00:00:00")
+
+        for epoch_idx in range(int(config.epochs)):
+            logger.info("EPOCH_TRAIN_START | backend=torch_pixel epoch=%d/%d", epoch_idx + 1, int(config.epochs))
             perm = torch.randperm(n, device=device)
             for start in range(0, n, batch_size):
                 idx = perm[start:start + batch_size]
@@ -189,6 +197,7 @@ class TorchPixelClassifierTrainer:
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
+            logger.info("EPOCH_TRAIN_END | backend=torch_pixel epoch=%d/%d", epoch_idx + 1, int(config.epochs))
 
         model_path = output_dir / "torch_pixel_classifier.pt"
         manifest_path = output_dir / "training_manifest.json"
@@ -200,7 +209,9 @@ class TorchPixelClassifierTrainer:
             "class_values": [int(v) for v in class_values.tolist()],
             "state_dict": model.state_dict(),
         }
+        logger.info("CKPT_SAVE_START | backend=torch_pixel path=%s", model_path)
         torch.save(checkpoint, model_path)
+        logger.info("CKPT_SAVE_END | backend=torch_pixel path=%s size_bytes=%d", model_path, int(model_path.stat().st_size))
 
         manifest = {
             "schema_version": "microseg.training_manifest.v1",
@@ -214,7 +225,9 @@ class TorchPixelClassifierTrainer:
             "model_file": model_path.name,
             "classes": checkpoint["class_values"],
         }
+        logger.info("REPORT_UPDATE_START | backend=torch_pixel path=%s", manifest_path)
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        logger.info("REPORT_UPDATE_END | backend=torch_pixel path=%s", manifest_path)
 
         return {
             "backend": "torch_pixel",
