@@ -245,6 +245,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Per-run `train.log` / `eval.log` are written continuously while commands execute. Optional suite YAML watchdog keys (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`) can auto-terminate stuck runs and continue the campaign.
 - Training now emits explicit `VAL_START/VAL_PROGRESS/VAL_END`, `TRACK_EXPORT_*`, `EPOCH_HISTORY_WRITE_*`, `CKPT_SAVE_*`, and `REPORT_UPDATE_*` markers so post-epoch hangs can be pinpointed to exact operations in logs.
 - Validation/post-epoch phases emit heartbeat logs (default every 30s via `post_epoch_heartbeat_seconds`) to reduce false watchdog idle kills during long I/O.
+- Tracked validation export now applies the same validation input-size policy (including resize/letterbox + divisible padding) used by dataloaders, records raw/preprocessed shapes, and bounds panel size via `tracking_max_vis_width` / `tracking_max_vis_height` so wide images do not cause long silent post-epoch stalls.
 - Quick verification: run a 1-epoch train (`microseg-cli train ... --set epochs=1`) and confirm the markers above appear in order; if a stall occurs, the last marker identifies the blocked step.
 
 ## Beginner End-To-End Workflow

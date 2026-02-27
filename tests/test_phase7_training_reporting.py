@@ -38,6 +38,12 @@ def _dataset(root: Path) -> Path:
     img_b[:, :14] = 230
     m_b[:, :14] = 1
     _write_pair(ds / "val" / "images", ds / "val" / "masks", "val_111.png", img_b, m_b)
+
+    wide_img = np.zeros((32, 240, 3), dtype=np.uint8)
+    wide_mask = np.zeros((32, 240), dtype=np.uint8)
+    wide_img[:, 100:180, :] = 250
+    wide_mask[:, 100:180] = 1
+    _write_pair(ds / "val" / "images", ds / "val" / "masks", "val_wide.png", wide_img, wide_mask)
     return ds
 
 
@@ -60,10 +66,13 @@ def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Pa
             early_stopping_patience=2,
             checkpoint_every=1,
             val_tracking_samples=2,
-            val_tracking_fixed_samples=("val_000.png",),
+            val_tracking_fixed_samples=("val_000.png", "val_wide.png"),
             val_tracking_seed=5,
             write_html_report=True,
             progress_log_interval_pct=50,
+            input_hw=(32, 32),
+            tracking_max_vis_width=128,
+            tracking_max_vis_height=64,
         )
     )
 
@@ -73,6 +82,11 @@ def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Pa
     assert (out / "epoch_history.jsonl").exists()
     assert (out / "eval_samples" / "epoch_001").exists()
     assert any(p.name.startswith("val_000_") for p in (out / "eval_samples" / "epoch_001").glob("*.png"))
+    wide_panel = out / "eval_samples" / "epoch_001" / "val_wide_panel.png"
+    assert wide_panel.exists()
+    panel_arr = np.asarray(Image.open(wide_panel).convert("RGB"), dtype=np.uint8)
+    assert panel_arr.shape[0] <= 64
+    assert panel_arr.shape[1] <= 128
 
     payload = json.loads((out / "report.json").read_text(encoding="utf-8"))
     assert payload["schema_version"] == "microseg.training_report.v1"
@@ -93,6 +107,8 @@ def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Pa
     assert "VAL_END" in log_text
     assert "TRACK_EXPORT_START" in log_text
     assert "TRACK_EXPORT_END" in log_text
+    assert "TRACK_SAMPLE_SHAPES" in log_text
+    assert "TRACK_SAMPLE_FILE_WRITE_END" in log_text
     assert "EPOCH_HISTORY_WRITE_START" in log_text
     assert "EPOCH_HISTORY_WRITE_END" in log_text
     assert "CKPT_SAVE_START" in log_text

@@ -1347,6 +1347,9 @@ class UNetBinaryTrainingConfig:
     mask_interpolation: str = "nearest"
     require_divisible_by: int = 32
     dataloader_collate: str = "default"
+    tracking_max_vis_width: int = 2048
+    tracking_max_vis_height: int = 2048
+    tracking_png_compress_level: int = 1
 
 
 def _binary_iou_from_logits(logits, targets) -> float:  # noqa: ANN001
@@ -1455,6 +1458,18 @@ def _tracking_panel(image: np.ndarray, gt: np.ndarray, pred: np.ndarray) -> np.n
     pred_rgb = np.stack([pred_u8, pred_u8, pred_u8], axis=2)
     diff_rgb = np.stack([diff_u8, diff_u8, diff_u8], axis=2)
     return np.concatenate([image, gt_rgb, pred_rgb, diff_rgb], axis=1).astype(np.uint8)
+
+
+def _downscale_for_visualization(image: np.ndarray, *, max_height: int, max_width: int) -> np.ndarray:
+    max_h = max(1, int(max_height))
+    max_w = max(1, int(max_width))
+    h, w = int(image.shape[0]), int(image.shape[1])
+    if h <= max_h and w <= max_w:
+        return image
+    scale = min(max_h / max(1, h), max_w / max(1, w))
+    out_h = max(1, int(round(h * scale)))
+    out_w = max(1, int(round(w * scale)))
+    return np.asarray(Image.fromarray(image).resize((out_w, out_h), resample=Image.Resampling.BILINEAR), dtype=np.uint8)
 
 
 def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
@@ -1949,11 +1964,28 @@ class UNetBinaryTrainer:
                         mode=config.binary_mask_normalization,
                     )
                     gt_bin = (gt > 0).astype(np.uint8)
-                    logger.info("TRACK_SAMPLE_IMAGE_LOAD_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - io_start))
+                    raw_hw = (int(image.shape[0]), int(image.shape[1]))
+                    logger.info(
+                        "TRACK_SAMPLE_IMAGE_LOAD_END | sample=%s raw_hw=%s elapsed=%s",
+                        img_path.name,
+                        raw_hw,
+                        _format_seconds(time.perf_counter() - io_start),
+                    )
 
                     prep_start = time.perf_counter()
-                    x = torch.from_numpy((image.astype(np.float32) / 255.0).transpose(2, 0, 1)[None, ...]).to(device)
-                    logger.info("TRACK_SAMPLE_TENSOR_PREP_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - prep_start))
+                    x_raw = torch.from_numpy((image.astype(np.float32) / 255.0).transpose(2, 0, 1))
+                    y_raw = torch.from_numpy(gt_bin[None, ...].astype(np.float32))
+                    x_policy, y_policy = apply_input_policy(x_raw, y_raw, val_policy_cfg, is_train=False)
+                    x = x_policy.unsqueeze(0).to(device)
+                    gt_bin = (y_policy.squeeze(0).cpu().numpy() > 0).astype(np.uint8)
+                    image_vis = (np.clip(x_policy.cpu().numpy().transpose(1, 2, 0), 0.0, 1.0) * 255.0).astype(np.uint8)
+                    pre_hw = (int(x_policy.shape[-2]), int(x_policy.shape[-1]))
+                    logger.info(
+                        "TRACK_SAMPLE_TENSOR_PREP_END | sample=%s pre_hw=%s elapsed=%s",
+                        img_path.name,
+                        pre_hw,
+                        _format_seconds(time.perf_counter() - prep_start),
+                    )
 
                     fw_start = time.perf_counter()
                     logits = model(x)
@@ -1963,19 +1995,56 @@ class UNetBinaryTrainer:
                     pred = (torch.sigmoid(logits) > 0.5).to(torch.uint8).cpu().numpy()[0, 0].astype(np.uint8)
                     sample_metrics = _binary_sample_metrics(gt_bin, pred)
                     scientific_metrics = scientific_distance_metrics(gt_bin, pred)
-                    logger.info("TRACK_SAMPLE_POSTPROC_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - post_start))
+                    panel = _tracking_panel(image_vis, gt_bin, pred)
+                    panel = _downscale_for_visualization(
+                        panel,
+                        max_height=int(config.tracking_max_vis_height),
+                        max_width=int(config.tracking_max_vis_width),
+                    )
+                    logger.info(
+                        "TRACK_SAMPLE_POSTPROC_END | sample=%s elapsed=%s",
+                        img_path.name,
+                        _format_seconds(time.perf_counter() - post_start),
+                    )
+                    logger.info(
+                        "TRACK_SAMPLE_SHAPES | sample=%s raw=(%d,%d) pre=(%d,%d) gt=%s pred=%s panel=%s",
+                        img_path.name,
+                        raw_hw[0],
+                        raw_hw[1],
+                        pre_hw[0],
+                        pre_hw[1],
+                        tuple(int(v) for v in gt_bin.shape),
+                        tuple(int(v) for v in pred.shape),
+                        tuple(int(v) for v in panel.shape),
+                    )
 
                     stem = img_path.stem
                     panel_path = out_epoch / f"{stem}_panel.png"
                     pred_path = out_epoch / f"{stem}_pred.png"
                     gt_path = out_epoch / f"{stem}_gt.png"
 
+                    heartbeat.force(
+                        "HEARTBEAT | phase=tracking_export_pre_write epoch=%d sample=%d/%d name=%s",
+                        epoch,
+                        sample_idx,
+                        len(selected_pairs),
+                        img_path.name,
+                    )
                     write_start = time.perf_counter()
                     logger.info("TRACK_SAMPLE_FILE_WRITE_START | sample=%s gt=%s pred=%s panel=%s", img_path.name, gt_path, pred_path, panel_path)
-                    Image.fromarray(_tracking_panel(image, gt_bin, pred)).save(panel_path)
-                    Image.fromarray((pred * 255).astype(np.uint8)).save(pred_path)
-                    Image.fromarray((gt_bin * 255).astype(np.uint8)).save(gt_path)
-                    logger.info("TRACK_SAMPLE_FILE_WRITE_END | sample=%s elapsed=%s", img_path.name, _format_seconds(time.perf_counter() - write_start))
+                    png_opts = {"compress_level": max(0, min(9, int(config.tracking_png_compress_level)))}
+                    Image.fromarray(panel).save(panel_path, **png_opts)
+                    Image.fromarray((pred * 255).astype(np.uint8)).save(pred_path, **png_opts)
+                    Image.fromarray((gt_bin * 255).astype(np.uint8)).save(gt_path, **png_opts)
+                    write_elapsed = time.perf_counter() - write_start
+                    logger.info(
+                        "TRACK_SAMPLE_FILE_WRITE_END | sample=%s elapsed=%s size_gt=%d size_pred=%d size_panel=%d",
+                        img_path.name,
+                        _format_seconds(write_elapsed),
+                        int(gt_path.stat().st_size),
+                        int(pred_path.stat().st_size),
+                        int(panel_path.stat().st_size),
+                    )
 
                     records.append(
                         {
