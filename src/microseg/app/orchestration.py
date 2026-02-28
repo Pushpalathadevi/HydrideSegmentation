@@ -194,3 +194,135 @@ class OrchestrationCommandBuilder:
         if output_path:
             args.extend(["--output-path", output_path])
         return args
+
+    def preflight(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        mode: str | None = None,
+        dataset_dir: str | None = None,
+        model_path: str | None = None,
+        benchmark_config: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["preflight"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if mode:
+            args.extend(["--mode", mode])
+        if dataset_dir:
+            args.extend(["--dataset-dir", dataset_dir])
+        if model_path:
+            args.extend(["--model-path", model_path])
+        if benchmark_config:
+            args.extend(["--benchmark-config", benchmark_config])
+        return args
+
+    def deploy_package(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        model_path: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["deploy-package"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if model_path:
+            args.extend(["--model-path", model_path])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args
+
+    def deploy_validate(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        package_dir: str | None = None,
+        strict: bool = False,
+    ) -> list[str]:
+        args = self._base() + ["deploy-validate"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if package_dir:
+            args.extend(["--package-dir", package_dir])
+        if strict:
+            args.append("--strict")
+        return args
+
+    def deploy_smoke(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        package_dir: str | None = None,
+        image_path: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["deploy-smoke"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if package_dir:
+            args.extend(["--package-dir", package_dir])
+        if image_path:
+            args.extend(["--image-path", image_path])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args
+
+    def promote_model(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        summary_json: str | None = None,
+        model_name: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["promote-model"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if summary_json:
+            args.extend(["--summary-json", summary_json])
+        if model_name:
+            args.extend(["--model-name", model_name])
+        return args
+
+    def support_bundle(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        run_root: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["support-bundle"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if run_root:
+            args.extend(["--run-root", run_root])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args
+
+    def compatibility_matrix(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        output_path: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["compatibility-matrix"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if output_path:
+            args.extend(["--output-path", output_path])
+        return args

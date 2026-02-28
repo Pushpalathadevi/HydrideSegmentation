@@ -9,6 +9,7 @@ Core planning and governance docs:
 - Scientific validation protocol: `scientific_validation.md`
 - Development workflow: `development_workflow.md`
 - Phase roadmap: `development_roadmap.md`
+- Deployment + productization master roadmap: `deployment_productization_master_roadmap.md`
 - Current state gaps: `current_state_gap_analysis.md`
 - Foundation standards strategy: `foundation_strategy.md`
 - Phase 2 desktop implementation status: `phase2_desktop_refactor.md`
@@ -50,6 +51,7 @@ Core planning and governance docs:
 - Pretrained citation BibTeX: `pretrained_model_citations.bib`
 - Pretrained model catalog JSON: `pretrained_model_catalog.json`
 - Versioning and release policy: `versioning_and_release_policy.md`
+- Deployment operations workflow (preflight/package/promote/support): `deployment_ops_workflow.md`
 - Migration strategy: `migration_strategy.md`
 - Repository blueprint: `repository_blueprint.md`
 - Architecture decisions process: `adr/README.md`

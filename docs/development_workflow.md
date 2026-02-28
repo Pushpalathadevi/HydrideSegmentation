@@ -23,12 +23,16 @@
 or
 - `python scripts/run_phase_gate.py --phase-label "Phase N" --strict`
 
-3. Produce stocktake and gap review:
+3. Run workflow preflight for impacted lane:
+- `microseg-cli preflight --config configs/preflight.default.yml --mode train --strict`
+- `microseg-cli preflight --config configs/preflight.default.yml --mode benchmark --strict`
+
+4. Produce stocktake and gap review:
 - confirm implemented vs planned deliverables
 - list remaining gaps (if any) in `docs/current_state_gap_analysis.md`
 - add/update phase status doc under `docs/`
 
-4. Documentation synchronization:
+5. Documentation synchronization:
 - update `README.md`, `docs/development_roadmap.md`, and impacted user/developer docs
 - ensure markdown links are repository-relative
 
@@ -47,3 +51,7 @@ or
 - Local app install/run validated on clean environment
 - Known limitations listed in release notes
 - Latest phase closeout artifacts generated under `outputs/phase_gates/`
+- Deployment package validated before rollout:
+  - `microseg-cli deploy-validate --package-dir <package_dir> --strict`
+- Support bundle workflow tested:
+  - `microseg-cli support-bundle --run-root <run_root>`

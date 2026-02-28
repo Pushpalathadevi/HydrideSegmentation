@@ -7,7 +7,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = "microseg.workflow_profile.v1"
-SUPPORTED_SCOPES = {"dataset_prepare", "training", "evaluation", "hpc_ga"}
+SUPPORTED_SCOPES = {"dataset_prepare", "training", "evaluation", "hpc_ga", "preflight", "deployment"}
 
 
 def _yaml_module():

@@ -83,6 +83,7 @@ from src.microseg.evaluation import (
     render_hydride_visualizations,
 )
 from src.microseg.io import resolve_config
+from src.microseg.quality import PreflightConfig, run_preflight
 from src.microseg.ui import AnnotationLayerSettings, compose_annotation_view
 from src.microseg.utils import (
     SpatialCalibration,
@@ -2375,6 +2376,36 @@ class QtSegmentationMainWindow(QMainWindow):
                     f"Dataset QA failed; training launch is blocked.\n\nDataset: {qa_dataset_dir}\nReport: {report_path}",
                 )
                 return None
+            train_cfg = self.orch_train_config_edit.text().strip()
+            if train_cfg:
+                preflight_report = Path(output_dir or "outputs/training") / "preflight_train_gate.json"
+                train_overrides = self._parse_override_text(self.orch_train_set_edit.text())
+                preflight = run_preflight(
+                    PreflightConfig(
+                        mode="train",
+                        dataset_dir=qa_dataset_dir,
+                        train_config=train_cfg,
+                        train_overrides=tuple(train_overrides),
+                        require_dataset_qa=False,
+                        output_path=str(preflight_report),
+                    )
+                )
+                if not preflight.ok:
+                    blocking = [
+                        f"{issue.code}: {issue.message}"
+                        for issue in preflight.issues
+                        if issue.severity == "error"
+                    ]
+                    body = "\n".join(blocking[:5]) if blocking else "Preflight reported errors."
+                    QMessageBox.critical(
+                        self,
+                        "Training Blocked (Preflight)",
+                        "Training preflight failed after dataset QA.\n\n"
+                        f"Dataset: {qa_dataset_dir}\n"
+                        f"Preflight report: {preflight_report}\n\n"
+                        f"{body}",
+                    )
+                    return None
             self.workflow_notes.append(
                 f"[Training Gate] QA passed | dataset={qa_dataset_dir} | used_existing_splits={prepared.used_existing_splits}"
             )

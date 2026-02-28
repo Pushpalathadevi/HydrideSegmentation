@@ -1,8 +1,9 @@
-"""Unified CLI for inference, training, evaluation, registry, dataops, and phase-gates."""
+"""Unified CLI for inference/training/evaluation, dataops, deployment, promotion, and phase gates."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import sys
 from pathlib import Path
@@ -32,6 +33,13 @@ from src.microseg.dataops import (
     prepare_training_dataset_layout,
     run_dataset_quality_checks,
 )
+from src.microseg.deployment import (
+    DeploymentPackageConfig,
+    DeploymentSmokeConfig,
+    create_deployment_package,
+    run_deployment_smoke,
+    validate_deployment_package,
+)
 from src.microseg.io import resolve_config
 from src.microseg.plugins import (
     load_frozen_checkpoint_records,
@@ -40,7 +48,18 @@ from src.microseg.plugins import (
     write_pretrained_validation_report,
     write_registry_validation_report,
 )
-from src.microseg.quality import PhaseGateConfig, run_phase_gate
+from src.microseg.quality import (
+    PhaseGateConfig,
+    PreflightConfig,
+    SupportBundleConfig,
+    create_support_bundle,
+    evaluate_and_promote_model,
+    load_promotion_policy,
+    run_phase_gate,
+    run_preflight,
+    write_compatibility_matrix,
+    write_promotion_decision,
+)
 from src.microseg.training import (
     PixelClassifierTrainer,
     PixelTrainingConfig,
@@ -868,19 +887,233 @@ def _package(args: argparse.Namespace) -> int:
     return 0
 
 
+def _preflight(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    mode = str(args.mode or cfg.get("mode") or "train").strip().lower()
+    output_path = str(
+        args.output_path
+        or cfg.get("output_path")
+        or f"outputs/preflight/preflight_{mode}.json"
+    )
+    strict = bool(cfg.get("strict", args.strict))
+
+    if args.train_override:
+        train_overrides = [str(v).strip() for v in args.train_override if str(v).strip()]
+    else:
+        train_overrides = _parse_name_list(cfg.get("train_overrides", []))
+    report = run_preflight(
+        PreflightConfig(
+            mode=mode,
+            dataset_dir=str(args.dataset_dir or cfg.get("dataset_dir") or ""),
+            model_path=str(args.model_path or cfg.get("model_path") or ""),
+            train_config=str(args.train_config or cfg.get("train_config") or ""),
+            train_overrides=tuple(train_overrides),
+            eval_config=str(args.eval_config or cfg.get("eval_config") or ""),
+            benchmark_config=str(args.benchmark_config or cfg.get("benchmark_config") or ""),
+            deployment_package_dir=str(args.package_dir or cfg.get("deployment_package_dir") or ""),
+            require_dataset_qa=bool(cfg.get("require_dataset_qa", args.require_dataset_qa)),
+            dataset_qa_report_path=str(args.dataset_qa_report_path or cfg.get("dataset_qa_report_path") or ""),
+            verify_pretrained_sha256=bool(cfg.get("verify_sha256", args.verify_sha256)),
+            output_path=output_path,
+        )
+    )
+    print(f"preflight mode: {report.mode}")
+    print(f"preflight ok: {report.ok}")
+    print(f"issues: errors={report.error_count} warnings={report.warning_count} info={report.info_count}")
+    print(f"report: {output_path}")
+    if strict and not report.ok:
+        return 2
+    return 0
+
+
+def _deploy_package(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    model_path = str(args.model_path or cfg.get("model_path") or "").strip()
+    if not model_path:
+        raise ValueError("model path is required (--model-path or config:model_path)")
+    if args.extra_path:
+        extra_paths = tuple(str(v).strip() for v in args.extra_path if str(v).strip())
+    else:
+        extra_paths = tuple(_parse_name_list(cfg.get("extra_paths", [])))
+
+    result = create_deployment_package(
+        DeploymentPackageConfig(
+            model_path=model_path,
+            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/deployments"),
+            package_name=str(args.package_name or cfg.get("package_name") or ""),
+            resolved_config_path=str(args.resolved_config_path or cfg.get("resolved_config_path") or ""),
+            training_report_path=str(args.training_report_path or cfg.get("training_report_path") or ""),
+            evaluation_report_path=str(args.evaluation_report_path or cfg.get("evaluation_report_path") or ""),
+            extra_paths=extra_paths,
+            notes=str(args.notes or cfg.get("notes") or ""),
+        )
+    )
+    print(f"deployment package dir: {result.package_dir}")
+    print(f"manifest: {result.manifest_path}")
+    print(f"model artifact: {result.model_artifact_path}")
+    print(f"copied files: {result.copied_files}")
+    if result.warnings:
+        print(f"warnings: {len(result.warnings)}")
+    return 0
+
+
+def _deploy_validate(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    package_dir = str(args.package_dir or cfg.get("package_dir") or "").strip()
+    if not package_dir:
+        raise ValueError("package directory is required (--package-dir or config:package_dir)")
+    output_path = str(args.output_path or cfg.get("output_path") or "").strip()
+    strict = bool(cfg.get("strict", args.strict))
+    verify_sha256 = bool(cfg.get("verify_sha256", args.verify_sha256))
+
+    report = validate_deployment_package(package_dir, verify_sha256=verify_sha256)
+    if output_path:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(asdict(report), indent=2), encoding="utf-8")
+    print(f"deployment package valid: {report.ok}")
+    print(f"errors: {len(report.errors)} warnings: {len(report.warnings)}")
+    print(f"files: {report.file_count}")
+    if output_path:
+        print(f"report: {output_path}")
+    if strict and not report.ok:
+        return 2
+    return 0
+
+
+def _deploy_smoke(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    package_dir = str(args.package_dir or cfg.get("package_dir") or "").strip()
+    if not package_dir:
+        raise ValueError("package directory is required (--package-dir or config:package_dir)")
+    image_path = str(args.image_path or cfg.get("image_path") or "").strip()
+    if not image_path:
+        raise ValueError("smoke image path is required (--image-path or config:image_path)")
+
+    result = run_deployment_smoke(
+        DeploymentSmokeConfig(
+            package_dir=package_dir,
+            image_path=image_path,
+            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/deployments/smoke"),
+            enable_gpu=bool(cfg.get("enable_gpu", args.enable_gpu)),
+            device_policy=str(cfg.get("device_policy", args.device_policy)),
+        )
+    )
+    print(f"smoke ok: {result.ok}")
+    print(f"runtime_seconds: {result.runtime_seconds:.3f}")
+    print(f"mask: {result.output_mask_path}")
+    print(f"report: {result.report_path}")
+    return 0
+
+
+def _promote_model(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    summary_path = str(args.summary_json or cfg.get("summary_json") or "").strip()
+    if not summary_path:
+        raise ValueError("summary JSON path is required (--summary-json or config:summary_json)")
+    model_name = str(args.model_name or cfg.get("model_name") or "").strip()
+    if not model_name:
+        raise ValueError("model name is required (--model-name or config:model_name)")
+    registry_model_id = str(args.registry_model_id or cfg.get("registry_model_id") or model_name).strip()
+    target_stage = str(args.target_stage or cfg.get("target_stage") or "candidate").strip()
+    strict = bool(cfg.get("strict", args.strict))
+    update_registry = bool(cfg.get("update_registry", args.update_registry))
+    create_if_missing = bool(cfg.get("create_if_missing", args.create_if_missing))
+    policy = load_promotion_policy(args.policy_config or cfg.get("policy_config"))
+    output_path = str(
+        args.output_path
+        or cfg.get("output_path")
+        or f"outputs/promotion/{registry_model_id}.decision.json"
+    )
+
+    decision = evaluate_and_promote_model(
+        summary_json_path=summary_path,
+        model_name=model_name,
+        registry_model_id=registry_model_id,
+        target_stage=target_stage,
+        policy=policy,
+        registry_path=str(args.registry_path or cfg.get("registry_path") or "frozen_checkpoints/model_registry.json"),
+        update_registry=update_registry,
+        create_if_missing=create_if_missing,
+    )
+    out = write_promotion_decision(decision, output_path=output_path)
+    print(f"promotion passed: {decision.passed}")
+    print(f"decision report: {out}")
+    print(f"registry updated: {decision.registry_updated}")
+    if decision.reasons:
+        print(f"reasons: {len(decision.reasons)}")
+    if strict and not decision.passed:
+        return 2
+    return 0
+
+
+def _support_bundle(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    run_root = str(args.run_root or cfg.get("run_root") or "").strip()
+    if not run_root:
+        raise ValueError("run root is required (--run-root or config:run_root)")
+    if args.include_path:
+        include_paths = tuple(str(v).strip() for v in args.include_path if str(v).strip())
+    else:
+        include_paths = tuple(_parse_name_list(cfg.get("include_paths", [])))
+    result = create_support_bundle(
+        SupportBundleConfig(
+            run_root=run_root,
+            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/support_bundles"),
+            bundle_name=str(args.bundle_name or cfg.get("bundle_name") or ""),
+            include_paths=include_paths,
+        )
+    )
+    print(f"support bundle dir: {result.bundle_dir}")
+    print(f"support bundle zip: {result.zip_path}")
+    print(f"manifest: {result.manifest_path}")
+    print(f"included paths: {result.included_count}")
+    if result.missing_paths:
+        print(f"missing paths: {len(result.missing_paths)}")
+    return 0
+
+
+def _compatibility_matrix(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    output_path = str(
+        args.output_path
+        or cfg.get("output_path")
+        or "outputs/support_bundles/compatibility_matrix.json"
+    )
+    out = write_compatibility_matrix(output_path)
+    print(f"compatibility matrix: {out}")
+    return 0
+
+
 def _phase_gate(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     phase_label = str(args.phase_label or cfg.get("phase_label") or "").strip()
     if not phase_label:
         raise ValueError("phase label is required (--phase-label or config:phase_label)")
+    skip_tests = args.skip_tests if args.skip_tests is not None else bool(cfg.get("skip_tests", False))
 
     result = run_phase_gate(
         PhaseGateConfig(
             phase_label=phase_label,
-            run_tests=not bool(cfg.get("skip_tests", args.skip_tests)),
+            run_tests=not bool(skip_tests),
             output_dir=str(cfg.get("output_dir", args.output_dir)),
             extra_notes=str(cfg.get("notes", args.notes or "")),
             strict=False,
+            verify_release_policy=bool(cfg.get("verify_release_policy", args.verify_release_policy)),
+            release_policy_path=str(cfg.get("release_policy_path", args.release_policy_path)),
+            require_rollback_keywords=bool(
+                cfg.get("require_rollback_keywords", args.require_rollback_keywords)
+            ),
+            rollback_keywords=tuple(
+                _parse_name_list(cfg.get("rollback_keywords", args.rollback_keywords))
+                or ["rollback", "patch", "release"]
+            ),
+            deployment_package_dirs=tuple(
+                _parse_name_list(cfg.get("deployment_package_dirs", args.deployment_package_dirs))
+            ),
+            verify_deployment_sha256=bool(
+                cfg.get("verify_deployment_sha256", args.verify_deployment_sha256)
+            ),
         )
     )
     print(f"phase gate status: {result.status}")
@@ -1244,6 +1477,91 @@ def _build_parser() -> argparse.ArgumentParser:
     hpc_ga_feedback.add_argument("--top-k", type=int, default=10)
     hpc_ga_feedback.set_defaults(handler=_hpc_ga_feedback_report)
 
+    preflight = sub.add_parser("preflight", help="Run unified train/eval/benchmark/deploy preflight checks")
+    preflight.add_argument("--config", type=str, help="YAML config path")
+    preflight.add_argument("--set", action="append", default=[], help="Override key=value")
+    preflight.add_argument("--mode", choices=["train", "eval", "benchmark", "deploy"], default="train")
+    preflight.add_argument("--dataset-dir", type=str, help="Dataset directory for train/eval preflight")
+    preflight.add_argument("--model-path", type=str, help="Model artifact path for eval preflight")
+    preflight.add_argument("--train-config", type=str, help="Training config path for pretrained preflight")
+    preflight.add_argument(
+        "--train-override",
+        action="append",
+        default=[],
+        help="Training config override key=value (repeatable)",
+    )
+    preflight.add_argument("--eval-config", type=str, help="Evaluation config path for benchmark checks")
+    preflight.add_argument("--benchmark-config", type=str, help="Benchmark suite YAML path")
+    preflight.add_argument("--package-dir", type=str, help="Deployment package directory for deploy mode")
+    preflight.add_argument("--require-dataset-qa", action=argparse.BooleanOptionalAction, default=False)
+    preflight.add_argument("--dataset-qa-report-path", type=str, default="")
+    preflight.add_argument("--verify-sha256", action=argparse.BooleanOptionalAction, default=True)
+    preflight.add_argument("--output-path", type=str, help="Preflight report JSON output path")
+    preflight.add_argument("--strict", action="store_true", help="Exit non-zero when preflight fails")
+    preflight.set_defaults(handler=_preflight)
+
+    deploy_package = sub.add_parser("deploy-package", help="Create deployment package bundle with manifest")
+    deploy_package.add_argument("--config", type=str, help="YAML config path")
+    deploy_package.add_argument("--set", action="append", default=[], help="Override key=value")
+    deploy_package.add_argument("--model-path", type=str, help="Model artifact path (.pth/.pt/.joblib)")
+    deploy_package.add_argument("--output-dir", type=str, default="outputs/deployments")
+    deploy_package.add_argument("--package-name", type=str, default="")
+    deploy_package.add_argument("--resolved-config-path", type=str, default="")
+    deploy_package.add_argument("--training-report-path", type=str, default="")
+    deploy_package.add_argument("--evaluation-report-path", type=str, default="")
+    deploy_package.add_argument("--extra-path", action="append", default=[], help="Extra file/dir to include")
+    deploy_package.add_argument("--notes", type=str, default="")
+    deploy_package.set_defaults(handler=_deploy_package)
+
+    deploy_validate = sub.add_parser("deploy-validate", help="Validate deployment package manifest and checksums")
+    deploy_validate.add_argument("--config", type=str, help="YAML config path")
+    deploy_validate.add_argument("--set", action="append", default=[], help="Override key=value")
+    deploy_validate.add_argument("--package-dir", type=str, help="Deployment package directory")
+    deploy_validate.add_argument("--verify-sha256", action=argparse.BooleanOptionalAction, default=True)
+    deploy_validate.add_argument("--output-path", type=str, default="", help="Validation report JSON output path")
+    deploy_validate.add_argument("--strict", action="store_true", help="Exit non-zero when validation fails")
+    deploy_validate.set_defaults(handler=_deploy_validate)
+
+    deploy_smoke = sub.add_parser("deploy-smoke", help="Run one-image inference smoke test from deployment package")
+    deploy_smoke.add_argument("--config", type=str, help="YAML config path")
+    deploy_smoke.add_argument("--set", action="append", default=[], help="Override key=value")
+    deploy_smoke.add_argument("--package-dir", type=str, help="Deployment package directory")
+    deploy_smoke.add_argument("--image-path", type=str, help="Input image path for smoke inference")
+    deploy_smoke.add_argument("--output-dir", type=str, default="outputs/deployments/smoke")
+    deploy_smoke.add_argument("--enable-gpu", action="store_true")
+    deploy_smoke.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
+    deploy_smoke.set_defaults(handler=_deploy_smoke)
+
+    promote = sub.add_parser("promote-model", help="Evaluate benchmark summary against policy and update registry stage")
+    promote.add_argument("--config", type=str, help="YAML config path")
+    promote.add_argument("--set", action="append", default=[], help="Override key=value")
+    promote.add_argument("--summary-json", type=str, help="Benchmark summary JSON path")
+    promote.add_argument("--model-name", type=str, help="Model name as listed in summary aggregate")
+    promote.add_argument("--registry-model-id", type=str, default="", help="Registry model_id to update")
+    promote.add_argument("--target-stage", choices=["smoke", "candidate", "promoted", "deprecated"], default="candidate")
+    promote.add_argument("--policy-config", type=str, default="", help="Promotion policy YAML path")
+    promote.add_argument("--registry-path", type=str, default="frozen_checkpoints/model_registry.json")
+    promote.add_argument("--update-registry", action=argparse.BooleanOptionalAction, default=True)
+    promote.add_argument("--create-if-missing", action=argparse.BooleanOptionalAction, default=False)
+    promote.add_argument("--output-path", type=str, default="")
+    promote.add_argument("--strict", action="store_true", help="Exit non-zero when policy check fails")
+    promote.set_defaults(handler=_promote_model)
+
+    support = sub.add_parser("support-bundle", help="Collect support diagnostics bundle from a run root")
+    support.add_argument("--config", type=str, help="YAML config path")
+    support.add_argument("--set", action="append", default=[], help="Override key=value")
+    support.add_argument("--run-root", type=str, help="Benchmark/run root directory")
+    support.add_argument("--output-dir", type=str, default="outputs/support_bundles")
+    support.add_argument("--bundle-name", type=str, default="")
+    support.add_argument("--include-path", action="append", default=[], help="Extra file/dir to include")
+    support.set_defaults(handler=_support_bundle)
+
+    compat = sub.add_parser("compatibility-matrix", help="Write environment/runtime compatibility fingerprint JSON")
+    compat.add_argument("--config", type=str, help="YAML config path")
+    compat.add_argument("--set", action="append", default=[], help="Override key=value")
+    compat.add_argument("--output-path", type=str, default="outputs/support_bundles/compatibility_matrix.json")
+    compat.set_defaults(handler=_compatibility_matrix)
+
     pack = sub.add_parser("package", help="Package correction exports into dataset splits")
     pack.add_argument("--config", type=str, help="YAML config path")
     pack.add_argument("--set", action="append", default=[], help="Override key=value (supports dotted keys)")
@@ -1260,7 +1578,23 @@ def _build_parser() -> argparse.ArgumentParser:
     gate.add_argument("--phase-label", type=str, help="Phase label (for reports)")
     gate.add_argument("--output-dir", type=str, default="outputs/phase_gates")
     gate.add_argument("--notes", type=str, default="")
-    gate.add_argument("--skip-tests", action="store_true")
+    gate.add_argument("--skip-tests", action=argparse.BooleanOptionalAction, default=None)
+    gate.add_argument("--verify-release-policy", action=argparse.BooleanOptionalAction, default=False)
+    gate.add_argument("--release-policy-path", type=str, default="docs/versioning_and_release_policy.md")
+    gate.add_argument("--require-rollback-keywords", action=argparse.BooleanOptionalAction, default=False)
+    gate.add_argument(
+        "--rollback-keywords",
+        type=str,
+        default="rollback,patch,release",
+        help="Comma-separated keywords required in release policy doc when enabled",
+    )
+    gate.add_argument(
+        "--deployment-package-dirs",
+        type=str,
+        default="",
+        help="Comma-separated deployment package directories to validate",
+    )
+    gate.add_argument("--verify-deployment-sha256", action=argparse.BooleanOptionalAction, default=True)
     gate.add_argument("--strict", action="store_true")
     gate.set_defaults(handler=_phase_gate)
 

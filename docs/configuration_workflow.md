@@ -12,6 +12,10 @@ Reference templates:
 - `configs/evaluate.default.yml`
 - `configs/package.default.yml`
 - `configs/phase_gate.default.yml`
+- `configs/preflight.default.yml`
+- `configs/deployment_package.default.yml`
+- `configs/promotion_policy.default.yml`
+- `configs/support_bundle.default.yml`
 - `configs/registry_validation.default.yml`
 - `configs/dataset_split.default.yml`
 - `configs/dataset_qa.default.yml`
@@ -338,6 +342,35 @@ Training additionally writes:
 Phase closeout checks:
 ```bash
 microseg-cli phase-gate --config configs/phase_gate.default.yml --set phase_label=\"Phase N\"
+```
+
+Unified preflight checks:
+```bash
+microseg-cli preflight --config configs/preflight.default.yml --mode train --strict
+microseg-cli preflight --config configs/preflight.default.yml --mode benchmark --benchmark-config configs/hydride/benchmark_suite.top5.yml --strict
+```
+
+Deployment package contract checks:
+```bash
+microseg-cli deploy-package --config configs/deployment_package.default.yml --model-path outputs/training/model.pth
+microseg-cli deploy-validate --package-dir outputs/deployments/<package_dir> --strict
+microseg-cli deploy-smoke --package-dir outputs/deployments/<package_dir> --image-path test_data/sample.png
+```
+
+Model promotion gate:
+```bash
+microseg-cli promote-model \
+  --summary-json outputs/hydride_benchmark_suite/summary.json \
+  --model-name unet_binary \
+  --registry-model-id unet_binary \
+  --policy-config configs/promotion_policy.default.yml \
+  --update-registry --strict
+```
+
+Support bundle and compatibility fingerprint:
+```bash
+microseg-cli support-bundle --config configs/support_bundle.default.yml
+microseg-cli compatibility-matrix --output-path outputs/support_bundles/compatibility_matrix.json
 ```
 
 HPC pretrained controls (in `configs/hpc_ga*.yml`):

@@ -48,3 +48,24 @@ Before release:
 ## Deployment Guidance
 
 Field deployments should pin explicit versions (for example `hydride-segmentation==0.22.0`) and avoid floating upgrades.
+
+## Patch And Rollback Protocol
+
+1. Patch release workflow
+- Branch from the latest promoted tag.
+- Keep scope constrained to the defect and required regression tests.
+- Run:
+  - `PYTHONPATH=. pytest -q`
+  - `microseg-cli phase-gate --config configs/phase_gate.default.yml --set phase_label=\"Release Gate\" --strict`
+- Publish release notes with root cause, fix summary, and validation evidence paths.
+
+2. Rollback workflow
+- Keep the last known-good deployment package manifest and checksum report.
+- Validate candidate package before activation:
+  - `microseg-cli deploy-validate --package-dir <pkg_dir> --strict`
+- If production incident occurs, rollback by re-activating the prior known-good package directory and recording:
+  - previous package id
+  - restored package id
+  - incident timestamp and operator
+- After rollback, generate a support artifact bundle:
+  - `microseg-cli support-bundle --run-root <run_root> --output-dir outputs/support_bundles`

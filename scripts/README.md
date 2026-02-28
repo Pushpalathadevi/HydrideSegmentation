@@ -19,6 +19,13 @@ Current scripts:
   - `dataset-prepare` uses leakage-aware auto-split by default and optionally supports RGB mask conversion via configurable colormap.
   - `dataset-qa` runs packaged dataset quality checks.
   - `phase-gate` command runs mandatory end-of-phase checks and writes closeout artifacts.
+  - `preflight` runs unified workflow checks for train/eval/benchmark/deploy modes.
+  - `deploy-package` creates a deployment handoff bundle (`deployment_manifest.json` + checksums).
+  - `deploy-validate` validates package integrity and optional SHA256 checks.
+  - `deploy-smoke` runs one-image smoke inference from a deployment package.
+  - `promote-model` applies threshold policy to benchmark aggregate rows and can update registry stage metadata.
+  - `support-bundle` collects run diagnostics/log artifacts into a zipped support bundle.
+  - `compatibility-matrix` writes environment/runtime fingerprint JSON for reproducibility audits.
   - `validate-pretrained` validates local pretrained registry metadata, paths, and optional checksums.
   - `hpc-ga-generate` creates GA-planned Slurm/PBS/local script bundles for multi-candidate GPU HPC sweeps.
   - `hpc-ga-generate` supports low-friction pretrained controls (`pretrained_init_mode`, `pretrained_model_map`) for air-gapped transfer learning.

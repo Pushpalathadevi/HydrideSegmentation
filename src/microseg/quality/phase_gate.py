@@ -40,6 +40,12 @@ class PhaseGateConfig:
     output_dir: str = "outputs/phase_gates"
     extra_notes: str = ""
     strict: bool = False
+    verify_release_policy: bool = False
+    release_policy_path: str = "docs/versioning_and_release_policy.md"
+    require_rollback_keywords: bool = False
+    rollback_keywords: tuple[str, ...] = ("rollback", "patch", "release")
+    deployment_package_dirs: tuple[str, ...] = ()
+    verify_deployment_sha256: bool = True
 
 
 @dataclass
@@ -57,6 +63,9 @@ class PhaseGateResult:
     absolute_md_refs: list[str] = field(default_factory=list)
     required_docs_missing: list[str] = field(default_factory=list)
     docs_checked: list[str] = field(default_factory=list)
+    release_policy_path: str = ""
+    release_policy_ok: bool = True
+    deployment_packages_checked: list[dict[str, object]] = field(default_factory=list)
     gaps: list[str] = field(default_factory=list)
     notes: str = ""
     artifacts: dict[str, str] = field(default_factory=dict)
@@ -95,6 +104,67 @@ def _run_tests(repo_root: Path) -> tuple[bool, int, str]:
     return completed.returncode == 0, int(completed.returncode), " ".join(cmd)
 
 
+def _resolve_path(raw: str | Path, *, repo_root: Path) -> Path:
+    p = Path(str(raw))
+    if p.is_absolute():
+        return p
+    return (repo_root / p).resolve()
+
+
+def _check_release_policy(
+    repo_root: Path,
+    *,
+    policy_path: str,
+    require_rollback_keywords: bool,
+    rollback_keywords: tuple[str, ...],
+) -> tuple[bool, str, list[str]]:
+    resolved = _resolve_path(policy_path, repo_root=repo_root)
+    gaps: list[str] = []
+    if not resolved.exists():
+        return False, str(resolved), [f"release policy doc missing: {resolved}"]
+    try:
+        text = resolved.read_text(encoding="utf-8").lower()
+    except Exception as exc:
+        return False, str(resolved), [f"failed to read release policy doc: {exc}"]
+    if require_rollback_keywords:
+        missing = [kw for kw in rollback_keywords if kw and kw.lower() not in text]
+        if missing:
+            gaps.append(
+                "release policy missing required keywords: "
+                + ", ".join(sorted(set(str(kw) for kw in missing)))
+            )
+    return len(gaps) == 0, str(resolved), gaps
+
+
+def _check_deployment_packages(
+    repo_root: Path,
+    *,
+    package_dirs: tuple[str, ...],
+    verify_sha256: bool,
+) -> tuple[list[dict[str, object]], list[str]]:
+    from src.microseg.deployment import validate_deployment_package
+
+    checked: list[dict[str, object]] = []
+    gaps: list[str] = []
+    for raw in package_dirs:
+        if not str(raw).strip():
+            continue
+        resolved = _resolve_path(raw, repo_root=repo_root)
+        report = validate_deployment_package(resolved, verify_sha256=verify_sha256)
+        row = {
+            "package_dir": str(resolved),
+            "ok": bool(report.ok),
+            "errors": list(report.errors),
+            "warnings": list(report.warnings),
+            "file_count": int(report.file_count),
+        }
+        checked.append(row)
+        if not report.ok:
+            reason = "; ".join(report.errors[:3]) if report.errors else "unknown validation error"
+            gaps.append(f"deployment package invalid ({resolved}): {reason}")
+    return checked, gaps
+
+
 def _write_markdown_summary(result: PhaseGateResult, output_path: Path) -> None:
     lines = [
         f"# {result.phase_label} Closeout Stocktake",
@@ -108,6 +178,8 @@ def _write_markdown_summary(result: PhaseGateResult, output_path: Path) -> None:
         "",
         f"- Absolute markdown path references: `{len(result.absolute_md_refs)}`",
         f"- Missing required docs: `{len(result.required_docs_missing)}`",
+        f"- Release policy check: `{result.release_policy_ok}`",
+        f"- Deployment packages checked: `{len(result.deployment_packages_checked)}`",
         "",
         "## Gaps",
         "",
@@ -139,6 +211,26 @@ def run_phase_gate(config: PhaseGateConfig) -> PhaseGateResult:
 
     absolute_refs = _check_absolute_md_refs(repo_root)
     docs_checked, missing_docs = _check_required_docs(repo_root)
+    release_policy_ok = True
+    release_policy_path = ""
+    if bool(config.verify_release_policy):
+        release_policy_ok, release_policy_path, release_policy_gaps = _check_release_policy(
+            repo_root,
+            policy_path=str(config.release_policy_path),
+            require_rollback_keywords=bool(config.require_rollback_keywords),
+            rollback_keywords=tuple(str(v) for v in config.rollback_keywords),
+        )
+    else:
+        release_policy_gaps = []
+    deployment_packages_checked: list[dict[str, object]] = []
+    if config.deployment_package_dirs:
+        deployment_packages_checked, deployment_gaps = _check_deployment_packages(
+            repo_root,
+            package_dirs=tuple(config.deployment_package_dirs),
+            verify_sha256=bool(config.verify_deployment_sha256),
+        )
+    else:
+        deployment_gaps = []
 
     if config.run_tests:
         tests_passed, tests_return_code, tests_cmd = _run_tests(repo_root)
@@ -152,6 +244,8 @@ def run_phase_gate(config: PhaseGateConfig) -> PhaseGateResult:
         gaps.append("Absolute markdown path references were found.")
     if missing_docs:
         gaps.append("Required governance/workflow docs are missing.")
+    gaps.extend(release_policy_gaps)
+    gaps.extend(deployment_gaps)
 
     status = "pass" if not gaps else "fail"
     if status == "fail" and config.strict:
@@ -173,6 +267,9 @@ def run_phase_gate(config: PhaseGateConfig) -> PhaseGateResult:
         absolute_md_refs=absolute_refs,
         required_docs_missing=missing_docs,
         docs_checked=docs_checked,
+        release_policy_path=release_policy_path,
+        release_policy_ok=release_policy_ok,
+        deployment_packages_checked=deployment_packages_checked,
         gaps=gaps,
         notes=config.extra_notes,
         artifacts={

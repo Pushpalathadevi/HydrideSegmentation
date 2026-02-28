@@ -25,8 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.microseg.dataops import generate_dataset_split_manifest_from_splits
-from src.microseg.io import resolve_config
-from src.microseg.plugins import resolve_bundle_paths, resolve_pretrained_record, validate_pretrained_registry
+from src.microseg.quality.preflight import preflight_pretrained_train_config
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -61,185 +60,6 @@ def _resolve_path(path_value: str, *, base: Path) -> Path:
     if p.is_absolute():
         return p
     return (base / p).resolve()
-
-
-def _resolve_train_config(train_config: str, train_overrides: list[str], *, repo_root: Path) -> dict[str, Any]:
-    cfg_path = _resolve_path(train_config, base=repo_root)
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"train config does not exist: {cfg_path}")
-    payload = resolve_config(str(cfg_path), list(train_overrides))
-    if not isinstance(payload, dict):
-        raise ValueError(f"resolved train config must be a mapping: {cfg_path}")
-    payload["_resolved_train_config_path"] = str(cfg_path)
-    return payload
-
-
-def _pretrained_preflight(
-    *,
-    train_config: str,
-    train_overrides: list[str],
-    repo_root: Path,
-    validation_cache: dict[tuple[str, bool], Any],
-) -> tuple[bool, dict[str, Any]]:
-    try:
-        cfg = _resolve_train_config(train_config, train_overrides, repo_root=repo_root)
-    except Exception as exc:
-        return (
-            False,
-            {
-                "required": False,
-                "reason": f"failed to resolve train config: {exc}",
-                "actions": [
-                    "fix the train config path or syntax in suite YAML before rerunning",
-                ],
-            },
-        )
-
-    mode = str(cfg.get("pretrained_init_mode", "scratch")).strip().lower()
-    if mode in {"", "scratch", "none", "off"}:
-        return True, {"required": False, "mode": mode or "scratch", "reason": ""}
-    if mode not in {"local", "local_pretrained"}:
-        return (
-            False,
-            {
-                "required": True,
-                "mode": mode,
-                "reason": f"unsupported pretrained_init_mode={mode!r}; expected scratch/local",
-                "actions": ["set pretrained_init_mode=scratch or pretrained_init_mode=local"],
-            },
-        )
-
-    registry_cfg = str(cfg.get("pretrained_registry_path", "pre_trained_weights/registry.json")).strip()
-    if not registry_cfg:
-        registry_cfg = "pre_trained_weights/registry.json"
-    registry_path = _resolve_path(registry_cfg, base=repo_root)
-    model_id = str(cfg.get("pretrained_model_id", "")).strip()
-    bundle_dir = str(cfg.get("pretrained_bundle_dir", "")).strip()
-    verify_sha = bool(cfg.get("pretrained_verify_sha256", True))
-
-    common_actions = [
-        "on connected Linux machine: python scripts/download_pretrained_weights.py --targets all --force",
-        f"on HPC/repo root: microseg-cli validate-pretrained --registry-path {registry_cfg} --strict",
-        "confirm pre_trained_weights/ was copied and extracted at repo root before running suite",
-    ]
-
-    if model_id:
-        cache_key = (str(registry_path), bool(verify_sha))
-        report = validation_cache.get(cache_key)
-        if report is None:
-            report = validate_pretrained_registry(str(registry_path), verify_sha256=bool(verify_sha))
-            validation_cache[cache_key] = report
-        if not bool(getattr(report, "ok", False)):
-            errors = list(getattr(report, "errors", []))
-            details = "; ".join(errors[:5]) if errors else "registry validation failed"
-            return (
-                False,
-                {
-                    "required": True,
-                    "mode": mode,
-                    "model_id": model_id,
-                    "registry_path": str(registry_path),
-                    "reason": f"pretrained registry invalid: {details}",
-                    "actions": common_actions,
-                },
-            )
-        try:
-            rec = resolve_pretrained_record(model_id=model_id, registry_path=str(registry_path))
-        except Exception as exc:
-            return (
-                False,
-                {
-                    "required": True,
-                    "mode": mode,
-                    "model_id": model_id,
-                    "registry_path": str(registry_path),
-                    "reason": f"pretrained model_id missing in registry: {exc}",
-                    "actions": common_actions,
-                },
-            )
-        try:
-            _bundle, weights_path, _metadata = resolve_bundle_paths(rec, registry_path=str(registry_path))
-        except Exception as exc:
-            return (
-                False,
-                {
-                    "required": True,
-                    "mode": mode,
-                    "model_id": model_id,
-                    "registry_path": str(registry_path),
-                    "reason": f"failed to resolve pretrained bundle paths: {exc}",
-                    "actions": common_actions,
-                },
-            )
-        weights_format = str(getattr(rec, "weights_format", "")).strip().lower()
-        if weights_format == "hf_model_dir":
-            ok_weights = weights_path.exists() and weights_path.is_dir()
-            expected = "directory"
-        else:
-            ok_weights = weights_path.exists() and weights_path.is_file()
-            expected = "file"
-        if not ok_weights:
-            return (
-                False,
-                {
-                    "required": True,
-                    "mode": mode,
-                    "model_id": model_id,
-                    "registry_path": str(registry_path),
-                    "weights_path": str(weights_path),
-                    "reason": f"pretrained weights missing at {weights_path} (expected {expected})",
-                    "actions": common_actions,
-                },
-            )
-        return (
-            True,
-            {
-                "required": True,
-                "mode": mode,
-                "model_id": model_id,
-                "registry_path": str(registry_path),
-                "weights_path": str(weights_path),
-                "reason": "",
-            },
-        )
-
-    if bundle_dir:
-        bundle_path = _resolve_path(bundle_dir, base=repo_root)
-        if bundle_path.exists():
-            return (
-                True,
-                {
-                    "required": True,
-                    "mode": mode,
-                    "model_id": "",
-                    "bundle_dir": str(bundle_path),
-                    "reason": "",
-                },
-            )
-        return (
-            False,
-            {
-                "required": True,
-                "mode": mode,
-                "model_id": "",
-                "bundle_dir": str(bundle_path),
-                "reason": f"pretrained_bundle_dir does not exist: {bundle_path}",
-                "actions": common_actions,
-            },
-        )
-
-    return (
-        False,
-        {
-            "required": True,
-            "mode": mode,
-            "reason": "pretrained_init_mode=local requires pretrained_model_id or pretrained_bundle_dir",
-            "actions": [
-                "set pretrained_model_id to a model in pre_trained_weights/registry.json",
-                "or set pretrained_bundle_dir to an existing local bundle directory",
-            ],
-        },
-    )
 
 
 def _write_skip_log(
@@ -1573,7 +1393,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             eval_cmd_duration_seconds: float | None = None
             if not skip_train:
                 preflight_started = time.monotonic()
-                preflight_ok, preflight = _pretrained_preflight(
+                preflight_ok, preflight = preflight_pretrained_train_config(
                     train_config=train_config,
                     train_overrides=[f"seed={seed}", *train_overrides],
                     repo_root=repo_root,

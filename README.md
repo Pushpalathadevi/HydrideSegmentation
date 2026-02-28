@@ -39,6 +39,7 @@ See `docs/mission_statement.md`.
 - Correction export schema `microseg.correction.v1`
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
+- Deployment operations tooling (`preflight`, `deploy-package`, `deploy-validate`, `deploy-smoke`, `promote-model`, `support-bundle`)
 - GPU-compatible training/inference/evaluation with CPU default + safe fallback
 - UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`, `smp_unet_resnet18`, `smp_deeplabv3plus_resnet101`, `smp_unetplusplus_resnet101`, `smp_pspnet_resnet101`, `smp_fpn_resnet101`, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
 - Air-gapped local transfer-learning support via `pre_trained_weights/` registry + bundle validation (`unet_binary`, SMP decoder family, `hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`, `transunet_tiny`, `segformer_mini`)
@@ -210,6 +211,34 @@ Phase closeout gate:
 microseg-cli phase-gate --phase-label "Phase N" --strict
 ```
 
+Unified workflow preflight:
+```bash
+microseg-cli preflight --config configs/preflight.default.yml --mode train --strict
+```
+
+Deployment package creation + validation + smoke:
+```bash
+microseg-cli deploy-package --config configs/deployment_package.default.yml --model-path outputs/training/model.pth
+microseg-cli deploy-validate --package-dir outputs/deployments/<package_dir> --strict
+microseg-cli deploy-smoke --package-dir outputs/deployments/<package_dir> --image-path test_data/sample.png
+```
+
+Promotion gate from benchmark summary:
+```bash
+microseg-cli promote-model \
+  --summary-json outputs/hydride_benchmark_suite/summary.json \
+  --model-name hf_segformer_b2 \
+  --registry-model-id hf_segformer_b2 \
+  --policy-config configs/promotion_policy.default.yml \
+  --update-registry --strict
+```
+
+Support diagnostics bundle + environment fingerprint:
+```bash
+microseg-cli support-bundle --config configs/support_bundle.default.yml
+microseg-cli compatibility-matrix --output-path outputs/support_bundles/compatibility_matrix.json
+```
+
 HPC GA bundle generation:
 ```bash
 microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
@@ -298,6 +327,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Docs index: `docs/README.md`
 - Mission: `docs/mission_statement.md`
 - Phase roadmap: `docs/development_roadmap.md`
+- Deployment + productization master roadmap: `docs/deployment_productization_master_roadmap.md`
 - Foundation strategy: `docs/foundation_strategy.md`
 - Current gap analysis: `docs/current_state_gap_analysis.md`
 - Repository health audit: `docs/repo_health_audit.md`
@@ -317,6 +347,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Model architecture manuscript foundation (Mermaid diagrams + critical comparison): `docs/model_architecture_manuscript_foundation.md`
 - Pretrained citation BibTeX: `docs/pretrained_model_citations.bib`
 - Configuration workflow: `docs/configuration_workflow.md`
+- Deployment operations workflow: `docs/deployment_ops_workflow.md`
 - Development workflow + phase closeout gate: `docs/development_workflow.md`
 - Developer guide: `developer_guide.md`
 - Repository contract: `AGENTS.md`

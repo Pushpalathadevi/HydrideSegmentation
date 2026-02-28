@@ -57,6 +57,16 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
         feedback_sources="outputs/a,outputs/b",
         output_path="outputs/hpc_ga_feedback/report.json",
     )
+    preflight_cmd = builder.preflight(config="configs/preflight.default.yml", mode="train", dataset_dir="d")
+    deploy_package_cmd = builder.deploy_package(config="configs/deployment_package.default.yml", model_path="m.pth")
+    deploy_validate_cmd = builder.deploy_validate(package_dir="outputs/deployments/p1", strict=True)
+    deploy_smoke_cmd = builder.deploy_smoke(package_dir="outputs/deployments/p1", image_path="x.png")
+    promote_cmd = builder.promote_model(
+        summary_json="outputs/hydride_benchmark/summary.json",
+        model_name="unet_binary",
+    )
+    support_cmd = builder.support_bundle(run_root="outputs/hydride_benchmark")
+    compat_cmd = builder.compatibility_matrix(output_path="outputs/support_bundles/compat.json")
 
     assert infer_cmd[0].endswith("python") or "python" in infer_cmd[0]
     assert infer_cmd[2] == "infer"
@@ -67,7 +77,15 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     assert qa_cmd[2] == "dataset-qa"
     assert hpc_cmd[2] == "hpc-ga-generate"
     assert hpc_feedback_cmd[2] == "hpc-ga-feedback-report"
+    assert preflight_cmd[2] == "preflight"
+    assert deploy_package_cmd[2] == "deploy-package"
+    assert deploy_validate_cmd[2] == "deploy-validate"
+    assert deploy_smoke_cmd[2] == "deploy-smoke"
+    assert promote_cmd[2] == "promote-model"
+    assert support_cmd[2] == "support-bundle"
+    assert compat_cmd[2] == "compatibility-matrix"
     assert qa_cmd[-1] == "--strict"
+    assert deploy_validate_cmd[-1] == "--strict"
     assert "--feedback-sources" in hpc_feedback_cmd
 
 

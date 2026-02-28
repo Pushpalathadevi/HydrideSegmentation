@@ -33,6 +33,7 @@ Current phase coverage includes:
 - `test_phase21_benchmark_dashboard_enrichment.py` benchmark dashboard enrichment with training curves, training-history metrics, and aggregate comparison fields
 - `test_phase22_pretrained_offline.py` offline local pretrained registry validation, checksum verification, and local-bundle initialization smoke tests for `unet_binary`, `smp_unet_resnet18`, `hf_segformer_b0`, `transunet_tiny`, and `segformer_mini`
 - `test_phase24_sota_backends.py` new backend factory smoke checks for SMP ResNet101 decoder family and `hf_upernet_swin_large`
+- `test_phase25_deployment_ops.py` deployment package validation, deploy preflight failure detection, promotion gate registry updates, and support-bundle artifact collection
 
 - `test_data_preparation_module.py` paired image/mask collector, RGB red-threshold + red-dominance fallback binarization, noisy-grayscale auto-Otsu fallback, short-side resize+crop alignment, empty-mask warn/error policy, manifests/QA reports, debug criteria exports, and dry-run behavior
 - `test_mask_binary_normalization.py` binary-mask auto-normalization option (`two_value_zero_background`) for 2-value indexed masks
