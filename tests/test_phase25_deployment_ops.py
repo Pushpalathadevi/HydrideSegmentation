@@ -5,12 +5,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
 from src.microseg.deployment import (
     DeploymentPackageConfig,
     create_deployment_package,
+    run_runtime_health,
+    RuntimeHealthConfig,
     validate_deployment_package,
 )
 from src.microseg.quality import (
+    DEPLOY_PACKAGE_INVALID,
     PreflightConfig,
     PromotionPolicy,
     SupportBundleConfig,
@@ -78,7 +84,8 @@ def test_phase25_preflight_deploy_mode_reports_invalid_package(tmp_path: Path) -
     )
 
     assert report.ok is False
-    assert any(issue.code == "deploy.package_invalid" for issue in report.issues)
+    issue = next(issue for issue in report.issues if issue.code == "deploy.package_invalid")
+    assert issue.error_code == DEPLOY_PACKAGE_INVALID
 
 
 def test_phase25_promotion_gate_updates_registry_with_relative_paths(tmp_path: Path) -> None:
@@ -188,3 +195,63 @@ def test_phase25_support_bundle_collects_run_artifacts(tmp_path: Path) -> None:
     assert included
     assert any(str(item.get("source", "")).endswith("logs/train.log") for item in included)
     assert (Path(result.bundle_dir) / "environment_fingerprint.json").exists()
+
+
+def test_phase25_runtime_health_reports_package_failure_code(tmp_path: Path) -> None:
+    result = run_runtime_health(
+        RuntimeHealthConfig(
+            package_dir=str(tmp_path / "missing_package"),
+            image_paths=(str(tmp_path / "x.png"),),
+            output_dir=str(tmp_path / "health"),
+        )
+    )
+    payload = json.loads(Path(result.report_path).read_text(encoding="utf-8"))
+    assert payload["ok"] is False
+    assert payload["global_steps"]
+    assert payload["global_steps"][0]["error_code"] == DEPLOY_PACKAGE_INVALID
+
+
+def test_phase25_runtime_health_queue_mode_success_with_stub_predictor(tmp_path: Path, monkeypatch) -> None:
+    import src.microseg.deployment.runtime_health as health_mod
+
+    model_path = tmp_path / "model.joblib"
+    model_path.write_bytes(b"dummy")
+    pkg = create_deployment_package(
+        DeploymentPackageConfig(
+            model_path=str(model_path),
+            output_dir=str(tmp_path / "deployments"),
+            package_name="health_pkg",
+        )
+    )
+
+    img_dir = tmp_path / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    for idx in range(2):
+        arr = np.zeros((16, 16, 3), dtype=np.uint8)
+        arr[:, 8:, 0] = 200
+        Image.fromarray(arr).save(img_dir / f"s{idx}.png")
+
+    def _fake_predict(image_rgb, model_artifact, *, enable_gpu, device_policy):
+        h, w, _ = image_rgb.shape
+        mask = np.zeros((h, w), dtype=np.uint8)
+        mask[:, w // 2 :] = 1
+        return mask
+
+    monkeypatch.setattr(health_mod, "predict_from_artifact", _fake_predict)
+
+    result = run_runtime_health(
+        RuntimeHealthConfig(
+            package_dir=str(pkg.package_dir),
+            image_dir=str(img_dir),
+            output_dir=str(tmp_path / "health"),
+            max_workers=2,
+            enable_gpu=False,
+            device_policy="cpu",
+        )
+    )
+    assert result.ok is True
+    assert result.total_images == 2
+    payload = json.loads(Path(result.report_path).read_text(encoding="utf-8"))
+    assert payload["ok"] is True
+    assert payload["ok_images"] == 2
+    assert payload["failed_images"] == 0

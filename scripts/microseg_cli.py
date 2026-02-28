@@ -37,6 +37,8 @@ from src.microseg.deployment import (
     DeploymentPackageConfig,
     DeploymentSmokeConfig,
     create_deployment_package,
+    run_runtime_health,
+    RuntimeHealthConfig,
     run_deployment_smoke,
     validate_deployment_package,
 )
@@ -1006,6 +1008,40 @@ def _deploy_smoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def _deploy_health(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    package_dir = str(args.package_dir or cfg.get("package_dir") or "").strip()
+    if not package_dir:
+        raise ValueError("package directory is required (--package-dir or config:package_dir)")
+
+    if args.image_path:
+        image_paths = tuple(str(v).strip() for v in args.image_path if str(v).strip())
+    else:
+        image_paths = tuple(_parse_name_list(cfg.get("image_paths", [])))
+    patterns = _parse_name_list(cfg.get("glob_patterns", args.glob_patterns))
+    if not patterns:
+        patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]
+    result = run_runtime_health(
+        RuntimeHealthConfig(
+            package_dir=package_dir,
+            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/deployments/health"),
+            image_paths=image_paths,
+            image_dir=str(args.image_dir or cfg.get("image_dir") or ""),
+            glob_patterns=tuple(patterns),
+            max_workers=max(1, int(cfg.get("max_workers", args.max_workers))),
+            enable_gpu=bool(cfg.get("enable_gpu", args.enable_gpu)),
+            device_policy=str(cfg.get("device_policy", args.device_policy)),
+        ),
+        report_path=str(args.report_path or cfg.get("report_path") or ""),
+    )
+    print(f"runtime health ok: {result.ok}")
+    print(f"images: total={result.total_images} failed={result.failed_images}")
+    print(f"report: {result.report_path}")
+    if bool(cfg.get("strict", args.strict)) and not result.ok:
+        return 2
+    return 0
+
+
 def _promote_model(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     summary_path = str(args.summary_json or cfg.get("summary_json") or "").strip()
@@ -1531,6 +1567,29 @@ def _build_parser() -> argparse.ArgumentParser:
     deploy_smoke.add_argument("--enable-gpu", action="store_true")
     deploy_smoke.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
     deploy_smoke.set_defaults(handler=_deploy_smoke)
+
+    deploy_health = sub.add_parser(
+        "deploy-health",
+        help="Run deployment runtime health checks (supports concurrent batch queue mode)",
+    )
+    deploy_health.add_argument("--config", type=str, help="YAML config path")
+    deploy_health.add_argument("--set", action="append", default=[], help="Override key=value")
+    deploy_health.add_argument("--package-dir", type=str, help="Deployment package directory")
+    deploy_health.add_argument("--image-path", action="append", default=[], help="Input image path (repeatable)")
+    deploy_health.add_argument("--image-dir", type=str, default="", help="Directory to scan for input images")
+    deploy_health.add_argument(
+        "--glob-patterns",
+        type=str,
+        default="*.png,*.jpg,*.jpeg,*.bmp,*.tif,*.tiff",
+        help="Comma-separated glob patterns used with --image-dir",
+    )
+    deploy_health.add_argument("--output-dir", type=str, default="outputs/deployments/health")
+    deploy_health.add_argument("--report-path", type=str, default="", help="Optional explicit report JSON path")
+    deploy_health.add_argument("--max-workers", type=int, default=1, help="Concurrent workers for queue-style processing")
+    deploy_health.add_argument("--enable-gpu", action="store_true")
+    deploy_health.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
+    deploy_health.add_argument("--strict", action="store_true", help="Exit non-zero when any health check fails")
+    deploy_health.set_defaults(handler=_deploy_health)
 
     promote = sub.add_parser("promote-model", help="Evaluate benchmark summary against policy and update registry stage")
     promote.add_argument("--config", type=str, help="YAML config path")

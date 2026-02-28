@@ -276,6 +276,27 @@ class OrchestrationCommandBuilder:
             args.extend(["--output-dir", output_dir])
         return args
 
+    def deploy_health(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        package_dir: str | None = None,
+        image_dir: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["deploy-health"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if package_dir:
+            args.extend(["--package-dir", package_dir])
+        if image_dir:
+            args.extend(["--image-dir", image_dir])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args
+
     def promote_model(
         self,
         *,

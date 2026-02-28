@@ -17,6 +17,13 @@ from src.microseg.plugins import (
     resolve_pretrained_record,
     validate_pretrained_registry,
 )
+from src.microseg.quality.failure_codes import (
+    DEPLOY_PACKAGE_INVALID,
+    PREFLIGHT_BENCHMARK_CONFIG_INVALID,
+    PREFLIGHT_DATASET_INVALID,
+    PREFLIGHT_MODEL_MISSING,
+    PREFLIGHT_PRETRAINED_MISSING,
+)
 
 
 def _utc_now() -> str:
@@ -30,6 +37,7 @@ class PreflightIssue:
     severity: Literal["error", "warning", "info"]
     code: str
     message: str
+    error_code: str = ""
     hint: str = ""
     context: dict[str, Any] = field(default_factory=dict)
 
@@ -74,6 +82,8 @@ def _resolve_path(path_value: str | Path, *, base: Path) -> Path:
 
 
 def _append_issue(report: PreflightReport, issue: PreflightIssue) -> None:
+    if not issue.error_code:
+        issue.error_code = _map_preflight_failure_code(issue.code)
     report.issues.append(issue)
     if issue.severity == "error":
         report.error_count += 1
@@ -88,6 +98,26 @@ def _write_report(report: PreflightReport, output_path: str) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(report)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _map_preflight_failure_code(code: str) -> str:
+    text = str(code).strip()
+    mapping = {
+        "dataset.missing": PREFLIGHT_DATASET_INVALID,
+        "dataset.not_found": PREFLIGHT_DATASET_INVALID,
+        "dataset.layout_invalid": PREFLIGHT_DATASET_INVALID,
+        "dataset.qa_error": PREFLIGHT_DATASET_INVALID,
+        "dataset.qa_result": PREFLIGHT_DATASET_INVALID,
+        "model.missing": PREFLIGHT_MODEL_MISSING,
+        "model.not_found": PREFLIGHT_MODEL_MISSING,
+        "pretrained.not_ready": PREFLIGHT_PRETRAINED_MISSING,
+        "benchmark.config_missing": PREFLIGHT_BENCHMARK_CONFIG_INVALID,
+        "benchmark.config_invalid": PREFLIGHT_BENCHMARK_CONFIG_INVALID,
+        "benchmark.experiments_missing": PREFLIGHT_BENCHMARK_CONFIG_INVALID,
+        "benchmark.pretrained_not_ready": PREFLIGHT_PRETRAINED_MISSING,
+        "deploy.package_invalid": DEPLOY_PACKAGE_INVALID,
+    }
+    return mapping.get(text, "")
 
 
 def preflight_pretrained_train_config(
@@ -630,4 +660,3 @@ def run_preflight(config: PreflightConfig) -> PreflightReport:
     if str(config.output_path).strip():
         _write_report(report, str(config.output_path))
     return report
-

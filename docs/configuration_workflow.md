@@ -14,6 +14,7 @@ Reference templates:
 - `configs/phase_gate.default.yml`
 - `configs/preflight.default.yml`
 - `configs/deployment_package.default.yml`
+- `configs/deploy_health.default.yml`
 - `configs/promotion_policy.default.yml`
 - `configs/support_bundle.default.yml`
 - `configs/registry_validation.default.yml`
@@ -355,6 +356,7 @@ Deployment package contract checks:
 microseg-cli deploy-package --config configs/deployment_package.default.yml --model-path outputs/training/model.pth
 microseg-cli deploy-validate --package-dir outputs/deployments/<package_dir> --strict
 microseg-cli deploy-smoke --package-dir outputs/deployments/<package_dir> --image-path test_data/sample.png
+microseg-cli deploy-health --config configs/deploy_health.default.yml --package-dir outputs/deployments/<package_dir> --image-dir test_data --max-workers 4 --strict
 ```
 
 Model promotion gate:

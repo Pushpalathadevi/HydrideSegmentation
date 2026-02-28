@@ -52,6 +52,7 @@ Core planning and governance docs:
 - Pretrained model catalog JSON: `pretrained_model_catalog.json`
 - Versioning and release policy: `versioning_and_release_policy.md`
 - Deployment operations workflow (preflight/package/promote/support): `deployment_ops_workflow.md`
+- Failure taxonomy and machine-readable error codes: `failure_taxonomy.md`
 - Migration strategy: `migration_strategy.md`
 - Repository blueprint: `repository_blueprint.md`
 - Architecture decisions process: `adr/README.md`

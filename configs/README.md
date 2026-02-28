@@ -18,6 +18,7 @@ Additional workflow config:
 - `phase_gate.default.yml` for end-of-phase closeout checks
 - `preflight.default.yml` for unified train/eval/benchmark/deploy preflight checks
 - `deployment_package.default.yml` for deployment bundle creation inputs
+- `deploy_health.default.yml` for runtime deployment health checks and queue-style batch validation
 - `promotion_policy.default.yml` for objective model-promotion thresholds
 - `support_bundle.default.yml` for run diagnostics/support artifact bundling
 - `registry_validation.default.yml` for frozen registry validation

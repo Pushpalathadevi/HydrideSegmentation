@@ -94,6 +94,7 @@ Completed P0 implementations aligned to this roadmap:
 4. Phase-gate extension with optional release-policy checks and deployment package validation inputs.
 5. Support bundle + compatibility fingerprint commands (`support-bundle`, `compatibility-matrix`) for post-mortem diagnostics.
 6. Benchmark suite preflight logic consolidated to shared helper (single source of truth for pretrained readiness checks).
+7. Stage 6 runtime health baseline added via `microseg-cli deploy-health` (global + per-image checks with failure codes and queue-style concurrency controls).
 
 ## Stage 0: Governance And Baseline Freeze
 

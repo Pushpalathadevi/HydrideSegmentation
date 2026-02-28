@@ -61,6 +61,7 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     deploy_package_cmd = builder.deploy_package(config="configs/deployment_package.default.yml", model_path="m.pth")
     deploy_validate_cmd = builder.deploy_validate(package_dir="outputs/deployments/p1", strict=True)
     deploy_smoke_cmd = builder.deploy_smoke(package_dir="outputs/deployments/p1", image_path="x.png")
+    deploy_health_cmd = builder.deploy_health(package_dir="outputs/deployments/p1", image_dir="test_data")
     promote_cmd = builder.promote_model(
         summary_json="outputs/hydride_benchmark/summary.json",
         model_name="unet_binary",
@@ -81,6 +82,7 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     assert deploy_package_cmd[2] == "deploy-package"
     assert deploy_validate_cmd[2] == "deploy-validate"
     assert deploy_smoke_cmd[2] == "deploy-smoke"
+    assert deploy_health_cmd[2] == "deploy-health"
     assert promote_cmd[2] == "promote-model"
     assert support_cmd[2] == "support-bundle"
     assert compat_cmd[2] == "compatibility-matrix"

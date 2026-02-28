@@ -41,6 +41,23 @@ microseg-cli deploy-smoke \
 
 Smoke output includes predicted mask, overlay PNG, and smoke JSON report.
 
+## 4b. Runtime Health And Queue-Style Batch Validation
+
+```bash
+microseg-cli deploy-health \
+  --config configs/deploy_health.default.yml \
+  --package-dir outputs/deployments/<package_dir> \
+  --image-dir test_data \
+  --max-workers 4 --strict
+```
+
+Runtime health report contains global and per-image step checks with machine-readable error codes for:
+- package validation
+- model load
+- preprocess
+- inference
+- output write
+
 ## 5. Promotion Gate (Benchmark Evidence)
 
 ```bash

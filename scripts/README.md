@@ -23,6 +23,7 @@ Current scripts:
   - `deploy-package` creates a deployment handoff bundle (`deployment_manifest.json` + checksums).
   - `deploy-validate` validates package integrity and optional SHA256 checks.
   - `deploy-smoke` runs one-image smoke inference from a deployment package.
+  - `deploy-health` runs runtime health checks (`package_validation`, `model_load`, `preprocess`, `inference`, `output_write`) and supports queue-style concurrent batch validation (`--image-dir`, `--max-workers`).
   - `promote-model` applies threshold policy to benchmark aggregate rows and can update registry stage metadata.
   - `support-bundle` collects run diagnostics/log artifacts into a zipped support bundle.
   - `compatibility-matrix` writes environment/runtime fingerprint JSON for reproducibility audits.

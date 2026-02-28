@@ -149,6 +149,46 @@ def _predict_from_artifact(
     raise ValueError(f"unsupported model artifact for deployment smoke: {model_artifact}")
 
 
+def predict_from_artifact(
+    image_rgb: np.ndarray,
+    model_artifact: str | Path,
+    *,
+    enable_gpu: bool,
+    device_policy: str,
+) -> np.ndarray:
+    """Public inference helper for deployment runtime tooling."""
+
+    artifact = Path(model_artifact).resolve()
+    return _predict_from_artifact(
+        image_rgb,
+        artifact,
+        enable_gpu=bool(enable_gpu),
+        device_policy=str(device_policy),
+    )
+
+
+def resolve_model_artifact_from_package(
+    package_dir: str | Path,
+    *,
+    verify_sha256: bool = True,
+) -> tuple[dict[str, Any], Path]:
+    """Resolve deployment package manifest and concrete model artifact path."""
+
+    validation = validate_deployment_package(package_dir, verify_sha256=verify_sha256)
+    if not validation.ok:
+        raise RuntimeError("deployment package validation failed: " + "; ".join(validation.errors[:5]))
+
+    root = Path(package_dir).resolve()
+    manifest = _read_json(root / "deployment_manifest.json")
+    model_rel = str((manifest.get("model") or {}).get("artifact_rel_path", "")).strip()
+    if not model_rel:
+        raise ValueError("deployment manifest missing model.artifact_rel_path")
+    model_artifact = (root / model_rel).resolve()
+    if not model_artifact.exists():
+        raise FileNotFoundError(f"deployment model artifact missing: {model_artifact}")
+    return manifest, model_artifact
+
+
 @dataclass(frozen=True)
 class DeploymentPackageConfig:
     """Input contract for deployment package creation."""
@@ -406,16 +446,8 @@ def validate_deployment_package(
 def run_deployment_smoke(config: DeploymentSmokeConfig) -> DeploymentSmokeResult:
     """Run one-image inference smoke test using a validated deployment package."""
 
-    validation = validate_deployment_package(config.package_dir, verify_sha256=True)
-    if not validation.ok:
-        raise RuntimeError("deployment package validation failed: " + "; ".join(validation.errors[:5]))
-
+    manifest, model_artifact = resolve_model_artifact_from_package(config.package_dir, verify_sha256=True)
     package_dir = Path(config.package_dir).resolve()
-    manifest = _read_json(package_dir / "deployment_manifest.json")
-    model_rel = str((manifest.get("model") or {}).get("artifact_rel_path", "")).strip()
-    if not model_rel:
-        raise ValueError("deployment manifest missing model.artifact_rel_path")
-    model_artifact = (package_dir / model_rel).resolve()
     image_path = Path(config.image_path).resolve()
     if not image_path.exists():
         raise FileNotFoundError(f"smoke image not found: {image_path}")
@@ -425,7 +457,7 @@ def run_deployment_smoke(config: DeploymentSmokeConfig) -> DeploymentSmokeResult
 
     image_rgb = np.asarray(Image.open(image_path).convert("RGB"), dtype=np.uint8)
     start = time.perf_counter()
-    pred = _predict_from_artifact(
+    pred = predict_from_artifact(
         image_rgb,
         model_artifact,
         enable_gpu=bool(config.enable_gpu),
@@ -480,4 +512,3 @@ def run_deployment_smoke(config: DeploymentSmokeConfig) -> DeploymentSmokeResult
         ok=True,
         warnings=[],
     )
-

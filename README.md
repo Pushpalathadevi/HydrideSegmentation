@@ -223,6 +223,15 @@ microseg-cli deploy-validate --package-dir outputs/deployments/<package_dir> --s
 microseg-cli deploy-smoke --package-dir outputs/deployments/<package_dir> --image-path test_data/sample.png
 ```
 
+Deployment runtime health checks (queue-style batch capable):
+```bash
+microseg-cli deploy-health \
+  --config configs/deploy_health.default.yml \
+  --package-dir outputs/deployments/<package_dir> \
+  --image-dir test_data \
+  --max-workers 4 --strict
+```
+
 Promotion gate from benchmark summary:
 ```bash
 microseg-cli promote-model \
@@ -348,6 +357,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Pretrained citation BibTeX: `docs/pretrained_model_citations.bib`
 - Configuration workflow: `docs/configuration_workflow.md`
 - Deployment operations workflow: `docs/deployment_ops_workflow.md`
+- Failure taxonomy and error codes: `docs/failure_taxonomy.md`
 - Development workflow + phase closeout gate: `docs/development_workflow.md`
 - Developer guide: `developer_guide.md`
 - Repository contract: `AGENTS.md`
