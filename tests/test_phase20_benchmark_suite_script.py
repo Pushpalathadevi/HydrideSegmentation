@@ -74,6 +74,15 @@ def test_phase20_benchmark_suite_dry_run(tmp_path: Path) -> None:
     assert (out_root / "benchmark_dashboard.html").exists()
     assert (out_root / "summary.json").exists()
     assert (out_root / "summary.html").exists()
+    assert (out_root / "logs" / "suite_events.jsonl").exists()
+
+    payload = json.loads((out_root / "benchmark_summary.json").read_text(encoding="utf-8"))
+    assert payload.get("suite_event_log")
+    assert payload.get("schema_version") == "microseg.hydride_benchmark_suite.v4"
+    assert payload.get("rows")
+    assert "run_events_log" in payload["rows"][0]
+    assert "train_log" in payload["rows"][0]
+    assert "eval_log" in payload["rows"][0]
 
 
 def test_phase20_benchmark_mode_autogenerates_missing_manifest(tmp_path: Path) -> None:

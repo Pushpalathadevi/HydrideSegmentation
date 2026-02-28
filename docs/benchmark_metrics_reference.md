@@ -22,6 +22,7 @@ This reference defines the expanded metrics used in benchmark reports and how to
 - `macro_recall`
 - `weighted_f1`
 - `balanced_accuracy`
+- `cohen_kappa`
 - `frequency_weighted_iou`
 
 ### Binary hydride diagnostics (labels `{0,1}`)
@@ -83,7 +84,7 @@ The benchmark dashboard (`benchmark_dashboard.html`) consolidates:
 
 1. Filter out failed/unstable runs first.
 2. Rank by quality (`mean_iou`, `macro_f1`, `foreground_dice` for binary).
-3. Check robustness diagnostics (`FPR/FNR`, `MCC`, overfit gap, tracked-sample IoU deltas).
+3. Check robustness diagnostics (`FPR/FNR`, `MCC`, `Cohen kappa`, overfit gap, tracked-sample IoU deltas).
 4. Apply runtime/size constraints.
 5. Use scientific error metrics to reject models with physically implausible morphology behavior.
 

@@ -994,6 +994,33 @@ def _hf_segformer_config_for_variant(variant: str):
     )
 
 
+def _hf_upernet_config_for_variant(variant: str):
+    from transformers import SwinConfig, UperNetConfig
+
+    name = str(variant).strip().lower()
+    if name != "swin_large":
+        raise ValueError(f"unsupported hf upernet variant: {variant}")
+    backbone = SwinConfig(
+        image_size=512,
+        patch_size=4,
+        num_channels=3,
+        embed_dim=192,
+        depths=[2, 2, 18, 2],
+        num_heads=[6, 12, 24, 48],
+        window_size=7,
+        drop_path_rate=0.3,
+        out_indices=[0, 1, 2, 3],
+    )
+    return UperNetConfig(
+        backbone_config=backbone,
+        num_labels=2,
+        hidden_size=512,
+        pool_scales=[1, 2, 3, 6],
+        use_auxiliary_head=True,
+        auxiliary_channels=256,
+    )
+
+
 def _extract_state_dict(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"unsupported checkpoint payload type: {type(payload).__name__}")
@@ -1034,12 +1061,41 @@ def _load_local_torch_pretrained(
     return load_notes
 
 
-class _SmpUNetBinaryModel:
-    """SMP U-Net model wrapper supporting local pretrained-state initialization."""
+def _is_hf_transformer_architecture(architecture: str) -> bool:
+    arch = str(architecture).strip().lower()
+    return arch.startswith("hf_segformer_") or arch.startswith("hf_upernet_")
+
+
+def _is_smp_architecture(architecture: str) -> bool:
+    arch = str(architecture).strip().lower()
+    return arch.startswith("smp_")
+
+
+def _parse_smp_architecture(architecture: str) -> tuple[str, str] | None:
+    arch = str(architecture).strip().lower()
+    parser: tuple[tuple[str, str], ...] = (
+        ("smp_unetplusplus_", "unetplusplus"),
+        ("smp_deeplabv3plus_", "deeplabv3plus"),
+        ("smp_pspnet_", "pspnet"),
+        ("smp_fpn_", "fpn"),
+        ("smp_unet_", "unet"),
+    )
+    for prefix, decoder in parser:
+        if arch.startswith(prefix):
+            encoder = arch[len(prefix) :]
+            if not encoder:
+                return None
+            return decoder, encoder
+    return None
+
+
+class _SmpBinaryModel:
+    """SMP segmentation model wrapper supporting local pretrained-state initialization."""
 
     def __init__(
         self,
         *,
+        decoder_name: str = "unet",
         encoder_name: str = "resnet18",
         pretrained_bundle: _PretrainedInitBundle | None = None,
         strict: bool = False,
@@ -1050,12 +1106,23 @@ class _SmpUNetBinaryModel:
             import segmentation_models_pytorch as smp
         except Exception as exc:
             raise RuntimeError(
-                "segmentation_models_pytorch is required for smp_unet_* backends. "
+                "segmentation_models_pytorch is required for smp_* backends. "
                 "Install with `pip install segmentation-models-pytorch`."
             ) from exc
 
         self.torch = torch
-        self.model = smp.Unet(
+        decoder = str(decoder_name).strip().lower()
+        model_factory_by_decoder = {
+            "unet": smp.Unet,
+            "unetplusplus": smp.UnetPlusPlus,
+            "deeplabv3plus": smp.DeepLabV3Plus,
+            "pspnet": smp.PSPNet,
+            "fpn": smp.FPN,
+        }
+        model_factory = model_factory_by_decoder.get(decoder)
+        if model_factory is None:
+            raise ValueError(f"unsupported SMP decoder family: {decoder_name!r}")
+        self.model = model_factory(
             encoder_name=str(encoder_name),
             encoder_weights=None,
             in_channels=3,
@@ -1067,7 +1134,7 @@ class _SmpUNetBinaryModel:
             path = Path(pretrained_bundle.weights_path)
             if not path.exists() or not path.is_file():
                 raise FileNotFoundError(
-                    "smp_unet_resnet18 requires pretrained weights_path to be an existing file; "
+                    "smp_* local-pretrained requires weights_path to be an existing file; "
                     f"got: {path}"
                 )
             payload = torch.load(path, map_location="cpu")
@@ -1168,6 +1235,72 @@ class _HfSegFormerBinaryModel:
         return self.model.parameters()
 
 
+class _HfUperNetBinaryModel:
+    """Hugging Face UPerNet binary model with optional local pretrained init."""
+
+    def __init__(
+        self,
+        *,
+        variant: str = "swin_large",
+        pretrained_bundle: _PretrainedInitBundle | None = None,
+        ignore_mismatched_sizes: bool = True,
+    ) -> None:
+        import torch
+        from transformers import UperNetForSemanticSegmentation
+
+        self.torch = torch
+        self.variant = str(variant).strip().lower()
+        if pretrained_bundle is None:
+            self.model = UperNetForSemanticSegmentation(_hf_upernet_config_for_variant(self.variant))
+        else:
+            pretrained_dir = Path(pretrained_bundle.weights_path)
+            if not pretrained_dir.exists():
+                raise FileNotFoundError(f"local pretrained transformer path does not exist: {pretrained_dir}")
+            if pretrained_dir.is_file():
+                pretrained_dir = pretrained_dir.parent
+            self.model = UperNetForSemanticSegmentation.from_pretrained(
+                str(pretrained_dir),
+                local_files_only=True,
+                ignore_mismatched_sizes=bool(ignore_mismatched_sizes),
+                num_labels=2,
+            )
+            self.model.config.num_labels = 2
+
+    def __call__(self, x):  # noqa: ANN001
+        logits = self.model(pixel_values=x).logits
+        if logits.shape[-2:] != x.shape[-2:]:
+            logits = self.torch.nn.functional.interpolate(
+                logits,
+                size=x.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        if logits.shape[1] == 1:
+            return logits
+        return logits[:, 1:2, ...] - logits[:, 0:1, ...]
+
+    def to(self, device: str) -> _HfUperNetBinaryModel:
+        self.model.to(device)
+        return self
+
+    def train(self) -> _HfUperNetBinaryModel:
+        self.model.train()
+        return self
+
+    def eval(self) -> _HfUperNetBinaryModel:
+        self.model.eval()
+        return self
+
+    def state_dict(self) -> dict[str, Any]:
+        return self.model.state_dict()
+
+    def load_state_dict(self, state: dict[str, Any], *, strict: bool = True):
+        return self.model.load_state_dict(state, strict=bool(strict))
+
+    def parameters(self):
+        return self.model.parameters()
+
+
 def _build_binary_model(
     *,
     architecture: str,
@@ -1196,11 +1329,11 @@ def _build_binary_model(
                 strict=bool(pretrained_strict),
             )
         return model
-    if arch.startswith("smp_unet_"):
-        encoder = arch[len("smp_unet_") :]
-        if not encoder:
-            raise ValueError(f"invalid smp_unet architecture name: {architecture!r}")
-        return _SmpUNetBinaryModel(
+    smp_parts = _parse_smp_architecture(arch)
+    if smp_parts is not None:
+        decoder_name, encoder = smp_parts
+        return _SmpBinaryModel(
+            decoder_name=decoder_name,
             encoder_name=encoder,
             pretrained_bundle=pretrained_bundle,
             strict=bool(pretrained_strict),
@@ -1276,6 +1409,12 @@ def _build_binary_model(
             pretrained_bundle=pretrained_bundle,
             ignore_mismatched_sizes=bool(pretrained_ignore_mismatched_sizes),
         )
+    if arch == "hf_upernet_swin_large":
+        return _HfUperNetBinaryModel(
+            variant="swin_large",
+            pretrained_bundle=pretrained_bundle,
+            ignore_mismatched_sizes=bool(pretrained_ignore_mismatched_sizes),
+        )
     raise ValueError(f"unsupported model_architecture: {architecture}")
 
 
@@ -1283,7 +1422,7 @@ def _checkpoint_schema_for_architecture(architecture: str) -> str:
     arch = str(architecture).strip().lower()
     if arch == "unet_binary":
         return "microseg.torch_unet_binary.v1"
-    if arch.startswith("hf_segformer_"):
+    if _is_hf_transformer_architecture(arch):
         return "microseg.hf_transformer_segmentation.v1"
     return "microseg.torch_segmentation_binary.v2"
 
@@ -1412,6 +1551,9 @@ def _binary_sample_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, 
     fnr = _safe_div(fn, fn + tp)
     mcc_denom = (tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)
     mcc = 0.0 if mcc_denom <= 0.0 else _safe_div((tp * tn) - (fp * fn), sqrt(mcc_denom))
+    expected_acc = _safe_div(((tp + fn) * (tp + fp)) + ((tn + fp) * (tn + fn)), total * total)
+    kappa_denom = 1.0 - expected_acc
+    kappa = 0.0 if abs(kappa_denom) < 1e-12 else _safe_div(pixel_accuracy - expected_acc, kappa_denom)
 
     return {
         "pixel_accuracy": float(pixel_accuracy),
@@ -1430,6 +1572,7 @@ def _binary_sample_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, 
         "false_positive_rate": float(fpr),
         "false_negative_rate": float(fnr),
         "matthews_corrcoef": float(mcc),
+        "cohen_kappa": float(kappa),
     }
 
 
@@ -1502,6 +1645,7 @@ def _write_training_html(payload: dict[str, Any], output_path: Path) -> None:
         "macro_recall",
         "weighted_f1",
         "balanced_accuracy",
+        "cohen_kappa",
         "frequency_weighted_iou",
         "foreground_precision",
         "foreground_recall",
@@ -1707,7 +1851,7 @@ class UNetBinaryTrainer:
         )
         if pretrained_bundle is not None:
             init_mode = "local_pretrained"
-        elif architecture.startswith("hf_segformer_") or architecture.startswith("smp_unet_"):
+        elif _is_hf_transformer_architecture(architecture) or _is_smp_architecture(architecture):
             init_mode = "scratch"
         else:
             init_mode = "native"
@@ -1771,7 +1915,7 @@ class UNetBinaryTrainer:
                 torch.backends.cudnn.benchmark = False
 
         amp_pref = bool(config.amp_enabled)
-        if not amp_pref and architecture.startswith("hf_segformer_"):
+        if not amp_pref and _is_hf_transformer_architecture(architecture):
             amp_pref = True
         use_amp = amp_pref and str(device).startswith("cuda")
         scaler = torch.amp.GradScaler("cuda", enabled=use_amp)

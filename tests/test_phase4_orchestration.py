@@ -109,6 +109,7 @@ def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:
     assert "macro_recall" in payload["metrics"]
     assert "weighted_f1" in payload["metrics"]
     assert "balanced_accuracy" in payload["metrics"]
+    assert "cohen_kappa" in payload["metrics"]
     assert "frequency_weighted_iou" in payload["metrics"]
     assert "foreground_dice" in payload["metrics"]
     assert payload["metrics"]["foreground_dice"] >= 0.0
@@ -124,6 +125,7 @@ def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:
     assert "macro_recall" in sample
     assert "weighted_f1" in sample
     assert "balanced_accuracy" in sample
+    assert "cohen_kappa" in sample
     assert "frequency_weighted_iou" in sample
     assert "foreground_dice" in sample
     assert "mask_area_fraction_abs_error" in sample
@@ -134,6 +136,7 @@ def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:
     assert "Tracked Samples (Input | GT | Pred | Diff)" in html_text
     assert "Each sample panel includes per-image values for all available run metrics." in html_text
     assert "matthews_corrcoef" in html_text
+    assert "cohen_kappa" in html_text
 
     raw = json.loads(report_path.read_text(encoding="utf-8"))
     assert str(raw["schema_version"]).startswith("microseg.pixel_eval.v")

@@ -15,6 +15,7 @@ import statistics
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import yaml
@@ -431,6 +432,28 @@ def _read_json(path: Path) -> dict[str, Any]:
     return {}
 
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, ensure_ascii=True, sort_keys=True, default=str))
+        fh.write("\n")
+
+
+def _runtime_environment_snapshot() -> dict[str, Any]:
+    return {
+        "cwd": str(Path.cwd()),
+        "python_executable": sys.executable,
+        "python_version": sys.version.split()[0],
+        "platform": sys.platform,
+        "hostname": os.environ.get("HOSTNAME", ""),
+        "pid": os.getpid(),
+    }
+
+
 
 
 def _sha256_file(path: Path) -> str:
@@ -657,6 +680,7 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
         "macro_recall",
         "weighted_f1",
         "balanced_accuracy",
+        "cohen_kappa",
         "frequency_weighted_iou",
         "foreground_precision",
         "foreground_recall",
@@ -845,6 +869,7 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         mean_mr, std_mr = _mean_and_std(items, "macro_recall")
         mean_wf1, std_wf1 = _mean_and_std(items, "weighted_f1")
         mean_bacc, std_bacc = _mean_and_std(items, "balanced_accuracy")
+        mean_kappa, std_kappa = _mean_and_std(items, "cohen_kappa")
         mean_fwiou, std_fwiou = _mean_and_std(items, "frequency_weighted_iou")
         mean_fg_dice, std_fg_dice = _mean_and_std(items, "foreground_dice")
         mean_fg_iou, std_fg_iou = _mean_and_std(items, "foreground_iou")
@@ -924,6 +949,8 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "std_weighted_f1": std_wf1,
                 "mean_balanced_accuracy": mean_bacc,
                 "std_balanced_accuracy": std_bacc,
+                "mean_cohen_kappa": mean_kappa,
+                "std_cohen_kappa": std_kappa,
                 "mean_frequency_weighted_iou": mean_fwiou,
                 "std_frequency_weighted_iou": std_fwiou,
                 "mean_foreground_dice": mean_fg_dice,
@@ -1060,6 +1087,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         "macro_recall",
         "weighted_f1",
         "balanced_accuracy",
+        "cohen_kappa",
         "frequency_weighted_iou",
         "foreground_precision",
         "foreground_recall",
@@ -1134,7 +1162,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         "</div>",
         "<h2>Model Summary</h2>",
         "<table border='1' cellpadding='6' cellspacing='0'>",
-        "<tr><th>Model</th><th>Rank Quality</th><th>Rank Efficiency</th><th>Rank Runtime</th><th>Rank Robustness</th><th>Runs</th><th>OK</th><th>Failed</th><th>Quality Score</th><th>Efficiency Score</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Weighted F1 (mean±std)</th><th>Balanced Acc (mean±std)</th><th>Foreground Dice (mean±std)</th><th>Foreground Specificity (mean)</th><th>FPR (mean)</th><th>FNR (mean)</th><th>MCC (mean)</th><th>Tracked Val Sample IoU (mean)</th><th>Tracked IoU Span (mean)</th><th>Overfit Gap IoU (train-val, mean)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params (mean)</th><th>Trainable Params (mean)</th><th>Model Size MB (mean)</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (mean est.)</th><th>GPU Peak MB (mean)</th></tr>",
+        "<tr><th>Model</th><th>Rank Quality</th><th>Rank Efficiency</th><th>Rank Runtime</th><th>Rank Robustness</th><th>Runs</th><th>OK</th><th>Failed</th><th>Quality Score</th><th>Efficiency Score</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Weighted F1 (mean±std)</th><th>Balanced Acc (mean±std)</th><th>Cohen Kappa (mean±std)</th><th>Foreground Dice (mean±std)</th><th>Foreground Specificity (mean)</th><th>FPR (mean)</th><th>FNR (mean)</th><th>MCC (mean)</th><th>Tracked Val Sample IoU (mean)</th><th>Tracked IoU Span (mean)</th><th>Overfit Gap IoU (train-val, mean)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params (mean)</th><th>Trainable Params (mean)</th><th>Model Size MB (mean)</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (mean est.)</th><th>GPU Peak MB (mean)</th></tr>",
     ]
     for item in agg:
         lines.append(
@@ -1154,6 +1182,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{float(item.get('mean_mean_iou', 0.0)):.6f} ± {float(item.get('std_mean_iou', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_weighted_f1', 0.0)):.6f} ± {float(item.get('std_weighted_f1', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_balanced_accuracy', 0.0)):.6f} ± {float(item.get('std_balanced_accuracy', 0.0)):.6f}</td>"
+            f"<td>{float(item.get('mean_cohen_kappa', 0.0)):.6f} ± {float(item.get('std_cohen_kappa', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_foreground_dice', 0.0)):.6f} ± {float(item.get('std_foreground_dice', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_foreground_specificity', 0.0)):.6f}</td>"
             f"<td>{float(item.get('mean_false_positive_rate', 0.0)):.6f}</td>"
@@ -1201,7 +1230,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             "</table>",
             "<h2>Run-Level Results</h2>",
             "<table border='1' cellpadding='6' cellspacing='0'>",
-            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Status Detail</th><th>Backend</th><th>Architecture</th><th>Init</th><th>Runtime Device</th><th>GPU</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Weighted F1</th><th>Balanced Acc</th><th>Foreground Dice</th><th>Foreground Precision</th><th>Foreground Recall</th><th>Foreground Specificity</th><th>FPR</th><th>FNR</th><th>MCC</th><th>Area Abs Err</th><th>Count Abs Err</th><th>Size W</th><th>Orientation W</th><th>Tracked Val Sample IoU</th><th>Tracked Sample Count</th><th>Tracked Evol. Curves</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params</th><th>Trainable Params</th><th>Model Size MB</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (est.)</th><th>GPU Peak MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
+            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Status Detail</th><th>Backend</th><th>Architecture</th><th>Init</th><th>Runtime Device</th><th>GPU</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Weighted F1</th><th>Balanced Acc</th><th>Cohen Kappa</th><th>Foreground Dice</th><th>Foreground Precision</th><th>Foreground Recall</th><th>Foreground Specificity</th><th>FPR</th><th>FNR</th><th>MCC</th><th>Area Abs Err</th><th>Count Abs Err</th><th>Size W</th><th>Orientation W</th><th>Tracked Val Sample IoU</th><th>Tracked Sample Count</th><th>Tracked Evol. Curves</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params</th><th>Trainable Params</th><th>Model Size MB</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (est.)</th><th>GPU Peak MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
         ]
     )
     for row in rows:
@@ -1227,6 +1256,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{_safe_float(row.get('mean_iou')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('weighted_f1')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('balanced_accuracy')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('cohen_kappa')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('foreground_dice')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('foreground_precision')) or 0.0:.6f}</td>"
             f"<td>{_safe_float(row.get('foreground_recall')) or 0.0:.6f}</td>"
@@ -1438,6 +1468,41 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
     repo_root = Path(__file__).resolve().parents[1]
     cli = repo_root / "scripts" / "microseg_cli.py"
     output_root.mkdir(parents=True, exist_ok=True)
+    suite_started_monotonic = time.monotonic()
+    logs_root = output_root / "logs"
+    suite_event_log = logs_root / "suite_events.jsonl"
+
+    def _emit_suite_event(event: str, **payload: Any) -> None:
+        event_payload = {
+            "ts_utc": _utc_now(),
+            "event": str(event),
+            "config_path": str(cfg_path),
+            "dataset_dir": dataset_dir,
+            "output_root": str(output_root),
+            **payload,
+        }
+        _append_jsonl(suite_event_log, event_payload)
+
+    _emit_suite_event(
+        "suite_start",
+        dry_run=bool(dry_run),
+        strict=bool(strict),
+        skip_train=bool(skip_train),
+        skip_eval=bool(skip_eval),
+        eval_config=eval_config,
+        eval_split=eval_split,
+        python_executable=python_exe,
+        benchmark_mode=bool(benchmark_mode),
+        experiment_count=len([exp for exp in experiments if isinstance(exp, dict)]),
+        seeds=list(seeds),
+        watchdog={
+            "idle_timeout_seconds": idle_timeout_seconds,
+            "wall_timeout_seconds": wall_timeout_seconds,
+            "terminate_grace_seconds": terminate_grace_seconds,
+            "poll_interval_seconds": poll_interval_seconds,
+        },
+        runtime_environment=_runtime_environment_snapshot(),
+    )
 
     print(
         "[suite] execution policy: "
@@ -1459,24 +1524,67 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             raise ValueError(f"experiment '{model_name}' missing train_config")
         train_overrides = _parse_overrides(exp.get("train_overrides"))
         eval_overrides = _parse_overrides(exp.get("eval_overrides"))
+        _emit_suite_event(
+            "experiment_start",
+            model=model_name,
+            train_config=train_config,
+            train_overrides=train_overrides,
+            eval_overrides=eval_overrides,
+        )
 
         for seed in seeds:
+            run_started_utc = _utc_now()
+            run_started_monotonic = time.monotonic()
             run_tag = f"{model_name}_seed{seed}"
             train_dir = output_root / "runs" / run_tag
             eval_report = output_root / "eval" / f"{run_tag}_{eval_split}.json"
             logs_dir = output_root / "logs" / run_tag
             train_log = logs_dir / "train.log"
             eval_log = logs_dir / "eval.log"
+            run_events_log = logs_dir / "run_events.jsonl"
+
+            def _emit_run_event(event: str, **payload: Any) -> None:
+                event_payload = {
+                    "ts_utc": _utc_now(),
+                    "event": str(event),
+                    "run_tag": run_tag,
+                    "model": model_name,
+                    "seed": int(seed),
+                    **payload,
+                }
+                _append_jsonl(run_events_log, event_payload)
+                _emit_suite_event("run_event", run_event=event_payload)
+
+            _emit_run_event(
+                "run_start",
+                train_config=train_config,
+                eval_config=eval_config,
+                eval_split=eval_split,
+                train_log=str(train_log),
+                eval_log=str(eval_log),
+            )
 
             status = "ok"
             status_message = ""
             model_path = None
+            preflight: dict[str, Any] = {}
+            preflight_duration_seconds = 0.0
+            train_cmd_duration_seconds: float | None = None
+            eval_cmd_duration_seconds: float | None = None
             if not skip_train:
+                preflight_started = time.monotonic()
                 preflight_ok, preflight = _pretrained_preflight(
                     train_config=train_config,
                     train_overrides=[f"seed={seed}", *train_overrides],
                     repo_root=repo_root,
                     validation_cache=preflight_cache,
+                )
+                preflight_duration_seconds = time.monotonic() - preflight_started
+                _emit_run_event(
+                    "preflight_complete",
+                    ok=bool(preflight_ok),
+                    duration_seconds=float(preflight_duration_seconds),
+                    details=preflight,
                 )
                 if not preflight_ok:
                     status = "pretrained_missing"
@@ -1489,8 +1597,6 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                         actions=[str(x) for x in preflight.get("actions", []) if str(x).strip()],
                         details=preflight,
                     )
-                else:
-                    preflight = {}
                 train_cmd = [
                     python_exe,
                     str(cli),
@@ -1508,6 +1614,8 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 for item in train_overrides:
                     train_cmd.extend(["--set", item])
                 if status == "ok":
+                    _emit_run_event("train_start", command=train_cmd)
+                    train_cmd_started = time.monotonic()
                     rc = _run_cmd(
                         train_cmd,
                         train_log,
@@ -1517,6 +1625,13 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                         wall_timeout_seconds=wall_timeout_seconds,
                         terminate_grace_seconds=terminate_grace_seconds,
                         poll_interval_seconds=poll_interval_seconds,
+                    )
+                    train_cmd_duration_seconds = time.monotonic() - train_cmd_started
+                    _emit_run_event(
+                        "train_end",
+                        rc=int(rc),
+                        duration_seconds=float(train_cmd_duration_seconds),
+                        dry_run=bool(dry_run),
                     )
                     if rc != 0:
                         status = f"train_failed({rc})"
@@ -1537,6 +1652,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                     else:
                         status = "model_missing"
                         status_message = "training did not produce a model checkpoint"
+                        _emit_run_event("model_missing", train_dir=str(train_dir))
                         failures += 1
                 if status == "ok":
                     eval_cmd = [
@@ -1557,6 +1673,8 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                     ]
                     for item in eval_overrides:
                         eval_cmd.extend(["--set", item])
+                    _emit_run_event("eval_start", command=eval_cmd, model_artifact=str(model_path))
+                    eval_cmd_started = time.monotonic()
                     rc = _run_cmd(
                         eval_cmd,
                         eval_log,
@@ -1566,6 +1684,13 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                         wall_timeout_seconds=wall_timeout_seconds,
                         terminate_grace_seconds=terminate_grace_seconds,
                         poll_interval_seconds=poll_interval_seconds,
+                    )
+                    eval_cmd_duration_seconds = time.monotonic() - eval_cmd_started
+                    _emit_run_event(
+                        "eval_end",
+                        rc=int(rc),
+                        duration_seconds=float(eval_cmd_duration_seconds),
+                        dry_run=bool(dry_run),
                     )
                     if rc != 0:
                         status = f"eval_failed({rc})"
@@ -1626,6 +1751,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "macro_recall": metrics.get("macro_recall"),
                 "weighted_f1": metrics.get("weighted_f1"),
                 "balanced_accuracy": metrics.get("balanced_accuracy"),
+                "cohen_kappa": metrics.get("cohen_kappa"),
                 "frequency_weighted_iou": metrics.get("frequency_weighted_iou"),
                 "foreground_precision": metrics.get("foreground_precision"),
                 "foreground_recall": metrics.get("foreground_recall"),
@@ -1717,10 +1843,30 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "compute_estimated_total_flops": train_meta.get("compute_estimated_total_flops"),
                 "compute_estimated_total_tflops": train_meta.get("compute_estimated_total_tflops"),
                 "compute_flops_estimate_method": train_meta.get("compute_flops_estimate_method"),
+                "run_started_utc": run_started_utc,
+                "run_duration_seconds": float(time.monotonic() - run_started_monotonic),
+                "preflight_duration_seconds": float(preflight_duration_seconds),
+                "train_cmd_duration_seconds": train_cmd_duration_seconds,
+                "eval_cmd_duration_seconds": eval_cmd_duration_seconds,
+                "preflight_required": bool(preflight.get("required", False)),
+                "preflight_mode": str(preflight.get("mode", "")),
+                "preflight_model_id": str(preflight.get("model_id", "")),
+                "preflight_reason": str(preflight.get("reason", "")),
+                "train_log": str(train_log),
+                "eval_log": str(eval_log),
+                "run_events_log": str(run_events_log),
                 "train_overrides": "|".join(train_overrides),
                 "eval_overrides": "|".join(eval_overrides),
             }
             rows.append(row)
+            _emit_run_event(
+                "run_complete",
+                status=status,
+                status_message=status_message,
+                train_dir=str(train_dir),
+                eval_report=str(eval_report),
+                run_duration_seconds=row.get("run_duration_seconds"),
+            )
 
     agg = _aggregate(rows)
     summary_json = output_root / "benchmark_summary.json"
@@ -1731,15 +1877,17 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
     canonical_summary_html = output_root / "summary.html"
 
     summary_payload = {
-        "schema_version": "microseg.hydride_benchmark_suite.v3",
+        "schema_version": "microseg.hydride_benchmark_suite.v4",
         "config_path": str(cfg_path),
         "dataset_dir": dataset_dir,
         "output_root": str(output_root),
+        "suite_event_log": str(suite_event_log),
         "eval_split": eval_split,
         "benchmark_mode": benchmark_mode,
         "expected_dataset_manifest_sha256": expected_manifest_sha,
         "run_count": len(rows),
         "failure_count": failures,
+        "suite_runtime_seconds": float(time.monotonic() - suite_started_monotonic),
         "rows": rows,
         "aggregate": agg,
     }
@@ -1764,6 +1912,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "macro_recall",
             "weighted_f1",
             "balanced_accuracy",
+            "cohen_kappa",
             "frequency_weighted_iou",
             "foreground_precision",
             "foreground_recall",
@@ -1780,6 +1929,10 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "runtime_seconds",
             "training_runtime_seconds",
             "total_runtime_seconds",
+            "run_duration_seconds",
+            "preflight_duration_seconds",
+            "train_cmd_duration_seconds",
+            "eval_cmd_duration_seconds",
             "training_status",
             "training_runtime_human",
             "training_epochs_total",
@@ -1819,6 +1972,14 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "eval_config",
             "train_dir",
             "eval_report",
+            "train_log",
+            "eval_log",
+            "run_events_log",
+            "preflight_required",
+            "preflight_mode",
+            "preflight_model_id",
+            "preflight_reason",
+            "run_started_utc",
             "resolved_backend",
             "resolved_model_architecture",
             "resolved_epochs",
@@ -1857,6 +2018,8 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "std_weighted_f1",
             "mean_balanced_accuracy",
             "std_balanced_accuracy",
+            "mean_cohen_kappa",
+            "std_cohen_kappa",
             "mean_frequency_weighted_iou",
             "std_frequency_weighted_iou",
             "mean_foreground_dice",
@@ -1918,7 +2081,19 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
     print(f"suite aggregate csv: {aggregate_csv}")
     print(f"suite dashboard html: {dashboard_html}")
     print(f"suite canonical summary html: {canonical_summary_html}")
+    print(f"suite event log jsonl: {suite_event_log}")
     print(f"runs: {len(rows)} failures: {failures}")
+
+    _emit_suite_event(
+        "suite_complete",
+        run_count=len(rows),
+        failure_count=failures,
+        strict=bool(strict),
+        suite_runtime_seconds=float(time.monotonic() - suite_started_monotonic),
+        summary_json=str(summary_json),
+        aggregate_csv=str(aggregate_csv),
+        dashboard_html=str(dashboard_html),
+    )
 
     if strict and failures > 0:
         return 2

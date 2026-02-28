@@ -182,7 +182,20 @@ def _train(args: argparse.Namespace) -> int:
     if not model_architecture:
         model_architecture = backend
     if (
-        backend in {"smp_unet_resnet18", "transunet_tiny", "segformer_mini", "hf_segformer_b0", "hf_segformer_b2", "hf_segformer_b5"}
+        backend
+        in {
+            "smp_unet_resnet18",
+            "smp_deeplabv3plus_resnet101",
+            "smp_unetplusplus_resnet101",
+            "smp_pspnet_resnet101",
+            "smp_fpn_resnet101",
+            "transunet_tiny",
+            "segformer_mini",
+            "hf_segformer_b0",
+            "hf_segformer_b2",
+            "hf_segformer_b5",
+            "hf_upernet_swin_large",
+        }
         and model_architecture == "unet_binary"
     ):
         # Backward-compat guard: if backend was overridden but model_architecture stayed at train.default.yml baseline.
@@ -238,11 +251,16 @@ def _train(args: argparse.Namespace) -> int:
     elif backend in {
         "unet_binary",
         "smp_unet_resnet18",
+        "smp_deeplabv3plus_resnet101",
+        "smp_unetplusplus_resnet101",
+        "smp_pspnet_resnet101",
+        "smp_fpn_resnet101",
         "transunet_tiny",
         "segformer_mini",
         "hf_segformer_b0",
         "hf_segformer_b2",
         "hf_segformer_b5",
+        "hf_upernet_swin_large",
     }:
         trainer = UNetBinaryTrainer()
         result = trainer.train(
@@ -897,11 +915,16 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=[
             "unet_binary",
             "smp_unet_resnet18",
+            "smp_deeplabv3plus_resnet101",
+            "smp_unetplusplus_resnet101",
+            "smp_pspnet_resnet101",
+            "smp_fpn_resnet101",
             "transunet_tiny",
             "segformer_mini",
             "hf_segformer_b0",
             "hf_segformer_b2",
             "hf_segformer_b5",
+            "hf_upernet_swin_large",
             "torch_pixel",
             "sklearn_pixel",
         ],
@@ -1133,7 +1156,11 @@ def _build_parser() -> argparse.ArgumentParser:
     hpc_ga.add_argument(
         "--architectures",
         type=str,
-        default="unet_binary,smp_unet_resnet18,hf_segformer_b0,hf_segformer_b2,hf_segformer_b5,transunet_tiny,segformer_mini,torch_pixel",
+        default=(
+            "unet_binary,smp_unet_resnet18,smp_deeplabv3plus_resnet101,smp_unetplusplus_resnet101,"
+            "smp_pspnet_resnet101,smp_fpn_resnet101,hf_segformer_b0,hf_segformer_b2,hf_segformer_b5,"
+            "hf_upernet_swin_large,transunet_tiny,segformer_mini,torch_pixel"
+        ),
     )
     hpc_ga.add_argument("--num-candidates", type=int, default=8)
     hpc_ga.add_argument("--population-size", type=int, default=24)
@@ -1199,7 +1226,11 @@ def _build_parser() -> argparse.ArgumentParser:
     hpc_ga_feedback.add_argument(
         "--architectures",
         type=str,
-        default="unet_binary,smp_unet_resnet18,hf_segformer_b0,hf_segformer_b2,hf_segformer_b5,transunet_tiny,segformer_mini,torch_pixel",
+        default=(
+            "unet_binary,smp_unet_resnet18,smp_deeplabv3plus_resnet101,smp_unetplusplus_resnet101,"
+            "smp_pspnet_resnet101,smp_fpn_resnet101,hf_segformer_b0,hf_segformer_b2,hf_segformer_b5,"
+            "hf_upernet_swin_large,transunet_tiny,segformer_mini,torch_pixel"
+        ),
     )
     hpc_ga_feedback.add_argument("--batch-size-choices", type=str, default="4,8,16,32")
     hpc_ga_feedback.add_argument("--fitness-mode", choices=["novelty", "feedback_hybrid"], default="feedback_hybrid")

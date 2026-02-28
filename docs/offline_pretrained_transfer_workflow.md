@@ -10,10 +10,15 @@ This workflow supports the following local-pretrained backends:
 - U-Net:
   - `unet_binary` (local torch state dict bootstrap bundle)
   - `smp_unet_resnet18` (local pretrained state dict)
+  - `smp_deeplabv3plus_resnet101` (local pretrained state dict)
+  - `smp_unetplusplus_resnet101` (local pretrained state dict)
+  - `smp_pspnet_resnet101` (local pretrained state dict)
+  - `smp_fpn_resnet101` (local pretrained state dict)
 - Transformers:
   - `hf_segformer_b0` (local Hugging Face model directory)
   - `hf_segformer_b2` (local Hugging Face model directory)
   - `hf_segformer_b5` (local Hugging Face model directory)
+  - `hf_upernet_swin_large` (local Hugging Face model directory)
   - `transunet_tiny` (local torch state dict bootstrap bundle)
   - `segformer_mini` (local torch state dict bootstrap bundle)
 
@@ -72,7 +77,12 @@ This materializes:
 - `pre_trained_weights/hf_segformer_b0_ade20k/`
 - `pre_trained_weights/hf_segformer_b2_ade20k/`
 - `pre_trained_weights/hf_segformer_b5_ade20k/`
+- `pre_trained_weights/hf_upernet_swin_large_ade20k/`
 - `pre_trained_weights/smp_unet_resnet18_imagenet/`
+- `pre_trained_weights/smp_deeplabv3plus_resnet101_imagenet/`
+- `pre_trained_weights/smp_unetplusplus_resnet101_imagenet/`
+- `pre_trained_weights/smp_pspnet_resnet101_imagenet/`
+- `pre_trained_weights/smp_fpn_resnet101_imagenet/`
 - `pre_trained_weights/transunet_tiny_vit_tiny_patch16_imagenet/`
 - `pre_trained_weights/segformer_mini_vit_tiny_patch16_imagenet/`
 - `pre_trained_weights/registry.json`
@@ -103,9 +113,14 @@ microseg-cli validate-pretrained --registry-path pre_trained_weights/registry.js
 ```bash
 microseg-cli train --config configs/hydride/train.unet_binary_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.smp_unet_resnet18_local_pretrained.debug.yml
+microseg-cli train --config configs/hydride/train.smp_deeplabv3plus_resnet101_local_pretrained.yml
+microseg-cli train --config configs/hydride/train.smp_unetplusplus_resnet101_local_pretrained.yml
+microseg-cli train --config configs/hydride/train.smp_pspnet_resnet101_local_pretrained.yml
+microseg-cli train --config configs/hydride/train.smp_fpn_resnet101_local_pretrained.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b0_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b2_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.hf_segformer_b5_local_pretrained.debug.yml
+microseg-cli train --config configs/hydride/train.hf_upernet_swin_large_local_pretrained.yml
 microseg-cli train --config configs/hydride/train.transunet_tiny_local_pretrained.debug.yml
 microseg-cli train --config configs/hydride/train.segformer_mini_local_pretrained.debug.yml
 ```

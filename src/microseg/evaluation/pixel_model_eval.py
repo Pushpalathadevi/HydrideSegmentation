@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 from PIL import Image
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import cohen_kappa_score, f1_score, precision_score, recall_score
 
 from src.microseg.corrections.classes import binary_remapped_foreground_values, normalize_binary_index_mask
 from src.microseg.training.pixel_classifier import load_pixel_classifier, predict_index_mask
@@ -150,6 +150,7 @@ def _advanced_metrics(
     macro_precision = float(precision_score(y_true, y_pred, labels=labels, average="macro", zero_division=0))
     macro_recall = float(recall_score(y_true, y_pred, labels=labels, average="macro", zero_division=0))
     balanced_accuracy = macro_recall
+    cohen_kappa = float(cohen_kappa_score(y_true, y_pred, labels=labels))
 
     total = float(y_true.size)
     freq_weighted_iou = 0.0
@@ -163,6 +164,7 @@ def _advanced_metrics(
         "macro_recall": macro_recall,
         "weighted_f1": weighted_f1,
         "balanced_accuracy": balanced_accuracy,
+        "cohen_kappa": cohen_kappa,
         "frequency_weighted_iou": float(freq_weighted_iou),
     }
 
@@ -248,6 +250,7 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         "macro_recall",
         "weighted_f1",
         "balanced_accuracy",
+        "cohen_kappa",
         "frequency_weighted_iou",
         "foreground_precision",
         "foreground_recall",
@@ -343,6 +346,7 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         "false_positive_rate",
         "false_negative_rate",
         "matthews_corrcoef",
+        "cohen_kappa",
         "gt_foreground_fraction",
         "pred_foreground_fraction",
     ]:
@@ -381,6 +385,7 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         f"<li>Macro Recall: {float(metrics.get('macro_recall', 0.0)):.6f}</li>"
         f"<li>Weighted F1: {float(metrics.get('weighted_f1', 0.0)):.6f}</li>"
         f"<li>Balanced Accuracy: {float(metrics.get('balanced_accuracy', 0.0)):.6f}</li>"
+        f"<li>Cohen Kappa: {float(metrics.get('cohen_kappa', 0.0)):.6f}</li>"
         f"<li>Frequency-Weighted IoU: {float(metrics.get('frequency_weighted_iou', 0.0)):.6f}</li>"
         "</ul>"
         "<h2>Per-Class Metrics</h2>"
@@ -640,11 +645,12 @@ class PixelModelEvaluator:
             payload["html_report_path"] = str(html_path)
 
         logger.info(
-            "evaluation complete | metrics: pixel_acc=%.4f macro_f1=%.4f mean_iou=%.4f weighted_f1=%.4f | runtime=%s",
+            "evaluation complete | metrics: pixel_acc=%.4f macro_f1=%.4f mean_iou=%.4f weighted_f1=%.4f kappa=%.4f | runtime=%s",
             pixel_acc,
             macro_f1,
             mean_iou,
             float(advanced.get("weighted_f1", 0.0)),
+            float(advanced.get("cohen_kappa", 0.0)),
             _format_seconds(runtime_seconds),
         )
         return payload

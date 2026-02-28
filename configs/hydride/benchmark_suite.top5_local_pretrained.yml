@@ -11,12 +11,27 @@ experiments:
   - name: unet_binary_local_pretrained
     train_config: configs/hydride/train.unet_binary_local_pretrained.yml
     rationale: "Internal U-Net baseline warm-started from ResNet18 feature bootstrap."
+  - name: smp_deeplabv3plus_resnet101_local_pretrained
+    train_config: configs/hydride/train.smp_deeplabv3plus_resnet101_local_pretrained.yml
+    rationale: "DeepLabV3+ (ResNet101) with local ImageNet-initialized SMP state dict."
+  - name: smp_unetplusplus_resnet101_local_pretrained
+    train_config: configs/hydride/train.smp_unetplusplus_resnet101_local_pretrained.yml
+    rationale: "U-Net++ (ResNet101) with local ImageNet-initialized SMP state dict."
+  - name: smp_pspnet_resnet101_local_pretrained
+    train_config: configs/hydride/train.smp_pspnet_resnet101_local_pretrained.yml
+    rationale: "PSPNet (ResNet101) with local ImageNet-initialized SMP state dict."
+  - name: smp_fpn_resnet101_local_pretrained
+    train_config: configs/hydride/train.smp_fpn_resnet101_local_pretrained.yml
+    rationale: "FPN (ResNet101) with local ImageNet-initialized SMP state dict."
   - name: hf_segformer_b0_local_pretrained
     train_config: configs/hydride/train.hf_segformer_b0_local_pretrained.yml
     rationale: "SegFormer-B0 initialized from local ADE20K-pretrained bundle."
   - name: hf_segformer_b2_local_pretrained
     train_config: configs/hydride/train.hf_segformer_b2_local_pretrained.yml
     rationale: "SegFormer-B2 initialized from local ADE20K-pretrained bundle."
+  - name: hf_upernet_swin_large_local_pretrained
+    train_config: configs/hydride/train.hf_upernet_swin_large_local_pretrained.yml
+    rationale: "UPerNet-Swin-Large initialized from local ADE20K-pretrained bundle."
   - name: transunet_tiny_local_pretrained
     train_config: configs/hydride/train.transunet_tiny_local_pretrained.yml
     rationale: "Internal hybrid transformer warm-started from ViT-tiny mapping bundle."

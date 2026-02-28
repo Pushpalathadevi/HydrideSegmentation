@@ -9,7 +9,7 @@ base_eval_config: configs/evaluate.default.yml
 run_mode: train_eval
 eval_split: val
 
-architectures: unet_binary,hf_segformer_b0,hf_segformer_b2,transunet_tiny,segformer_mini
+architectures: unet_binary,smp_deeplabv3plus_resnet101,smp_unetplusplus_resnet101,smp_pspnet_resnet101,smp_fpn_resnet101,hf_segformer_b0,hf_segformer_b2,hf_upernet_swin_large,transunet_tiny,segformer_mini
 num_candidates: 10
 population_size: 30
 generations: 10

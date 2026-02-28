@@ -97,7 +97,7 @@ Operational behavior:
 - config path + override support per job
 - per-job GPU controls (`Enable GPU` + `device policy`) with CPU fallback behavior
 - default is CPU execution unless GPU is explicitly enabled
-- training tab includes backend selection (`unet_binary`, `smp_unet_resnet18`, `hf_segformer_b0`, `hf_segformer_b2`, `hf_segformer_b5`, `transunet_tiny`, `segformer_mini`, `torch_pixel`, `sklearn_pixel`)
+- training tab includes backend selection (`unet_binary`, `smp_unet_resnet18`, `smp_deeplabv3plus_resnet101`, `smp_unetplusplus_resnet101`, `smp_pspnet_resnet101`, `smp_fpn_resnet101`, `hf_segformer_b0`, `hf_segformer_b2`, `hf_segformer_b5`, `hf_upernet_swin_large`, `transunet_tiny`, `segformer_mini`, `torch_pixel`, `sklearn_pixel`)
 - training tab includes optional `Require dataset QA pass before launch` gate
 - `unet_binary` supports early stopping and resume checkpoint path
 - training tab supports validation sample tracking:

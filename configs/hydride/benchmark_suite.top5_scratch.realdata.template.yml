@@ -20,10 +20,20 @@ benchmark_mode: true
 experiments:
   - name: unet_binary_scratch
     train_config: configs/hydride/train.unet_binary.baseline.yml
+  - name: smp_deeplabv3plus_resnet101_scratch
+    train_config: configs/hydride/train.smp_deeplabv3plus_resnet101_scratch.yml
+  - name: smp_unetplusplus_resnet101_scratch
+    train_config: configs/hydride/train.smp_unetplusplus_resnet101_scratch.yml
+  - name: smp_pspnet_resnet101_scratch
+    train_config: configs/hydride/train.smp_pspnet_resnet101_scratch.yml
+  - name: smp_fpn_resnet101_scratch
+    train_config: configs/hydride/train.smp_fpn_resnet101_scratch.yml
   - name: hf_segformer_b0_scratch
     train_config: configs/hydride/train.hf_segformer_b0_scratch.yml
   - name: hf_segformer_b2_scratch
     train_config: configs/hydride/train.hf_segformer_b2_scratch.yml
+  - name: hf_upernet_swin_large_scratch
+    train_config: configs/hydride/train.hf_upernet_swin_large_scratch.yml
   - name: transunet_tiny_scratch
     train_config: configs/hydride/train.transunet_tiny.yml
   - name: segformer_mini_scratch

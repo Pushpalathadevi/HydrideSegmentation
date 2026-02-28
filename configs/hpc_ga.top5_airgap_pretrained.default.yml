@@ -9,7 +9,7 @@ base_eval_config: configs/evaluate.default.yml
 run_mode: train_eval
 eval_split: val
 
-architectures: unet_binary,hf_segformer_b0,hf_segformer_b2,transunet_tiny,segformer_mini
+architectures: unet_binary,smp_deeplabv3plus_resnet101,smp_unetplusplus_resnet101,smp_pspnet_resnet101,smp_fpn_resnet101,hf_segformer_b0,hf_segformer_b2,hf_upernet_swin_large,transunet_tiny,segformer_mini
 num_candidates: 10
 population_size: 30
 generations: 10
@@ -57,8 +57,13 @@ pretrained_init_mode: auto
 pretrained_registry_path: pre_trained_weights/registry.json
 pretrained_model_map:
   unet_binary: unet_binary_resnet18_imagenet_partial
+  smp_deeplabv3plus_resnet101: smp_deeplabv3plus_resnet101_imagenet
+  smp_unetplusplus_resnet101: smp_unetplusplus_resnet101_imagenet
+  smp_pspnet_resnet101: smp_pspnet_resnet101_imagenet
+  smp_fpn_resnet101: smp_fpn_resnet101_imagenet
   hf_segformer_b0: hf_segformer_b0_ade20k
   hf_segformer_b2: hf_segformer_b2_ade20k
+  hf_upernet_swin_large: hf_upernet_swin_large_ade20k
   transunet_tiny: transunet_tiny_vit_tiny_patch16_imagenet
   segformer_mini: segformer_mini_vit_tiny_patch16_imagenet
 pretrained_verify_sha256: true

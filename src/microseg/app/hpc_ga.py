@@ -71,9 +71,14 @@ class HpcGaPlanConfig:
     architectures: tuple[str, ...] = (
         "unet_binary",
         "smp_unet_resnet18",
+        "smp_deeplabv3plus_resnet101",
+        "smp_unetplusplus_resnet101",
+        "smp_pspnet_resnet101",
+        "smp_fpn_resnet101",
         "hf_segformer_b0",
         "hf_segformer_b2",
         "hf_segformer_b5",
+        "hf_upernet_swin_large",
         "transunet_tiny",
         "segformer_mini",
         "torch_pixel",
@@ -237,7 +242,7 @@ def _architecture_supports_pretrained(architecture: str) -> bool:
     arch = str(architecture).strip().lower()
     if arch in {"unet_binary", "transunet_tiny", "segformer_mini"}:
         return True
-    return arch.startswith("hf_segformer_") or arch.startswith("smp_unet_")
+    return arch.startswith("hf_segformer_") or arch.startswith("hf_upernet_") or arch.startswith("smp_")
 
 
 def _candidate_pretrained_overrides(cfg: HpcGaPlanConfig, candidate: HpcGaCandidate) -> tuple[str, ...]:

@@ -1,0 +1,40 @@
+{
+  "schema_version": "microseg.pretrained_bundle_metadata.v1",
+  "model_id": "hf_upernet_swin_large_ade20k",
+  "architecture": "hf_upernet_swin_large",
+  "framework": "transformers",
+  "weights_format": "hf_model_dir",
+  "upstream": {
+    "source": "huggingface:openmmlab/upernet-swin-large",
+    "url": "https://huggingface.co/openmmlab/upernet-swin-large",
+    "maintainers": ["OpenMMLab"],
+    "checkpoint_revision": "set at download time in registry.json",
+    "dataset_context": "ADE20K"
+  },
+  "model_properties": {
+    "family": "UPerNet",
+    "variant": "Swin-Large",
+    "task": "semantic segmentation",
+    "input_channels": 3,
+    "target_num_labels": 2,
+    "resolution_notes": "upstream checkpoint is trained on ADE20K; MicroSeg remaps the head to binary labels"
+  },
+  "citations": [
+    {
+      "key": "xiao2018upernet",
+      "title": "Unified Perceptual Parsing for Scene Understanding",
+      "url": "https://arxiv.org/abs/1807.10221"
+    },
+    {
+      "key": "liu2021swin",
+      "title": "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows",
+      "url": "https://arxiv.org/abs/2103.14030"
+    }
+  ],
+  "license_notes": "See upstream Hugging Face model card for exact license and usage constraints.",
+  "remarks": [
+    "Classifier head is reinitialized for 2-label binary segmentation in MicroSeg.",
+    "Use local_files_only mode in air-gapped runs.",
+    "Checksum validation should be enabled before training."
+  ]
+}

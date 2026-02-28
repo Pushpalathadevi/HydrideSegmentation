@@ -10,12 +10,27 @@ experiments:
   - name: unet_binary
     train_config: configs/hydride/train.unet_binary.baseline.yml
     rationale: "Convolutional baseline; strong local texture modeling and stable training."
+  - name: smp_deeplabv3plus_resnet101
+    train_config: configs/hydride/train.smp_deeplabv3plus_resnet101_scratch.yml
+    rationale: "Atrous context + encoder-decoder baseline with strong multi-scale segmentation priors."
+  - name: smp_unetplusplus_resnet101
+    train_config: configs/hydride/train.smp_unetplusplus_resnet101_scratch.yml
+    rationale: "Nested skip-connection U-Net variant for better boundary and small-feature continuity."
+  - name: smp_pspnet_resnet101
+    train_config: configs/hydride/train.smp_pspnet_resnet101_scratch.yml
+    rationale: "Pyramid scene parsing baseline for coarse-to-fine contextual aggregation."
+  - name: smp_fpn_resnet101
+    train_config: configs/hydride/train.smp_fpn_resnet101_scratch.yml
+    rationale: "Feature pyramid baseline emphasizing scale-consistent detection across morphology sizes."
   - name: hf_segformer_b0
     train_config: configs/hydride/train.hf_segformer_b0_scratch.yml
     rationale: "Efficient SOTA transformer baseline with low memory footprint."
   - name: hf_segformer_b2
     train_config: configs/hydride/train.hf_segformer_b2_scratch.yml
     rationale: "Higher-capacity SOTA transformer for improved global context modeling."
+  - name: hf_upernet_swin_large
+    train_config: configs/hydride/train.hf_upernet_swin_large_scratch.yml
+    rationale: "High-capacity hierarchical transformer baseline with UPerNet decoder for dense prediction."
   - name: transunet_tiny
     train_config: configs/hydride/train.transunet_tiny.yml
     rationale: "Hybrid transformer-UNet internal reference architecture."

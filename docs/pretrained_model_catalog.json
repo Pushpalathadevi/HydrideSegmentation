@@ -1,6 +1,6 @@
 {
   "schema_version": "microseg.pretrained_catalog.v1",
-  "updated_utc": "2026-02-18T00:00:00Z",
+  "updated_utc": "2026-02-28T00:00:00Z",
   "citation_bib": "docs/pretrained_model_citations.bib",
   "models": [
     {
@@ -16,6 +16,62 @@
         "https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/pytorch_model.bin"
       ],
       "remarks": "Encoder pretrained source is downloaded, then full U-Net state dict is assembled locally by script."
+    },
+    {
+      "model_id": "smp_deeplabv3plus_resnet101_imagenet",
+      "architecture": "smp_deeplabv3plus_resnet101",
+      "framework": "segmentation_models_pytorch",
+      "source": "segmentation_models_pytorch:DeepLabV3Plus(resnet101, encoder_weights=imagenet)",
+      "source_url": "https://github.com/qubvel-org/segmentation_models.pytorch",
+      "license": "See upstream package licenses",
+      "citation_key": ["chen2018encoderdecoder", "he2016resnet"],
+      "manual_download_urls": [
+        "https://huggingface.co/timm/resnet101.a1h_in1k/resolve/main/model.safetensors",
+        "https://huggingface.co/timm/resnet101.a1h_in1k/resolve/main/pytorch_model.bin"
+      ],
+      "remarks": "Encoder pretrained source is downloaded, then full DeepLabV3+ state dict is assembled locally by script."
+    },
+    {
+      "model_id": "smp_unetplusplus_resnet101_imagenet",
+      "architecture": "smp_unetplusplus_resnet101",
+      "framework": "segmentation_models_pytorch",
+      "source": "segmentation_models_pytorch:UnetPlusPlus(resnet101, encoder_weights=imagenet)",
+      "source_url": "https://github.com/qubvel-org/segmentation_models.pytorch",
+      "license": "See upstream package licenses",
+      "citation_key": ["zhou2018unetplusplus", "he2016resnet"],
+      "manual_download_urls": [
+        "https://huggingface.co/timm/resnet101.a1h_in1k/resolve/main/model.safetensors",
+        "https://huggingface.co/timm/resnet101.a1h_in1k/resolve/main/pytorch_model.bin"
+      ],
+      "remarks": "Encoder pretrained source is downloaded, then full U-Net++ state dict is assembled locally by script."
+    },
+    {
+      "model_id": "smp_pspnet_resnet101_imagenet",
+      "architecture": "smp_pspnet_resnet101",
+      "framework": "segmentation_models_pytorch",
+      "source": "segmentation_models_pytorch:PSPNet(resnet101, encoder_weights=imagenet)",
+      "source_url": "https://github.com/qubvel-org/segmentation_models.pytorch",
+      "license": "See upstream package licenses",
+      "citation_key": ["zhao2017pspnet", "he2016resnet"],
+      "manual_download_urls": [
+        "https://huggingface.co/timm/resnet101.a1h_in1k/resolve/main/model.safetensors",
+        "https://huggingface.co/timm/resnet101.a1h_in1k/resolve/main/pytorch_model.bin"
+      ],
+      "remarks": "Encoder pretrained source is downloaded, then full PSPNet state dict is assembled locally by script."
+    },
+    {
+      "model_id": "smp_fpn_resnet101_imagenet",
+      "architecture": "smp_fpn_resnet101",
+      "framework": "segmentation_models_pytorch",
+      "source": "segmentation_models_pytorch:FPN(resnet101, encoder_weights=imagenet)",
+      "source_url": "https://github.com/qubvel-org/segmentation_models.pytorch",
+      "license": "See upstream package licenses",
+      "citation_key": ["lin2017fpn", "he2016resnet"],
+      "manual_download_urls": [
+        "https://huggingface.co/timm/resnet101.a1h_in1k/resolve/main/model.safetensors",
+        "https://huggingface.co/timm/resnet101.a1h_in1k/resolve/main/pytorch_model.bin"
+      ],
+      "remarks": "Encoder pretrained source is downloaded, then full FPN state dict is assembled locally by script."
     },
     {
       "model_id": "unet_binary_resnet18_imagenet_partial",
@@ -67,6 +123,19 @@
       "citation_key": ["xie2021segformer", "zhou2017ade20k"],
       "manual_download_urls": [
         "https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/pytorch_model.bin"
+      ]
+    },
+    {
+      "model_id": "hf_upernet_swin_large_ade20k",
+      "architecture": "hf_upernet_swin_large",
+      "framework": "transformers",
+      "source": "huggingface:openmmlab/upernet-swin-large",
+      "source_url": "https://huggingface.co/openmmlab/upernet-swin-large",
+      "license": "See upstream model card license metadata",
+      "citation_key": ["xiao2018upernet", "liu2021swin"],
+      "manual_download_urls": [
+        "https://huggingface.co/openmmlab/upernet-swin-large/resolve/main/pytorch_model.bin",
+        "https://huggingface.co/openmmlab/upernet-swin-large/resolve/main/model.safetensors"
       ]
     },
     {

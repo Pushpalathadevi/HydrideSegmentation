@@ -270,8 +270,9 @@ For every evaluated run (`microseg.pixel_eval.v4` reports):
 - `macro_recall`
 - `weighted_f1`
 - `balanced_accuracy`
+- `cohen_kappa`
 - `frequency_weighted_iou`
-- binary diagnostics (for binary label sets): foreground precision/recall/specificity/IoU/Dice, FPR/FNR, MCC
+- binary diagnostics (for binary label sets): foreground precision/recall/specificity/IoU/Dice, FPR/FNR, MCC, Cohen kappa
 - `per_class_iou`
 - `per_class_precision`
 - `per_class_recall`
@@ -288,7 +289,7 @@ Primary ranking metrics:
 Secondary selection metrics:
 - `runtime_seconds`
 - stability across seeds (mean + spread over repeated runs)
-- robustness diagnostics (`FPR`, `FNR`, `MCC`, tracked sample IoU evolution)
+- robustness diagnostics (`FPR`, `FNR`, `MCC`, `Cohen kappa`, tracked sample IoU evolution)
 
 ## Phase 4 - Collate Results And Compare Critically
 
@@ -392,8 +393,8 @@ Outputs:
 
 What this already includes:
 - model name, seed, status
-- expanded metrics (`pixel_accuracy`, `macro_f1`, `mean_iou`, `macro_precision`, `macro_recall`, `weighted_f1`, `balanced_accuracy`, `frequency_weighted_iou`)
-- binary diagnostics (`foreground_*`, `FPR/FNR`, `MCC`) for binary datasets
+- expanded metrics (`pixel_accuracy`, `macro_f1`, `mean_iou`, `macro_precision`, `macro_recall`, `weighted_f1`, `balanced_accuracy`, `cohen_kappa`, `frequency_weighted_iou`)
+- binary diagnostics (`foreground_*`, `FPR/FNR`, `MCC`, `Cohen kappa`) for binary datasets
 - scientific metrics (`mask_area_fraction_abs_error`, `hydride_count_abs_error`, size/orientation Wasserstein)
 - backend + resolved architecture fields
 - resolved key hyperparameters (`epochs`, `batch_size`, `learning_rate`, `weight_decay`, plus architecture knobs)
@@ -440,7 +441,7 @@ Select the model for deployment/publication based on transparent criteria.
 
 Recommended decision criteria:
 - primary: `mean_iou`, `macro_f1`, and `foreground_dice` on test
-- secondary: runtime, stability across seeds, robustness diagnostics (`FPR/FNR`, `MCC`, tracked-sample evolution), operational simplicity
+- secondary: runtime, stability across seeds, robustness diagnostics (`FPR/FNR`, `MCC`, `Cohen kappa`, tracked-sample evolution), operational simplicity
 - tertiary: correction burden in human review
 
 Record decision rationale in a short selection memo:

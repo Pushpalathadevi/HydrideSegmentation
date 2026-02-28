@@ -25,9 +25,33 @@ SEGFORMER_CITATION = (
     "\"SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers.\" "
     "NeurIPS 2021."
 )
+UPERNET_CITATION = (
+    "Xiao, T., Liu, Y., Zhou, B., Jiang, Y., and Sun, J. "
+    "\"Unified Perceptual Parsing for Scene Understanding.\" ECCV 2018."
+)
+SWIN_CITATION = (
+    "Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin, S., and Guo, B. "
+    "\"Swin Transformer: Hierarchical Vision Transformer using Shifted Windows.\" ICCV 2021."
+)
 UNET_CITATION = (
     "Ronneberger, O., Fischer, P., and Brox, T. "
     "\"U-Net: Convolutional Networks for Biomedical Image Segmentation.\" MICCAI 2015."
+)
+UNETPP_CITATION = (
+    "Zhou, Z., Siddiquee, M. M. R., Tajbakhsh, N., and Liang, J. "
+    "\"UNet++: A Nested U-Net Architecture for Medical Image Segmentation.\" 2018."
+)
+DEEPLABV3PLUS_CITATION = (
+    "Chen, L.-C., Zhu, Y., Papandreou, G., Schroff, F., and Adam, H. "
+    "\"Encoder-Decoder with Atrous Separable Convolution for Semantic Image Segmentation.\" ECCV 2018."
+)
+PSPNET_CITATION = (
+    "Zhao, H., Shi, J., Qi, X., Wang, X., and Jia, J. "
+    "\"Pyramid Scene Parsing Network.\" CVPR 2017."
+)
+FPN_CITATION = (
+    "Lin, T.-Y., Dollar, P., Girshick, R., He, K., Hariharan, B., and Belongie, S. "
+    "\"Feature Pyramid Networks for Object Detection.\" CVPR 2017."
 )
 RESNET_CITATION = (
     "He, K., Zhang, X., Ren, S., and Sun, J. "
@@ -56,11 +80,44 @@ HF_SEGFORMER_TARGETS: dict[str, dict[str, str]] = {
     },
 }
 
-SMP_UNET_TARGETS: dict[str, dict[str, str]] = {
+HF_UPERNET_TARGETS: dict[str, dict[str, str]] = {
+    "hf_upernet_swin_large": {
+        "model_id": "hf_upernet_swin_large_ade20k",
+        "architecture": "hf_upernet_swin_large",
+        "repo_id": "openmmlab/upernet-swin-large",
+    }
+}
+
+SMP_SEGMENTATION_TARGETS: dict[str, dict[str, str]] = {
     "smp_unet_resnet18": {
         "model_id": "smp_unet_resnet18_imagenet",
         "architecture": "smp_unet_resnet18",
+        "decoder_name": "unet",
         "encoder_name": "resnet18",
+    },
+    "smp_deeplabv3plus_resnet101": {
+        "model_id": "smp_deeplabv3plus_resnet101_imagenet",
+        "architecture": "smp_deeplabv3plus_resnet101",
+        "decoder_name": "deeplabv3plus",
+        "encoder_name": "resnet101",
+    },
+    "smp_unetplusplus_resnet101": {
+        "model_id": "smp_unetplusplus_resnet101_imagenet",
+        "architecture": "smp_unetplusplus_resnet101",
+        "decoder_name": "unetplusplus",
+        "encoder_name": "resnet101",
+    },
+    "smp_pspnet_resnet101": {
+        "model_id": "smp_pspnet_resnet101_imagenet",
+        "architecture": "smp_pspnet_resnet101",
+        "decoder_name": "pspnet",
+        "encoder_name": "resnet101",
+    },
+    "smp_fpn_resnet101": {
+        "model_id": "smp_fpn_resnet101_imagenet",
+        "architecture": "smp_fpn_resnet101",
+        "decoder_name": "fpn",
+        "encoder_name": "resnet101",
     },
 }
 
@@ -90,7 +147,8 @@ ALL_TARGETS = tuple(
         (
             *UNET_BINARY_BOOTSTRAP_TARGETS.keys(),
             *HF_SEGFORMER_TARGETS.keys(),
-            *SMP_UNET_TARGETS.keys(),
+            *HF_UPERNET_TARGETS.keys(),
+            *SMP_SEGMENTATION_TARGETS.keys(),
             *INTERNAL_TRANSFORMER_BOOTSTRAP_TARGETS.keys(),
         )
     )
@@ -199,7 +257,76 @@ def _download_hf_segformer_bundle(spec: dict[str, str], bundle_root: Path, *, fo
     }
 
 
-def _build_smp_unet_bundle(spec: dict[str, str], bundle_root: Path, *, force: bool) -> dict[str, Any]:
+def _download_hf_upernet_bundle(spec: dict[str, str], bundle_root: Path, *, force: bool) -> dict[str, Any]:
+    from huggingface_hub import model_info, snapshot_download
+
+    model_id = str(spec["model_id"])
+    architecture = str(spec["architecture"])
+    repo_id = str(spec["repo_id"])
+    bundle_dir = bundle_root / model_id
+    model_dir = bundle_dir / "hf_model"
+    metadata_path = bundle_dir / "metadata.json"
+
+    if bundle_dir.exists() and force:
+        shutil.rmtree(bundle_dir)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+
+    info = model_info(repo_id)
+    snapshot_path = Path(
+        snapshot_download(
+            repo_id=repo_id,
+            revision=info.sha,
+            ignore_patterns=["*.h5", "*.msgpack"],
+        )
+    )
+    if model_dir.exists():
+        shutil.rmtree(model_dir)
+    shutil.copytree(snapshot_path, model_dir)
+
+    metadata = {
+        "schema_version": BUNDLE_SCHEMA,
+        "created_utc": _utc_now(),
+        "model_id": model_id,
+        "architecture": architecture,
+        "framework": "transformers",
+        "weights_format": "hf_model_dir",
+        "source": f"huggingface:{repo_id}",
+        "source_url": f"https://huggingface.co/{repo_id}",
+        "source_revision": info.sha,
+        "license": "See upstream model card license metadata",
+        "citation_key": "xiao2018upernet;liu2021swin",
+        "citation": f"{UPERNET_CITATION} {SWIN_CITATION}",
+        "citation_url": "https://arxiv.org/abs/1807.10221;https://arxiv.org/abs/2103.14030",
+        "notes": (
+            "Local snapshot for offline transfer-learning init. "
+            "Training pipeline uses local_files_only=True and num_labels=2."
+        ),
+    }
+    _write_json(metadata_path, metadata)
+    files = _collect_files(bundle_dir)
+    _write_json(bundle_dir / "SHA256SUMS.json", {"schema_version": "microseg.sha256.v1", "files": files})
+
+    return {
+        "model_id": model_id,
+        "architecture": architecture,
+        "framework": "transformers",
+        "source": f"huggingface:{repo_id}",
+        "source_url": f"https://huggingface.co/{repo_id}",
+        "source_revision": str(info.sha),
+        "bundle_dir": model_id,
+        "weights_path": "hf_model",
+        "weights_format": "hf_model_dir",
+        "metadata_path": "metadata.json",
+        "license": "See upstream model card license metadata",
+        "citation_key": "xiao2018upernet;liu2021swin",
+        "citation": f"{UPERNET_CITATION} {SWIN_CITATION}",
+        "citation_url": "https://arxiv.org/abs/1807.10221;https://arxiv.org/abs/2103.14030",
+        "notes": f"{architecture} pretrained segmentation snapshot for offline fine-tuning.",
+        "files": files,
+    }
+
+
+def _build_smp_segmentation_bundle(spec: dict[str, str], bundle_root: Path, *, force: bool) -> dict[str, Any]:
     import torch
 
     try:
@@ -218,6 +345,7 @@ def _build_smp_unet_bundle(spec: dict[str, str], bundle_root: Path, *, force: bo
 
     model_id = str(spec["model_id"])
     architecture = str(spec["architecture"])
+    decoder_name = str(spec.get("decoder_name", "unet")).strip().lower()
     encoder_name = str(spec["encoder_name"])
     bundle_dir = bundle_root / model_id
     weights_dir = bundle_dir / "weights"
@@ -228,7 +356,19 @@ def _build_smp_unet_bundle(spec: dict[str, str], bundle_root: Path, *, force: bo
         shutil.rmtree(bundle_dir)
     weights_dir.mkdir(parents=True, exist_ok=True)
 
-    model = smp.Unet(
+    model_factory_by_decoder = {
+        "unet": smp.Unet,
+        "unetplusplus": smp.UnetPlusPlus,
+        "deeplabv3plus": smp.DeepLabV3Plus,
+        "pspnet": smp.PSPNet,
+        "fpn": smp.FPN,
+    }
+    model_factory = model_factory_by_decoder.get(decoder_name)
+    if model_factory is None:
+        raise ValueError(
+            f"unsupported SMP decoder_name={decoder_name!r}; expected one of: {', '.join(sorted(model_factory_by_decoder))}"
+        )
+    model = model_factory(
         encoder_name=encoder_name,
         encoder_weights="imagenet",
         in_channels=3,
@@ -236,7 +376,38 @@ def _build_smp_unet_bundle(spec: dict[str, str], bundle_root: Path, *, force: bo
     )
     torch.save(model.state_dict(), weights_path)
 
-    source = f"segmentation_models_pytorch:Unet({encoder_name}, encoder_weights=imagenet)"
+    source = (
+        "segmentation_models_pytorch:"
+        f"{model_factory.__name__}({encoder_name}, encoder_weights=imagenet)"
+    )
+    citation_by_decoder: dict[str, tuple[str, str, str]] = {
+        "unet": (
+            "ronneberger2015unet;he2016resnet",
+            f"{UNET_CITATION} {RESNET_CITATION}",
+            "https://arxiv.org/abs/1505.04597;https://arxiv.org/abs/1512.03385",
+        ),
+        "unetplusplus": (
+            "zhou2018unetplusplus;he2016resnet",
+            f"{UNETPP_CITATION} {RESNET_CITATION}",
+            "https://arxiv.org/abs/1807.10165;https://arxiv.org/abs/1512.03385",
+        ),
+        "deeplabv3plus": (
+            "chen2018encoderdecoder;he2016resnet",
+            f"{DEEPLABV3PLUS_CITATION} {RESNET_CITATION}",
+            "https://arxiv.org/abs/1802.02611;https://arxiv.org/abs/1512.03385",
+        ),
+        "pspnet": (
+            "zhao2017pspnet;he2016resnet",
+            f"{PSPNET_CITATION} {RESNET_CITATION}",
+            "https://arxiv.org/abs/1612.01105;https://arxiv.org/abs/1512.03385",
+        ),
+        "fpn": (
+            "lin2017fpn;he2016resnet",
+            f"{FPN_CITATION} {RESNET_CITATION}",
+            "https://arxiv.org/abs/1612.03144;https://arxiv.org/abs/1512.03385",
+        ),
+    }
+    citation_key, citation_text, citation_url = citation_by_decoder[decoder_name]
     source_revision = (
         f"smp={getattr(smp, '__version__', 'unknown')};"
         f"torch={getattr(torch, '__version__', 'unknown')};"
@@ -253,11 +424,11 @@ def _build_smp_unet_bundle(spec: dict[str, str], bundle_root: Path, *, force: bo
         "source_url": "https://github.com/qubvel-org/segmentation_models.pytorch",
         "source_revision": source_revision,
         "license": "See upstream package licenses",
-        "citation_key": "ronneberger2015unet;he2016resnet",
-        "citation": f"{UNET_CITATION} {RESNET_CITATION}",
-        "citation_url": "https://arxiv.org/abs/1505.04597;https://arxiv.org/abs/1512.03385",
+        "citation_key": citation_key,
+        "citation": citation_text,
+        "citation_url": citation_url,
         "notes": (
-            f"Full U-Net state dict initialized from ImageNet-pretrained {encoder_name} encoder. "
+            f"Full {model_factory.__name__} state dict initialized from ImageNet-pretrained {encoder_name} encoder. "
             f"Suitable as local transfer-learning bootstrap for {architecture} backend."
         ),
     }
@@ -277,10 +448,10 @@ def _build_smp_unet_bundle(spec: dict[str, str], bundle_root: Path, *, force: bo
         "weights_format": "torch_state_dict",
         "metadata_path": "metadata.json",
         "license": "See upstream package licenses",
-        "citation_key": "ronneberger2015unet;he2016resnet",
-        "citation": f"{UNET_CITATION} {RESNET_CITATION}",
-        "citation_url": "https://arxiv.org/abs/1505.04597;https://arxiv.org/abs/1512.03385",
-        "notes": f"SMP U-Net {encoder_name} ImageNet-initialized state dict for offline fine-tuning.",
+        "citation_key": citation_key,
+        "citation": citation_text,
+        "citation_url": citation_url,
+        "notes": f"SMP {model_factory.__name__} {encoder_name} ImageNet-initialized state dict for offline fine-tuning.",
         "files": files,
     }
 
@@ -664,8 +835,13 @@ def main() -> None:
         if target in HF_SEGFORMER_TARGETS:
             records.append(_download_hf_segformer_bundle(HF_SEGFORMER_TARGETS[target], out_root, force=bool(args.force)))
             continue
-        if target in SMP_UNET_TARGETS:
-            records.append(_build_smp_unet_bundle(SMP_UNET_TARGETS[target], out_root, force=bool(args.force)))
+        if target in HF_UPERNET_TARGETS:
+            records.append(_download_hf_upernet_bundle(HF_UPERNET_TARGETS[target], out_root, force=bool(args.force)))
+            continue
+        if target in SMP_SEGMENTATION_TARGETS:
+            records.append(
+                _build_smp_segmentation_bundle(SMP_SEGMENTATION_TARGETS[target], out_root, force=bool(args.force))
+            )
             continue
         if target in INTERNAL_TRANSFORMER_BOOTSTRAP_TARGETS:
             records.append(

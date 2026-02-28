@@ -123,4 +123,5 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
         rows = list(csv.DictReader(f))
     assert rows
     assert "mean_last_val_accuracy" in rows[0]
+    assert "mean_cohen_kappa" in rows[0]
     assert "quality_score" in rows[0]

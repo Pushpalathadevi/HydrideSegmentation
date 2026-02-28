@@ -40,8 +40,8 @@ See `docs/mission_statement.md`.
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
 - GPU-compatible training/inference/evaluation with CPU default + safe fallback
-- UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5`, `smp_unet_resnet18`, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
-- Air-gapped local transfer-learning support via `pre_trained_weights/` registry + bundle validation (`unet_binary`, `smp_unet_resnet18`, `hf_segformer_b0/b2/b5`, `transunet_tiny`, `segformer_mini`)
+- UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`, `smp_unet_resnet18`, `smp_deeplabv3plus_resnet101`, `smp_unetplusplus_resnet101`, `smp_pspnet_resnet101`, `smp_fpn_resnet101`, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
+- Air-gapped local transfer-learning support via `pre_trained_weights/` registry + bundle validation (`unet_binary`, SMP decoder family, `hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`, `transunet_tiny`, `segformer_mini`)
 - JSON + HTML run reports for training and evaluation
 - Frozen checkpoint metadata registry for model selection guidance
 
@@ -223,7 +223,7 @@ microseg-cli hpc-ga-generate \
   --output-dir outputs/hpc_ga_bundle_airgap_pretrained
 ```
 
-Top-5 scratch HPC sweep profile:
+Top-10 scratch HPC sweep profile:
 ```bash
 microseg-cli hpc-ga-generate \
   --config configs/hpc_ga.top5_scratch.default.yml \
@@ -231,7 +231,7 @@ microseg-cli hpc-ga-generate \
   --output-dir outputs/hpc_ga_bundle_top5_scratch
 ```
 
-Top-5 local-pretrained HPC sweep profile:
+Top-10 local-pretrained HPC sweep profile:
 ```bash
 microseg-cli hpc-ga-generate \
   --config configs/hpc_ga.top5_airgap_pretrained.default.yml \
@@ -247,7 +247,7 @@ microseg-cli hpc-ga-feedback-report \
   --output-path outputs/hpc_ga_feedback/feedback_report.json
 ```
 
-Single-script top-5 hydride benchmark run + dashboard:
+Single-script top-10 hydride benchmark run + dashboard:
 ```bash
 python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_suite.top5.yml --strict
 ```
@@ -263,7 +263,9 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch) with per-image metric blocks under each curve, tracked validation sample panels with per-image metric blocks, model size/weight statistics, parameter and trainable-parameter counts, runtime effort metrics (including FLOPs estimates when available), and evaluation scientific metrics.
 - Canonical campaign artifacts: `summary.json` and `summary.html` (compatibility files `benchmark_summary.json` and `benchmark_dashboard.html` are still emitted).
 - If a local-pretrained run is missing required weights/registry artifacts, it is marked `pretrained_missing` with actionable fix text in the run log, and remaining runs continue.
-- Per-run `train.log` / `eval.log` are written continuously while commands execute. Optional suite YAML watchdog keys (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`) can auto-terminate stuck runs and continue the campaign.
+- Per-suite and per-run structured event logs are written (`logs/suite_events.jsonl`, `logs/<run_tag>/run_events.jsonl`) along with continuous `train.log` / `eval.log`.
+- Metrics include `cohen_kappa` in evaluation, benchmark CSV, and dashboard summaries.
+- Optional suite YAML watchdog keys (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`) can auto-terminate stuck runs and continue the campaign.
 
 ## Beginner End-To-End Workflow
 
@@ -310,7 +312,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Phase 19 SOTA HF transformer integration status: `docs/phase19_hf_sota_transformers.md`
 - Phase 20 benchmark suite orchestration status: `docs/phase20_benchmark_suite_orchestration.md`
 - Offline pretrained transfer workflow: `docs/offline_pretrained_transfer_workflow.md`
-- Single-file HPC real-data runbook (scratch + local-pretrained + dashboard): `docs/hpc_airgap_top5_realdata_runbook.md`
+- Single-file HPC top-10 real-data runbook (scratch + local-pretrained + dashboard): `docs/hpc_airgap_top5_realdata_runbook.md`
 - Pretrained model catalog + citations: `docs/pretrained_model_catalog.md`
 - Model architecture manuscript foundation (Mermaid diagrams + critical comparison): `docs/model_architecture_manuscript_foundation.md`
 - Pretrained citation BibTeX: `docs/pretrained_model_citations.bib`

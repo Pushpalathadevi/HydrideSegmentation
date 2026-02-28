@@ -68,9 +68,14 @@ microseg-cli train --config configs/train.default.yml --set max_samples=300000 -
 Common training backend options:
 - `backend=unet_binary` (default)
 - `backend=smp_unet_resnet18` (SMP U-Net with ResNet18 encoder)
+- `backend=smp_deeplabv3plus_resnet101`
+- `backend=smp_unetplusplus_resnet101`
+- `backend=smp_pspnet_resnet101`
+- `backend=smp_fpn_resnet101`
 - `backend=hf_segformer_b0` (Hugging Face SegFormer-B0, scratch init)
 - `backend=hf_segformer_b2` (Hugging Face SegFormer-B2, scratch init)
 - `backend=hf_segformer_b5` (Hugging Face SegFormer-B5, scratch init)
+- `backend=hf_upernet_swin_large`
 - `backend=transunet_tiny`
 - `backend=segformer_mini`
 - `backend=torch_pixel`
@@ -115,9 +120,16 @@ microseg-cli train --config configs/train.default.yml \
   --set pretrained_init_mode=local \
   --set pretrained_model_id=hf_segformer_b5_ade20k \
   --set pretrained_registry_path=pre_trained_weights/registry.json
+
+microseg-cli train --config configs/train.default.yml \
+  --set backend=hf_upernet_swin_large \
+  --set model_architecture=hf_upernet_swin_large \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=hf_upernet_swin_large_ade20k \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
 ```
 
-Local pretrained SMP U-Net example:
+Local pretrained SMP family examples:
 ```bash
 microseg-cli train \
   --config configs/train.default.yml \
@@ -125,6 +137,34 @@ microseg-cli train \
   --set model_architecture=smp_unet_resnet18 \
   --set pretrained_init_mode=local \
   --set pretrained_model_id=smp_unet_resnet18_imagenet \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+
+microseg-cli train --config configs/train.default.yml \
+  --set backend=smp_deeplabv3plus_resnet101 \
+  --set model_architecture=smp_deeplabv3plus_resnet101 \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=smp_deeplabv3plus_resnet101_imagenet \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+
+microseg-cli train --config configs/train.default.yml \
+  --set backend=smp_unetplusplus_resnet101 \
+  --set model_architecture=smp_unetplusplus_resnet101 \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=smp_unetplusplus_resnet101_imagenet \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+
+microseg-cli train --config configs/train.default.yml \
+  --set backend=smp_pspnet_resnet101 \
+  --set model_architecture=smp_pspnet_resnet101 \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=smp_pspnet_resnet101_imagenet \
+  --set pretrained_registry_path=pre_trained_weights/registry.json
+
+microseg-cli train --config configs/train.default.yml \
+  --set backend=smp_fpn_resnet101 \
+  --set model_architecture=smp_fpn_resnet101 \
+  --set pretrained_init_mode=local \
+  --set pretrained_model_id=smp_fpn_resnet101_imagenet \
   --set pretrained_registry_path=pre_trained_weights/registry.json
 ```
 

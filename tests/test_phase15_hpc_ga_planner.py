@@ -280,6 +280,40 @@ def test_phase15_hpc_job_script_includes_pretrained_overrides_for_internal_backe
         assert f'"--set" "pretrained_model_id={model_id}"' in job_text
 
 
+def test_phase15_hpc_job_script_includes_pretrained_overrides_for_new_sota_backends(tmp_path: Path) -> None:
+    cases = [
+        ("smp_deeplabv3plus_resnet101", "smp_deeplabv3plus_resnet101_imagenet"),
+        ("smp_unetplusplus_resnet101", "smp_unetplusplus_resnet101_imagenet"),
+        ("smp_pspnet_resnet101", "smp_pspnet_resnet101_imagenet"),
+        ("smp_fpn_resnet101", "smp_fpn_resnet101_imagenet"),
+        ("hf_upernet_swin_large", "hf_upernet_swin_large_ade20k"),
+    ]
+    for idx, (backend, model_id) in enumerate(cases, start=1):
+        out = tmp_path / f"hpc_bundle_pretrained_new_{idx}"
+        cfg = HpcGaPlanConfig(
+            dataset_dir="outputs/prepared_dataset",
+            output_dir=str(out),
+            architectures=(backend,),
+            num_candidates=1,
+            population_size=4,
+            generations=1,
+            seed=idx,
+            scheduler="local",
+            pretrained_init_mode="auto",
+            pretrained_registry_path="pre_trained_weights/registry.json",
+            pretrained_model_map={backend: model_id},
+            pretrained_verify_sha256=True,
+            pretrained_ignore_mismatched_sizes=True,
+            pretrained_strict=False,
+        )
+        generate_hpc_ga_bundle(cfg)
+        job_text = (out / "jobs" / "cand_001.sh").read_text(encoding="utf-8")
+        assert f'"--set" "backend={backend}"' in job_text
+        assert f'"--set" "model_architecture={backend}"' in job_text
+        assert '"--set" "pretrained_init_mode=local"' in job_text
+        assert f'"--set" "pretrained_model_id={model_id}"' in job_text
+
+
 def test_phase15_hpc_local_pretrained_requires_mapping() -> None:
     cfg = HpcGaPlanConfig(
         dataset_dir="outputs/prepared_dataset",
