@@ -148,11 +148,16 @@ python scripts/microseg_cli.py prepare_dataset \
   --crop-train random \
   --crop-eval center \
   --mask-r-min 200 --mask-g-max 60 --mask-b-max 60 \
+  --allow-red-dominance-fallback \
+  --auto-otsu-for-noisy-grayscale \
+  --empty-mask-action warn \
   --seed 42 --train-frac 0.8 --val-frac 0.1
 ```
 Use `--dry-run` to validate pairing and inspect planned outputs without writing dataset files.
 
-In debug mode, dataset preparation now also exports raw-vs-binarized mask difference views and emits explicit warnings when raw masks contain values outside expected binary levels (`0/255` by default).
+`prepare_dataset` supports `{stem}.jpg + {stem}_mask.png` (and `{stem}.png`) pairing in one folder.
+In debug mode (`--debug --num-debug N`), dataset preparation exports input/output images, input/processed masks, mask-difference views, overlay panels, and per-sample criteria JSON.
+All-zero output masks are now explicitly flagged (`--empty-mask-action warn|error`), and noisy near-binary grayscale masks can auto-switch to Otsu (`--auto-otsu-for-noisy-grayscale`).
 
 
 RGB mask colormap conversion during auto-prepare:
@@ -259,10 +264,6 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Canonical campaign artifacts: `summary.json` and `summary.html` (compatibility files `benchmark_summary.json` and `benchmark_dashboard.html` are still emitted).
 - If a local-pretrained run is missing required weights/registry artifacts, it is marked `pretrained_missing` with actionable fix text in the run log, and remaining runs continue.
 - Per-run `train.log` / `eval.log` are written continuously while commands execute. Optional suite YAML watchdog keys (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`) can auto-terminate stuck runs and continue the campaign.
-- Training now emits explicit `VAL_START/VAL_PROGRESS/VAL_END`, `TRACK_EXPORT_*`, `EPOCH_HISTORY_WRITE_*`, `CKPT_SAVE_*`, and `REPORT_UPDATE_*` markers so post-epoch hangs can be pinpointed to exact operations in logs.
-- Validation/post-epoch phases emit heartbeat logs (default every 30s via `post_epoch_heartbeat_seconds`) to reduce false watchdog idle kills during long I/O.
-- Tracked validation export now applies the same validation input-size policy (including resize/letterbox + divisible padding) used by dataloaders, records raw/preprocessed shapes, and bounds panel size via `tracking_max_vis_width` / `tracking_max_vis_height` so wide images do not cause long silent post-epoch stalls.
-- Quick verification: run a 1-epoch train (`microseg-cli train ... --set epochs=1`) and confirm the markers above appear in order; if a stall occurs, the last marker identifies the blocked step.
 
 ## Beginner End-To-End Workflow
 

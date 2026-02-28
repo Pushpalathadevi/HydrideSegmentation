@@ -125,6 +125,7 @@ def test_pipeline_exports_manifest_and_debug_outputs(tmp_path: Path) -> None:
     assert (output_dir / "debug_inspection").exists()
     assert len(list((output_dir / "debug_inspection").rglob("*_panel.png"))) == 3
     assert len(list((output_dir / "debug_inspection").rglob("*_mask_difference.png"))) == 3
+    assert len(list((output_dir / "debug_inspection").rglob("*_criteria.json"))) == 3
 
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["split_counts"]["train"] + manifest["split_counts"]["val"] + manifest["split_counts"]["test"] == 5
@@ -203,6 +204,7 @@ def test_mask_binarizer_rgb_threshold_mode() -> None:
         mask_r_min=200,
         mask_g_max=60,
         mask_b_max=60,
+        allow_red_dominance_fallback=False,
     )
     out, stats = MaskBinarizer(cfg).apply(raw)
     assert set(np.unique(out).tolist()) == {0, 1}
@@ -210,6 +212,64 @@ def test_mask_binarizer_rgb_threshold_mode() -> None:
     assert int(out[0, 0]) == 1
     assert int(out[0, 2]) == 0
     assert int(out[1, 0]) == 0
+
+
+def test_mask_binarizer_rgb_mode_grayscale_binary_like_passthrough() -> None:
+    raw = np.array([[0, 1, 0], [1, 1, 0]], dtype=np.uint8)
+    cfg = DatasetPrepConfig(input_dir="in", output_dir="out", rgb_mask_mode=True)
+    out, stats = MaskBinarizer(cfg).apply(raw)
+    assert set(np.unique(out).tolist()) == {0, 1}
+    assert stats["mode"] == "grayscale_binary_passthrough"
+    assert int(out[0, 1]) == 1
+
+
+def test_mask_binarizer_rgb_red_dominance_fallback() -> None:
+    raw = np.zeros((2, 4, 3), dtype=np.uint8)
+    raw[0, 0] = np.array([0, 0, 25], dtype=np.uint8)
+    raw[0, 1] = np.array([2, 3, 24], dtype=np.uint8)
+    raw[0, 2] = np.array([15, 18, 25], dtype=np.uint8)
+    raw[0, 3] = np.array([0, 0, 10], dtype=np.uint8)
+    cfg = DatasetPrepConfig(
+        input_dir="in",
+        output_dir="out",
+        rgb_mask_mode=True,
+        mask_r_min=200,
+        mask_g_max=60,
+        mask_b_max=60,
+        allow_red_dominance_fallback=True,
+        mask_red_min_fallback=16,
+        mask_red_dominance_margin=8,
+        mask_red_dominance_ratio=1.5,
+    )
+    out, stats = MaskBinarizer(cfg).apply(raw)
+    assert set(np.unique(out).tolist()).issubset({0, 1})
+    assert int(out[0, 0]) == 1
+    assert int(out[0, 1]) == 1
+    assert int(out[0, 2]) == 0
+    assert int(out[0, 3]) == 0
+    assert int(stats["red_dominance_fg_pixel_count"]) >= 2
+
+
+def test_mask_binarizer_auto_otsu_for_noisy_grayscale() -> None:
+    raw = np.array([
+        [0, 0, 2, 4, 220, 255],
+        [0, 1, 3, 5, 230, 255],
+        [0, 0, 2, 4, 210, 255],
+        [0, 0, 0, 5, 200, 255],
+    ], dtype=np.uint8)
+    cfg = DatasetPrepConfig(
+        input_dir="in",
+        output_dir="out",
+        auto_otsu_for_noisy_grayscale=True,
+        noisy_grayscale_low_max=5,
+        noisy_grayscale_high_min=200,
+        noisy_grayscale_min_extreme_ratio=0.95,
+    )
+    out, stats = MaskBinarizer(cfg).apply(raw)
+    assert stats["mode"] == "grayscale_auto_otsu"
+    assert stats["auto_otsu_applied"] is True
+    assert "otsu_threshold" in stats
+    assert set(np.unique(out).tolist()).issubset({0, 1})
 
 
 def test_resize_policy_short_side_to_target_crop_alignment() -> None:
@@ -274,3 +334,96 @@ def test_pipeline_paired_jpg_rgb_png_outputs_mado(tmp_path: Path) -> None:
     qa = json.loads((output_dir / "dataset_qa_report.json").read_text(encoding="utf-8"))
     assert qa["pairing"]["pair_count"] == 6
     assert qa["split_counts"]["train"] + qa["split_counts"]["val"] + qa["split_counts"]["test"] == 6
+
+
+def test_pipeline_maps_grayscale_binary01_mask_to_255(tmp_path: Path) -> None:
+    input_dir = tmp_path / "pairs_gray01"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    image = np.full((40, 40, 3), 128, dtype=np.uint8)
+    mask = np.zeros((40, 40), dtype=np.uint8)
+    mask[:, 10:30] = 1
+    Image.fromarray(image).save(input_dir / "sample.jpg")
+    Image.fromarray(mask).save(input_dir / "sample_mask.png")
+
+    output_dir = tmp_path / "out_gray01"
+    cfg = DatasetPrepConfig.from_dict({
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "styles": ["mado"],
+        "image_extensions": [".jpg", ".jpeg"],
+        "mask_extensions": [".png"],
+        "mask_name_patterns": ["{stem}_mask.png"],
+        "rgb_mask_mode": True,
+        "resize_policy": "short_side_to_target_crop",
+        "target_size": 32,
+        "crop_mode_train": "center",
+        "crop_mode_eval": "center",
+    })
+    DatasetPreparer(cfg).run()
+    out_mask_path = next((output_dir / "mado" / "train" / "masks").glob("*.png"))
+    out_mask = np.asarray(Image.open(out_mask_path).convert("L"), dtype=np.uint8)
+    assert out_mask.shape == (32, 32)
+    assert set(np.unique(out_mask).tolist()) == {0, 255}
+
+
+def test_pipeline_warns_when_output_mask_all_zeros(tmp_path: Path, caplog) -> None:
+    input_dir = tmp_path / "pairs_empty_warn"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    image = np.full((32, 32, 3), 128, dtype=np.uint8)
+    mask = np.zeros((32, 32), dtype=np.uint8)
+    Image.fromarray(image).save(input_dir / "sample.jpg")
+    Image.fromarray(mask).save(input_dir / "sample_mask.png")
+
+    output_dir = tmp_path / "out_empty_warn"
+    cfg = DatasetPrepConfig.from_dict({
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "styles": ["mado"],
+        "image_extensions": [".jpg", ".jpeg"],
+        "mask_extensions": [".png"],
+        "mask_name_patterns": ["{stem}_mask.png"],
+        "rgb_mask_mode": True,
+        "empty_mask_action": "warn",
+        "target_size": 32,
+        "resize_policy": "short_side_to_target_crop",
+        "crop_mode_train": "center",
+        "crop_mode_eval": "center",
+    })
+    caplog.set_level(logging.WARNING, logger="microseg.data_preparation")
+    DatasetPreparer(cfg).run()
+
+    assert any("all zeros after preprocessing" in rec.getMessage() for rec in caplog.records)
+    qa = json.loads((output_dir / "dataset_qa_report.json").read_text(encoding="utf-8"))
+    assert qa["empty_output_masks"]["count"] == 1
+    assert qa["empty_output_masks"]["stems"] == ["sample"]
+
+
+def test_pipeline_errors_when_output_mask_all_zeros(tmp_path: Path) -> None:
+    input_dir = tmp_path / "pairs_empty_error"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    image = np.full((32, 32, 3), 128, dtype=np.uint8)
+    mask = np.zeros((32, 32), dtype=np.uint8)
+    Image.fromarray(image).save(input_dir / "sample.jpg")
+    Image.fromarray(mask).save(input_dir / "sample_mask.png")
+
+    output_dir = tmp_path / "out_empty_error"
+    cfg = DatasetPrepConfig.from_dict({
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "styles": ["mado"],
+        "image_extensions": [".jpg", ".jpeg"],
+        "mask_extensions": [".png"],
+        "mask_name_patterns": ["{stem}_mask.png"],
+        "rgb_mask_mode": True,
+        "empty_mask_action": "error",
+        "target_size": 32,
+        "resize_policy": "short_side_to_target_crop",
+        "crop_mode_train": "center",
+        "crop_mode_eval": "center",
+    })
+    try:
+        DatasetPreparer(cfg).run()
+    except ValueError as exc:
+        assert "output mask is all zeros after preprocessing" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for empty output mask")

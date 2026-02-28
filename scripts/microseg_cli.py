@@ -637,9 +637,32 @@ def _prepare_dataset_paired(args: argparse.Namespace) -> int:
         "mask_r_min": int(cfg.get("mask_r_min", args.mask_r_min)),
         "mask_g_max": int(cfg.get("mask_g_max", args.mask_g_max)),
         "mask_b_max": int(cfg.get("mask_b_max", args.mask_b_max)),
+        "allow_red_dominance_fallback": bool(
+            cfg.get("allow_red_dominance_fallback", args.allow_red_dominance_fallback)
+        ),
+        "mask_red_min_fallback": int(cfg.get("mask_red_min_fallback", args.mask_red_min_fallback)),
+        "mask_red_dominance_margin": int(cfg.get("mask_red_dominance_margin", args.mask_red_dominance_margin)),
+        "mask_red_dominance_ratio": float(cfg.get("mask_red_dominance_ratio", args.mask_red_dominance_ratio)),
+        "auto_otsu_for_noisy_grayscale": bool(
+            cfg.get("auto_otsu_for_noisy_grayscale", args.auto_otsu_for_noisy_grayscale)
+        ),
+        "noisy_grayscale_low_max": int(cfg.get("noisy_grayscale_low_max", args.noisy_grayscale_low_max)),
+        "noisy_grayscale_high_min": int(cfg.get("noisy_grayscale_high_min", args.noisy_grayscale_high_min)),
+        "noisy_grayscale_min_extreme_ratio": float(
+            cfg.get("noisy_grayscale_min_extreme_ratio", args.noisy_grayscale_min_extreme_ratio)
+        ),
+        "empty_mask_action": str(cfg.get("empty_mask_action", args.empty_mask_action)),
         "image_extensions": cfg.get("image_extensions", [".jpg", ".jpeg"]),
         "mask_extensions": cfg.get("mask_extensions", [".png"]),
-        "mask_name_patterns": cfg.get("mask_name_patterns", ["{stem}.png"]),
+        "mask_name_patterns": cfg.get("mask_name_patterns", ["{stem}_mask.png", "{stem}.png"]),
+        "debug": {
+            **(cfg.get("debug", {}) if isinstance(cfg.get("debug"), dict) else {}),
+            "enabled": bool(cfg.get("debug", {}).get("enabled", args.debug)) if isinstance(cfg.get("debug"), dict) else bool(args.debug),
+            "limit_pairs": int(cfg.get("debug", {}).get("limit_pairs", args.debug_limit)) if isinstance(cfg.get("debug"), dict) else int(args.debug_limit),
+            "inspection_limit": int(cfg.get("debug", {}).get("inspection_limit", args.num_debug)) if isinstance(cfg.get("debug"), dict) else int(args.num_debug),
+            "show_plots": bool(cfg.get("debug", {}).get("show_plots", args.debug_show_plots)) if isinstance(cfg.get("debug"), dict) else bool(args.debug_show_plots),
+            "draw_contours": bool(cfg.get("debug", {}).get("draw_contours", args.debug_draw_contours)) if isinstance(cfg.get("debug"), dict) else bool(args.debug_draw_contours),
+        },
     })
 
     result = DatasetPreparer(resolved).run()
@@ -1068,7 +1091,7 @@ def _build_parser() -> argparse.ArgumentParser:
     paired = sub.add_parser("prepare_dataset", help="Prepare paired JPG + RGB PNG masks into MaDo/Oxford layout")
     paired.add_argument("--config", type=str, help="YAML config path")
     paired.add_argument("--set", action="append", default=[], help="Override key=value")
-    paired.add_argument("--input-dir", type=str, help="Input paired folder containing {stem}.jpg + {stem}.png")
+    paired.add_argument("--input-dir", type=str, help="Input paired folder containing {stem}.jpg + {stem}_mask.png (or {stem}.png)")
     paired.add_argument("--output-root", type=str, help="Output dataset root")
     paired.add_argument("--style", type=str, default="mado", help="Comma-separated styles")
     paired.add_argument("--target-size", type=int, default=512)
@@ -1077,6 +1100,20 @@ def _build_parser() -> argparse.ArgumentParser:
     paired.add_argument("--mask-r-min", type=int, default=200)
     paired.add_argument("--mask-g-max", type=int, default=60)
     paired.add_argument("--mask-b-max", type=int, default=60)
+    paired.add_argument("--allow-red-dominance-fallback", action=argparse.BooleanOptionalAction, default=True)
+    paired.add_argument("--mask-red-min-fallback", type=int, default=16)
+    paired.add_argument("--mask-red-dominance-margin", type=int, default=8)
+    paired.add_argument("--mask-red-dominance-ratio", type=float, default=1.5)
+    paired.add_argument("--auto-otsu-for-noisy-grayscale", action=argparse.BooleanOptionalAction, default=True)
+    paired.add_argument("--noisy-grayscale-low-max", type=int, default=5)
+    paired.add_argument("--noisy-grayscale-high-min", type=int, default=200)
+    paired.add_argument("--noisy-grayscale-min-extreme-ratio", type=float, default=0.98)
+    paired.add_argument("--empty-mask-action", choices=["warn", "error"], default="warn")
+    paired.add_argument("--debug", action="store_true", help="Write debug inspection panels and masks")
+    paired.add_argument("--debug-limit", type=int, default=100, help="Max pairs processed in debug mode")
+    paired.add_argument("--num-debug", type=int, default=8, help="Number of debug panels to export")
+    paired.add_argument("--debug-show-plots", action="store_true", help="Show matplotlib debug panels during run")
+    paired.add_argument("--debug-draw-contours", action="store_true", help="Draw contours on overlay debug output")
     paired.add_argument("--seed", type=int, default=42)
     paired.add_argument("--train-frac", type=float, default=0.8)
     paired.add_argument("--val-frac", type=float, default=0.1)

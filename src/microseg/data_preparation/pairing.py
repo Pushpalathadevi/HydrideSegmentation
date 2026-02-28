@@ -44,7 +44,6 @@ class PairCollector:
         images = sorted([p for p in files if p.suffix.lower() in self.image_extensions and "_mask" not in p.stem])
         all_masks = sorted([p for p in files if p.suffix.lower() in self.mask_extensions])
         image_stems = {p.stem for p in images}
-        mask_stems = {p.stem for p in all_masks}
         pairs: list[ImageMaskPair] = []
         missing_masks: list[str] = []
         for image in images:
@@ -62,7 +61,11 @@ class PairCollector:
                 continue
             pairs.append(ImageMaskPair(stem=stem, image_path=image, mask_path=found))
 
-        missing_images = sorted(mask_stems - image_stems)
+        normalized_mask_stems = set()
+        for mask_path in all_masks:
+            normalized = self._normalize_mask_stem(mask_path.name, image_stems=image_stems)
+            normalized_mask_stems.add(normalized if normalized else mask_path.stem)
+        missing_images = sorted(normalized_mask_stems - image_stems)
         report = PairCollectionReport(
             total_images=len(images),
             total_masks=len(all_masks),
@@ -79,3 +82,20 @@ class PairCollector:
                 f"missing_masks={missing_masks[:10]} missing_images={missing_images[:10]}"
             )
         return sorted(pairs, key=lambda p: p.stem), report
+
+    def _normalize_mask_stem(self, filename: str, *, image_stems: set[str]) -> str:
+        fallback = ""
+        for pattern in self.mask_name_patterns:
+            if "{stem}" not in pattern:
+                continue
+            prefix, suffix = pattern.split("{stem}", maxsplit=1)
+            if not (filename.startswith(prefix) and filename.endswith(suffix)):
+                continue
+            end = len(filename) - len(suffix) if suffix else len(filename)
+            stem = filename[len(prefix):end]
+            if stem:
+                if stem in image_stems:
+                    return stem
+                if not fallback:
+                    fallback = stem
+        return fallback

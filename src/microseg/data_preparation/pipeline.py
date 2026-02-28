@@ -68,6 +68,7 @@ class DatasetPreparer:
         split_for_index = {idx: split for split, idxs in split_map.items() for idx in idxs}
         records: list[dict[str, Any]] = []
         read_failures: list[str] = []
+        empty_output_masks: list[str] = []
         debug_written = 0
 
         stage_start = time.perf_counter()
@@ -89,6 +90,14 @@ class DatasetPreparer:
                 split=split,
                 sample_seed=self.cfg.seed + idx,
             )
+            if int(np.count_nonzero(mask_out)) == 0:
+                empty_message = "output mask is all zeros after preprocessing"
+                empty_output_masks.append(pair.stem)
+                mask_stats["all_zero_output_mask"] = True
+                if self.cfg.empty_mask_action == "error":
+                    raise ValueError(f"{pair.stem}: {empty_message}")
+                mask_stats.setdefault("warnings", [])
+                mask_stats["warnings"].append(empty_message)
             mask_warnings = [str(w) for w in mask_stats.get("warnings", [])]
             pair_warnings = [f"{pair.stem}: {w}" for w in [*mask_warnings, *resize_warnings]]
             for warning in pair_warnings:
@@ -115,17 +124,20 @@ class DatasetPreparer:
             records.append(rec)
 
             if self.cfg.debug.enabled and debug_written < self.cfg.debug.inspection_limit:
+                debug_criteria = self._debug_criteria(mask_stats)
                 annotation = (
                     f"{pair.stem} split={split} src={image.shape}/{mask_raw.shape} out={image_out.shape}/{mask_out.shape} "
-                    f"dtype={mask_out.dtype} uniq={sorted(np.unique(mask_out).tolist())} mode={self.cfg.binarization_mode}"
+                    f"dtype={mask_out.dtype} uniq={sorted(np.unique(mask_out).tolist())} mode={debug_criteria.get('mode')}"
                 )
                 self.inspector.write(
                     debug_root=output_dir / "debug_inspection",
                     split=split,
                     stem=pair.stem,
-                    image_raw=image_out,
-                    mask_raw=mask_raw,
-                    mask_binary=mask_out,
+                    image_input=image,
+                    image_output=image_out,
+                    mask_input=mask_raw,
+                    mask_processed=mask_out,
+                    criteria=debug_criteria,
                     show=self.cfg.debug.show_plots,
                     ext=self.cfg.debug_ext,
                     draw_contours=self.cfg.debug.draw_contours,
@@ -154,6 +166,7 @@ class DatasetPreparer:
             split_counts=split_counts,
             pairing_report=pairing_report,
             read_failures=read_failures,
+            empty_output_masks=empty_output_masks,
             elapsed_seconds=time.perf_counter() - run_start,
         )
         return DatasetPrepareResult(manifest_path=manifest_path, split_counts=split_counts, total_pairs=len(records))
@@ -176,6 +189,7 @@ class DatasetPreparer:
         split_counts: dict[str, int],
         pairing_report: PairCollectionReport,
         read_failures: list[str],
+        empty_output_masks: list[str],
         elapsed_seconds: float,
     ) -> None:
         fg_ratios = [float(rec["mask_stats"].get("fg_ratio", 0.0)) for rec in records]
@@ -192,6 +206,11 @@ class DatasetPreparer:
             "split_counts": split_counts,
             "processed_pairs": len(records),
             "read_failures": read_failures,
+            "empty_output_masks": {
+                "count": len(empty_output_masks),
+                "stems": sorted(empty_output_masks),
+                "action": self.cfg.empty_mask_action,
+            },
             "mask": {
                 "foreground_ratio_mean": float(np.mean(fg_ratios)) if fg_ratios else 0.0,
                 "foreground_ratio_min": float(np.min(fg_ratios)) if fg_ratios else 0.0,
@@ -212,6 +231,7 @@ class DatasetPreparer:
             f"<p>split_counts={split_counts}</p>"
             f"<p>missing_masks={len(pairing_report.missing_masks)}</p>"
             f"<p>missing_images={len(pairing_report.missing_images)}</p>"
+            f"<p>empty_output_masks={len(empty_output_masks)}</p>"
             f"<p>elapsed_seconds={elapsed_seconds:.2f}</p>"
             "</body></html>",
             encoding="utf-8",
@@ -281,3 +301,21 @@ class DatasetPreparer:
         eta = per_item * max(0, total - done)
         pct = (100.0 * done / total) if total else 100.0
         self.log.info("progress %d/%d (%.1f%%) elapsed=%.1fs eta=%.1fs", done, total, pct, elapsed, eta)
+
+    @staticmethod
+    def _debug_criteria(mask_stats: dict[str, Any]) -> dict[str, Any]:
+        threshold = (
+            mask_stats.get("otsu_threshold")
+            if "otsu_threshold" in mask_stats
+            else mask_stats.get("percentile_threshold")
+        )
+        return {
+            "mode": mask_stats.get("mode"),
+            "threshold": threshold,
+            "thresholds": mask_stats.get("thresholds", {}),
+            "auto_otsu_applied": bool(mask_stats.get("auto_otsu_applied", False)),
+            "fg_pixel_count": mask_stats.get("fg_pixel_count"),
+            "fg_ratio": mask_stats.get("fg_ratio"),
+            "unique_binary_values": mask_stats.get("unique_binary_values"),
+            "warnings": mask_stats.get("warnings", []),
+        }

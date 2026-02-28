@@ -53,11 +53,20 @@ class DatasetPrepConfig:
     mask_g_max: int = 60
     mask_b_max: int = 60
     enforce_gb_thresholds: bool = True
+    allow_red_dominance_fallback: bool = True
+    mask_red_min_fallback: int = 16
+    mask_red_dominance_margin: int = 8
+    mask_red_dominance_ratio: float = 1.5
+    auto_otsu_for_noisy_grayscale: bool = True
+    noisy_grayscale_low_max: int = 5
+    noisy_grayscale_high_min: int = 200
+    noisy_grayscale_min_extreme_ratio: float = 0.98
     threshold: int = 127
     threshold_strict: bool = False
     foreground_values: list[int] = field(default_factory=lambda: [255])
     percentile: float = 90.0
     invert_mask: bool = False
+    empty_mask_action: Literal["warn", "error"] = "warn"
     morphology: MorphologyConfig = field(default_factory=MorphologyConfig)
     target_size: tuple[int, int] = (512, 512)
     resize_policy: Literal["letterbox_pad", "center_crop", "stretch", "keep_aspect_no_pad", "short_side_to_target_crop"] = "letterbox_pad"

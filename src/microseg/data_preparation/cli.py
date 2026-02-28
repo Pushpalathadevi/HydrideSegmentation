@@ -30,6 +30,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mask-r-min", type=int, default=200)
     parser.add_argument("--mask-g-max", type=int, default=60)
     parser.add_argument("--mask-b-max", type=int, default=60)
+    parser.add_argument("--allow-red-dominance-fallback", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--mask-red-min-fallback", type=int, default=16)
+    parser.add_argument("--mask-red-dominance-margin", type=int, default=8)
+    parser.add_argument("--mask-red-dominance-ratio", type=float, default=1.5)
+    parser.add_argument("--auto-otsu-for-noisy-grayscale", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--noisy-grayscale-low-max", type=int, default=5)
+    parser.add_argument("--noisy-grayscale-high-min", type=int, default=200)
+    parser.add_argument("--noisy-grayscale-min-extreme-ratio", type=float, default=0.98)
+    parser.add_argument("--empty-mask-action", choices=["warn", "error"], default="warn")
     parser.add_argument("--rgb-mask-mode", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--progress-log-interval", type=int, default=20)
     return parser
@@ -65,6 +74,15 @@ def main(argv: list[str] | None = None) -> int:
         "mask_r_min": args.mask_r_min,
         "mask_g_max": args.mask_g_max,
         "mask_b_max": args.mask_b_max,
+        "allow_red_dominance_fallback": bool(args.allow_red_dominance_fallback),
+        "mask_red_min_fallback": args.mask_red_min_fallback,
+        "mask_red_dominance_margin": args.mask_red_dominance_margin,
+        "mask_red_dominance_ratio": args.mask_red_dominance_ratio,
+        "auto_otsu_for_noisy_grayscale": bool(args.auto_otsu_for_noisy_grayscale),
+        "noisy_grayscale_low_max": args.noisy_grayscale_low_max,
+        "noisy_grayscale_high_min": args.noisy_grayscale_high_min,
+        "noisy_grayscale_min_extreme_ratio": args.noisy_grayscale_min_extreme_ratio,
+        "empty_mask_action": args.empty_mask_action,
         "progress_log_interval": args.progress_log_interval,
         "debug": {
             "enabled": args.debug,

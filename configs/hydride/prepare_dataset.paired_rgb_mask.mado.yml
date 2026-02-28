@@ -10,6 +10,7 @@ image_extensions:
 mask_extensions:
   - .png
 mask_name_patterns:
+  - "{stem}_mask.png"
   - "{stem}.png"
 
 rgb_mask_mode: true
@@ -17,6 +18,14 @@ mask_r_min: 200
 mask_g_max: 60
 mask_b_max: 60
 enforce_gb_thresholds: true
+allow_red_dominance_fallback: true
+mask_red_min_fallback: 16
+mask_red_dominance_margin: 8
+mask_red_dominance_ratio: 1.5
+auto_otsu_for_noisy_grayscale: true
+noisy_grayscale_low_max: 5
+noisy_grayscale_high_min: 200
+noisy_grayscale_min_extreme_ratio: 0.98
 
 invert_mask: false
 morphology:
@@ -29,6 +38,7 @@ target_size: 512
 resize_policy: short_side_to_target_crop
 crop_mode_train: random
 crop_mode_eval: center
+empty_mask_action: warn
 
 train_pct: 0.8
 val_pct: 0.1

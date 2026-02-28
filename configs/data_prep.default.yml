@@ -36,6 +36,14 @@ mask_r_min: 200
 mask_g_max: 60
 mask_b_max: 60
 enforce_gb_thresholds: true
+allow_red_dominance_fallback: true
+mask_red_min_fallback: 16
+mask_red_dominance_margin: 8
+mask_red_dominance_ratio: 1.5
+auto_otsu_for_noisy_grayscale: true
+noisy_grayscale_low_max: 5
+noisy_grayscale_high_min: 200
+noisy_grayscale_min_extreme_ratio: 0.98
 
 morphology:
   open_kernel: 0
@@ -49,6 +57,7 @@ target_size:
 resize_policy: letterbox_pad
 crop_mode_train: random
 crop_mode_eval: center
+empty_mask_action: warn
 progress_log_interval: 20
 qa_report_name: dataset_qa_report.json
 html_report_name: dataset_qa_report.html
