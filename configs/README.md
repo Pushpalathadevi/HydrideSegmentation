@@ -4,6 +4,7 @@ Target configuration groups:
 - `models/` model registry entries and model-specific defaults
 - `pipelines/` inference/training pipeline definitions
 - `app/` desktop app defaults
+  - `app/desktop_ui.default.yml` Qt desktop appearance and export-default settings (`microseg.desktop_ui_config.v1`)
 
 All configs should be versioned and reproducible.
 

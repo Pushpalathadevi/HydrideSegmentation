@@ -2,6 +2,16 @@
 
 from .desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
 from .desktop_result_export import DesktopResultExportConfig, DesktopResultExporter
+from .desktop_ui_config import (
+    BALANCED_METRIC_KEYS,
+    REPORT_PROFILES,
+    REPORT_SECTIONS,
+    DesktopUIConfig,
+    build_qt_stylesheet,
+    default_desktop_ui_config,
+    default_desktop_ui_config_path,
+    load_desktop_ui_config,
+)
 from .facade import run_request
 from .hpc_ga import (
     HpcGaBundleResult,
@@ -23,10 +33,18 @@ __all__ = [
     "DesktopRunRecord",
     "DesktopResultExportConfig",
     "DesktopResultExporter",
+    "DesktopUIConfig",
     "DesktopWorkflowManager",
+    "REPORT_PROFILES",
+    "REPORT_SECTIONS",
+    "BALANCED_METRIC_KEYS",
+    "build_qt_stylesheet",
+    "default_desktop_ui_config",
+    "default_desktop_ui_config_path",
     "generate_hpc_ga_bundle",
     "HpcGaBundleResult",
     "HpcGaPlanConfig",
+    "load_desktop_ui_config",
     "parse_feedback_sources",
     "OrchestrationCommandBuilder",
     "compare_run_reports",

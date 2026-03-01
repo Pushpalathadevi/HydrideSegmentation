@@ -78,6 +78,10 @@ Implemented now:
 - Dedicated Results Dashboard tab with adjustable orientation/size plotting controls
 - Runtime statistics panel for hydride fraction, count, density, orientation, and size distributions
 - Full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`)
+- Results-package export customization via profile + metric/section selection
+- Full results-package export now includes CSV + artifact manifest (`results_metrics.csv`, `artifacts_manifest.json`)
+- Batch history summary export (`batch_results_summary.json`, `batch_results_report.html/.pdf`, `batch_metrics.csv`)
+- YAML-driven UI appearance configuration (font sizes, density, contrast) with in-app settings dialog
 - Conventional-model parameter controls in GUI (CLAHE, adaptive threshold, morphology, area, crop)
 - Bundled sample images with direct `Load Sample` and `File -> Open Sample` flows
 - Persistent desktop file logging (`outputs/logs/desktop/`)

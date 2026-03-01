@@ -6,7 +6,7 @@
 2. Run segmentation.
 3. Inspect prediction in split view and Results Dashboard.
 4. Correct annotations.
-5. Export corrected sample and/or full results package (`json` + `html` + `pdf`).
+5. Export corrected sample and/or full results package (`json` + `html` + `pdf` + `csv`).
 6. Package datasets for training.
 7. Save session and resume later.
 8. Run full train/infer/evaluate/package jobs from Workflow Hub.
@@ -49,12 +49,35 @@ Output includes correction metadata and provenance (`correction_record.json`).
 - `results_summary.json` with predicted/corrected statistics and analysis config
 - `results_report.html`
 - `results_report.pdf`
+- `results_metrics.csv`
+- `artifacts_manifest.json`
 - input/mask/overlay/orientation-map/distribution images for predicted and corrected masks
+
+Report customization controls:
+- report profile: `balanced`, `full`, `audit`
+- section toggles: metadata, calibration, key summary, scalar table, distributions, overlays, diff, artifact manifest
+- metric checklist (advanced): select exact scalar metrics for export
+- key-metric cutoff (`Top-K`) and CSV output toggle
+
+Batch export:
+- `Export Batch Summary` (menu/button) exports selected history runs or all runs if none selected.
+- outputs: `batch_results_summary.json`, `batch_results_report.html`, optional `batch_results_report.pdf`, `batch_metrics.csv`
 
 ## Session Persistence
 
 - `Save Session` writes a restartable project folder with images, masks, class map, notes, and UI state.
 - `Load Session` restores run state and correction workspace.
+
+## Appearance And UI Config
+
+- Use `Settings -> Appearance & Export Settings` to adjust readability and defaults:
+  - base/heading/monospace font size
+  - control padding, panel spacing, table row density
+  - high-contrast mode
+  - default export profile and output toggles
+- Load/save YAML from the dialog.
+- Default config file: `configs/app/desktop_ui.default.yml`
+- Startup override: `hydride-gui --ui-config configs/app/desktop_ui.default.yml`
 
 ## Results Dashboard
 

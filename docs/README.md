@@ -5,6 +5,7 @@ Core planning and governance docs:
 - Mission: `mission_statement.md`
 - Baseline audit: `base_zero_audit.md`
 - Target architecture: `target_architecture.md`
+- Code architecture and data flow map (Mermaid): `code_architecture_map.md`
 - Product specification: `local_desktop_product_spec.md`
 - Scientific validation protocol: `scientific_validation.md`
 - Development workflow: `development_workflow.md`

@@ -139,14 +139,18 @@ def test_phase23_desktop_result_export_package(tmp_path: Path) -> None:
     assert (out_dir / "results_summary.json").exists()
     assert (out_dir / "results_report.html").exists()
     assert (out_dir / "results_report.pdf").exists()
+    assert (out_dir / "results_metrics.csv").exists()
+    assert (out_dir / "artifacts_manifest.json").exists()
     assert (out_dir / "predicted_mask_indexed.png").exists()
     assert (out_dir / "corrected_mask_indexed.png").exists()
     assert (out_dir / "predicted_orientation_distribution.png").exists()
     assert (out_dir / "corrected_orientation_distribution.png").exists()
 
     payload = json.loads((out_dir / "results_summary.json").read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "microseg.desktop_results.v1"
+    assert payload["schema_version"] == "microseg.desktop_results.v2"
     assert payload["annotator"] == "qa"
     assert "predicted_stats" in payload
     assert "corrected_stats" in payload
     assert float(payload["spatial_calibration"]["microns_per_pixel"]) == 0.5
+    assert "applied_export_criteria" in payload
+    assert payload["report_outputs"]["metrics_csv"] == "results_metrics.csv"

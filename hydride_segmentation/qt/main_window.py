@@ -18,6 +18,7 @@ from skimage.draw import disk, line
 from PySide6.QtCore import QProcess, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -44,21 +46,30 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QHeaderView,
+    QGroupBox,
 )
 
 from hydride_segmentation.version import __version__
 from hydride_segmentation.legacy_api import DEFAULT_CONVENTIONAL_PARAMS
 from src.microseg.app import (
+    DesktopUIConfig,
+    DesktopRunRecord,
     DesktopResultExportConfig,
     DesktopResultExporter,
     OrchestrationCommandBuilder,
     ProjectSaveRequest,
     ProjectStateStore,
+    build_qt_stylesheet,
     compare_run_reports,
+    default_desktop_ui_config,
+    default_desktop_ui_config_path,
+    load_desktop_ui_config,
+    REPORT_SECTIONS,
     read_workflow_profile,
     summarize_run_report,
     write_workflow_profile,
 )
+from src.microseg.app.desktop_ui_config import DesktopAppearanceConfig, DesktopExportDefaultsConfig
 from src.microseg.app.desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
 from src.microseg.corrections import (
     DEFAULT_CLASS_MAP,
@@ -488,10 +499,183 @@ class CorrectedMaskCanvas(QLabel):
             self._finish_lasso()
 
 
+class AppearanceExportSettingsDialog(QDialog):
+    """Dialog for desktop appearance + export default controls."""
+
+    def __init__(self, *, config: DesktopUIConfig, source_path: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Appearance & Export Settings")
+        self.resize(720, 560)
+        self._config = config
+        self._source_path = str(source_path or "")
+
+        layout = QVBoxLayout(self)
+
+        self.path_edit = QLineEdit(self._source_path)
+        self.path_edit.setPlaceholderText(str(default_desktop_ui_config_path()))
+        path_row = QHBoxLayout()
+        path_row.addWidget(QLabel("YAML"))
+        path_row.addWidget(self.path_edit, stretch=1)
+        self.btn_load = QPushButton("Load")
+        self.btn_load.clicked.connect(self.on_load_yaml)
+        path_row.addWidget(self.btn_load)
+        self.btn_save = QPushButton("Save")
+        self.btn_save.clicked.connect(self.on_save_yaml)
+        path_row.addWidget(self.btn_save)
+        self.btn_defaults = QPushButton("Restore Defaults")
+        self.btn_defaults.clicked.connect(self.on_restore_defaults)
+        path_row.addWidget(self.btn_defaults)
+        layout.addLayout(path_row)
+
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        appearance_box = QGroupBox("Appearance")
+        appearance_form = QFormLayout(appearance_box)
+        self.base_font_spin = QSpinBox()
+        self.base_font_spin.setRange(10, 28)
+        appearance_form.addRow("Base font", self.base_font_spin)
+        self.heading_font_spin = QSpinBox()
+        self.heading_font_spin.setRange(11, 34)
+        appearance_form.addRow("Heading font", self.heading_font_spin)
+        self.mono_font_spin = QSpinBox()
+        self.mono_font_spin.setRange(9, 28)
+        appearance_form.addRow("Monospace font", self.mono_font_spin)
+        self.control_pad_spin = QSpinBox()
+        self.control_pad_spin.setRange(2, 20)
+        appearance_form.addRow("Control padding", self.control_pad_spin)
+        self.panel_spacing_spin = QSpinBox()
+        self.panel_spacing_spin.setRange(2, 24)
+        appearance_form.addRow("Panel spacing", self.panel_spacing_spin)
+        self.table_row_padding_spin = QSpinBox()
+        self.table_row_padding_spin.setRange(2, 20)
+        appearance_form.addRow("Table row padding", self.table_row_padding_spin)
+        self.table_row_min_height_spin = QSpinBox()
+        self.table_row_min_height_spin.setRange(18, 64)
+        appearance_form.addRow("Table min row height", self.table_row_min_height_spin)
+        self.high_contrast_check = QCheckBox("High contrast")
+        appearance_form.addRow(self.high_contrast_check)
+        layout.addWidget(appearance_box)
+
+        export_box = QGroupBox("Export Defaults")
+        export_form = QFormLayout(export_box)
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItems(["balanced", "full", "audit"])
+        export_form.addRow("Report profile", self.profile_combo)
+        self.top_k_spin = QSpinBox()
+        self.top_k_spin.setRange(1, 200)
+        export_form.addRow("Top-K key metrics", self.top_k_spin)
+        self.write_html_check = QCheckBox("Write HTML by default")
+        self.write_pdf_check = QCheckBox("Write PDF by default")
+        self.write_csv_check = QCheckBox("Write CSV by default")
+        self.write_batch_check = QCheckBox("Enable batch summary default")
+        export_form.addRow(self.write_html_check)
+        export_form.addRow(self.write_pdf_check)
+        export_form.addRow(self.write_csv_check)
+        export_form.addRow(self.write_batch_check)
+        layout.addWidget(export_box)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._populate_from_config(config)
+
+    def _populate_from_config(self, config: DesktopUIConfig) -> None:
+        self._config = config
+        app = config.appearance
+        exp = config.export_defaults
+        self.base_font_spin.setValue(int(app.base_font_size))
+        self.heading_font_spin.setValue(int(app.heading_font_size))
+        self.mono_font_spin.setValue(int(app.monospace_font_size))
+        self.control_pad_spin.setValue(int(app.control_padding_px))
+        self.panel_spacing_spin.setValue(int(app.panel_spacing_px))
+        self.table_row_padding_spin.setValue(int(app.table_row_padding_px))
+        self.table_row_min_height_spin.setValue(int(app.table_min_row_height_px))
+        self.high_contrast_check.setChecked(bool(app.high_contrast))
+        self.profile_combo.setCurrentText(str(exp.report_profile))
+        self.top_k_spin.setValue(int(exp.top_k_key_metrics))
+        self.write_html_check.setChecked(bool(exp.write_html_report))
+        self.write_pdf_check.setChecked(bool(exp.write_pdf_report))
+        self.write_csv_check.setChecked(bool(exp.write_csv_report))
+        self.write_batch_check.setChecked(bool(exp.write_batch_summary))
+
+    def _build_config(self) -> DesktopUIConfig:
+        appearance = DesktopAppearanceConfig(
+            base_font_size=int(self.base_font_spin.value()),
+            heading_font_size=int(self.heading_font_spin.value()),
+            monospace_font_size=int(self.mono_font_spin.value()),
+            control_padding_px=int(self.control_pad_spin.value()),
+            panel_spacing_px=int(self.panel_spacing_spin.value()),
+            table_row_padding_px=int(self.table_row_padding_spin.value()),
+            table_min_row_height_px=int(self.table_row_min_height_spin.value()),
+            high_contrast=bool(self.high_contrast_check.isChecked()),
+        )
+        exp_base = self._config.export_defaults
+        export_defaults = DesktopExportDefaultsConfig(
+            report_profile=str(self.profile_combo.currentText()),
+            write_html_report=bool(self.write_html_check.isChecked()),
+            write_pdf_report=bool(self.write_pdf_check.isChecked()),
+            write_csv_report=bool(self.write_csv_check.isChecked()),
+            write_batch_summary=bool(self.write_batch_check.isChecked()),
+            selected_metric_keys=tuple(exp_base.selected_metric_keys),
+            include_sections=tuple(exp_base.include_sections),
+            sort_metrics=str(exp_base.sort_metrics),
+            top_k_key_metrics=int(self.top_k_spin.value()),
+            include_artifact_manifest=bool(exp_base.include_artifact_manifest),
+        )
+        return DesktopUIConfig(
+            schema_version="microseg.desktop_ui_config.v1",
+            appearance=appearance,
+            export_defaults=export_defaults,
+        )
+
+    def selected_config(self) -> DesktopUIConfig:
+        return self._build_config()
+
+    def selected_path(self) -> str:
+        return str(self.path_edit.text().strip())
+
+    def on_load_yaml(self) -> None:
+        path = self.path_edit.text().strip()
+        if not path:
+            path = str(default_desktop_ui_config_path())
+            self.path_edit.setText(path)
+        cfg, warnings, _ = load_desktop_ui_config(path)
+        self._populate_from_config(cfg)
+        if warnings:
+            self.status_label.setText("Loaded with warnings: " + "; ".join(warnings[:4]))
+        else:
+            self.status_label.setText("Loaded configuration successfully.")
+
+    def on_save_yaml(self) -> None:
+        out_path = self.path_edit.text().strip()
+        if not out_path:
+            out_path = str(default_desktop_ui_config_path())
+            self.path_edit.setText(out_path)
+        path = Path(out_path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cfg = self._build_config()
+        try:
+            import yaml
+
+            path.write_text(yaml.safe_dump(cfg.as_dict(), sort_keys=False), encoding="utf-8")
+            self.status_label.setText(f"Saved: {path}")
+        except Exception as exc:
+            self.status_label.setText(f"Save failed: {exc}")
+
+    def on_restore_defaults(self) -> None:
+        cfg = default_desktop_ui_config()
+        self._populate_from_config(cfg)
+        self.status_label.setText("Restored built-in defaults.")
+
+
 class QtSegmentationMainWindow(QMainWindow):
     """Qt main window for phase-3 correction workflow."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, ui_config_path: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle(f"MicroSeg Desktop v{__version__}")
         self.resize(1700, 1050)
@@ -513,6 +697,10 @@ class QtSegmentationMainWindow(QMainWindow):
         self._results_dirty = False
         self._latest_results_payload: dict[str, object] = {}
         self.state = _UiState()
+        self._ui_config_path = str(ui_config_path or "").strip()
+        self._ui_config_source: str = ""
+        self._ui_config_warnings: list[str] = []
+        self._ui_config: DesktopUIConfig = default_desktop_ui_config()
 
         self.logger = logging.getLogger("MicroSegQtGUI")
         self.logger.setLevel(logging.INFO)
@@ -532,6 +720,7 @@ class QtSegmentationMainWindow(QMainWindow):
             file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
             self.logger.addHandler(file_handler)
         self.logger.info("Desktop log file: %s", log_path)
+        self._load_ui_config(self._ui_config_path or None)
 
         self._results_refresh_timer = QTimer(self)
         self._results_refresh_timer.setSingleShot(True)
@@ -558,17 +747,24 @@ class QtSegmentationMainWindow(QMainWindow):
         self._refresh_sample_picker()
         self._update_calibration_status_label()
 
-    def _apply_style(self) -> None:
-        self.setStyleSheet(
-            """
-            QWidget { font-size: 12px; }
-            QMainWindow { background: #f3f5f7; }
-            QPushButton { padding: 6px 10px; }
-            QLineEdit, QComboBox, QSpinBox { padding: 4px; }
-            QPlainTextEdit { background: #10161f; color: #d8e1ea; font-family: Menlo, Monaco, monospace; }
-            QListWidget { background: #ffffff; }
-            """
+    def _load_ui_config(self, ui_config_path: str | None) -> None:
+        cfg, warnings, source_path = load_desktop_ui_config(ui_config_path)
+        self._ui_config = cfg
+        self._ui_config_source = str(source_path) if source_path is not None else ""
+        self._ui_config_warnings = list(warnings)
+        self.logger.info(
+            "Desktop UI config source=%s base_font=%d heading_font=%d mono_font=%d high_contrast=%s",
+            self._ui_config_source or "<builtin-defaults>",
+            int(cfg.appearance.base_font_size),
+            int(cfg.appearance.heading_font_size),
+            int(cfg.appearance.monospace_font_size),
+            bool(cfg.appearance.high_contrast),
         )
+        for warning in warnings:
+            self.logger.warning("Desktop UI config warning: %s", warning)
+
+    def _apply_style(self) -> None:
+        self.setStyleSheet(build_qt_stylesheet(self._ui_config))
 
     def _configure_menu(self) -> None:
         menu = self.menuBar()
@@ -600,6 +796,9 @@ class QtSegmentationMainWindow(QMainWindow):
         act_export_results = QAction("Export Results Package", self)
         act_export_results.triggered.connect(self.on_export_results_package)
         file_menu.addAction(act_export_results)
+        act_export_batch_results = QAction("Export Batch Summary", self)
+        act_export_batch_results.triggered.connect(self.on_export_batch_results)
+        file_menu.addAction(act_export_batch_results)
 
         act_export = QAction("Export Corrected Sample", self)
         act_export.triggered.connect(self.on_export_correction)
@@ -633,6 +832,9 @@ class QtSegmentationMainWindow(QMainWindow):
         view_menu.addAction("Zoom Reset", self.corrected_canvas.zoom_reset)
         view_menu.addAction("Results Dashboard", self.on_open_results_dashboard)
         view_menu.addAction("Workflow Hub", self.on_open_workflow_hub)
+
+        settings_menu = menu.addMenu("Settings")
+        settings_menu.addAction("Appearance & Export Settings", self.on_open_appearance_settings)
 
         help_menu = menu.addMenu("Help")
         help_menu.addAction("Shortcuts", self.on_show_shortcuts)
@@ -902,12 +1104,37 @@ class QtSegmentationMainWindow(QMainWindow):
         layer_row.addWidget(self.chk_fmt_npy)
 
         self.chk_report_html = QCheckBox("report.html")
-        self.chk_report_html.setChecked(True)
+        self.chk_report_html.setChecked(bool(self._ui_config.export_defaults.write_html_report))
         layer_row.addWidget(self.chk_report_html)
 
         self.chk_report_pdf = QCheckBox("report.pdf")
-        self.chk_report_pdf.setChecked(True)
+        self.chk_report_pdf.setChecked(bool(self._ui_config.export_defaults.write_pdf_report))
         layer_row.addWidget(self.chk_report_pdf)
+
+        self.chk_report_csv = QCheckBox("report.csv")
+        self.chk_report_csv.setChecked(bool(self._ui_config.export_defaults.write_csv_report))
+        layer_row.addWidget(self.chk_report_csv)
+
+        layer_row.addWidget(QLabel("Profile"))
+        self.report_profile_combo = QComboBox()
+        self.report_profile_combo.addItems(["balanced", "full", "audit"])
+        self.report_profile_combo.setCurrentText(str(self._ui_config.export_defaults.report_profile))
+        self.report_profile_combo.currentTextChanged.connect(lambda *_: self.on_reset_profile_report_metrics())
+        layer_row.addWidget(self.report_profile_combo)
+
+        layer_row.addWidget(QLabel("Top-K"))
+        self.report_top_k_spin = QSpinBox()
+        self.report_top_k_spin.setRange(1, 200)
+        self.report_top_k_spin.setValue(int(self._ui_config.export_defaults.top_k_key_metrics))
+        layer_row.addWidget(self.report_top_k_spin)
+
+        self.chk_artifact_manifest = QCheckBox("artifact manifest")
+        self.chk_artifact_manifest.setChecked(bool(self._ui_config.export_defaults.include_artifact_manifest))
+        layer_row.addWidget(self.chk_artifact_manifest)
+
+        self.btn_export_batch = QPushButton("Export Batch Summary")
+        self.btn_export_batch.clicked.connect(self.on_export_batch_results)
+        layer_row.addWidget(self.btn_export_batch)
 
         self.btn_export = QPushButton("Export Corrected Sample")
         self.btn_export.clicked.connect(self.on_export_correction)
@@ -929,8 +1156,41 @@ class QtSegmentationMainWindow(QMainWindow):
         layout.addLayout(body, stretch=1)
 
         self.history_list = QListWidget()
+        self.history_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.history_list.currentRowChanged.connect(self.on_history_selected)
         body.addWidget(self.history_list, stretch=1)
+
+        self.report_advanced_group = QGroupBox("Advanced Report Selection")
+        self.report_advanced_group.setCheckable(True)
+        self.report_advanced_group.setChecked(False)
+        advanced_layout = QVBoxLayout(self.report_advanced_group)
+        sections_row = QHBoxLayout()
+        advanced_layout.addLayout(sections_row)
+        self.report_section_checks: dict[str, QCheckBox] = {}
+        for section in REPORT_SECTIONS:
+            chk = QCheckBox(section)
+            chk.setChecked(section in set(self._ui_config.export_defaults.include_sections))
+            self.report_section_checks[section] = chk
+            sections_row.addWidget(chk)
+        sections_row.addStretch(1)
+
+        metrics_row = QHBoxLayout()
+        advanced_layout.addLayout(metrics_row)
+        self.btn_metrics_select_all = QPushButton("Select All Metrics")
+        self.btn_metrics_select_all.clicked.connect(self.on_select_all_report_metrics)
+        metrics_row.addWidget(self.btn_metrics_select_all)
+        self.btn_metrics_clear = QPushButton("Clear Metrics")
+        self.btn_metrics_clear.clicked.connect(self.on_clear_report_metrics)
+        metrics_row.addWidget(self.btn_metrics_clear)
+        self.btn_metrics_reset_profile = QPushButton("Reset Profile Metrics")
+        self.btn_metrics_reset_profile.clicked.connect(self.on_reset_profile_report_metrics)
+        metrics_row.addWidget(self.btn_metrics_reset_profile)
+        metrics_row.addStretch(1)
+
+        self.report_metric_list = QListWidget()
+        self.report_metric_list.setMinimumHeight(130)
+        advanced_layout.addWidget(self.report_metric_list)
+        layout.addWidget(self.report_advanced_group)
 
         self.tabs = QTabWidget()
         body.addWidget(self.tabs, stretch=6)
@@ -1851,6 +2111,84 @@ class QtSegmentationMainWindow(QMainWindow):
             size_scale=self.results_size_scale.currentText(),
         )
 
+    def _selected_report_sections(self) -> tuple[str, ...]:
+        if not hasattr(self, "report_section_checks"):
+            return tuple(REPORT_SECTIONS)
+        selected = [name for name, chk in self.report_section_checks.items() if chk.isChecked()]
+        return tuple(selected or list(REPORT_SECTIONS))
+
+    def _selected_report_metric_keys(self) -> tuple[str, ...]:
+        if not hasattr(self, "report_metric_list"):
+            return tuple()
+        keys: list[str] = []
+        for idx in range(self.report_metric_list.count()):
+            item = self.report_metric_list.item(idx)
+            if item is None:
+                continue
+            if item.checkState() == Qt.Checked:
+                text = str(item.text()).strip()
+                if text:
+                    keys.append(text)
+        return tuple(keys)
+
+    def _refresh_report_metric_checklist(self, keys: list[str], *, selected: tuple[str, ...] | None = None) -> None:
+        if not hasattr(self, "report_metric_list"):
+            return
+        selected_set = set(selected or self._selected_report_metric_keys())
+        self.report_metric_list.blockSignals(True)
+        self.report_metric_list.clear()
+        for key in sorted({str(k).strip() for k in keys if str(k).strip()}):
+            item = QListWidgetItem(key)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            item.setCheckState(Qt.Checked if (not selected_set or key in selected_set) else Qt.Unchecked)
+            self.report_metric_list.addItem(item)
+        self.report_metric_list.blockSignals(False)
+
+    def on_select_all_report_metrics(self) -> None:
+        if not hasattr(self, "report_metric_list"):
+            return
+        for idx in range(self.report_metric_list.count()):
+            item = self.report_metric_list.item(idx)
+            if item is not None:
+                item.setCheckState(Qt.Checked)
+
+    def on_clear_report_metrics(self) -> None:
+        if not hasattr(self, "report_metric_list"):
+            return
+        for idx in range(self.report_metric_list.count()):
+            item = self.report_metric_list.item(idx)
+            if item is not None:
+                item.setCheckState(Qt.Unchecked)
+
+    def on_reset_profile_report_metrics(self) -> None:
+        profile = str(self.report_profile_combo.currentText()).strip().lower()
+        defaults = tuple(self._ui_config.export_defaults.selected_metric_keys)
+        if profile == "full":
+            defaults = tuple()
+        elif profile == "audit":
+            defaults = tuple(
+                [
+                    "hydride_area_fraction_percent",
+                    "hydride_count",
+                    "hydride_total_area_pixels",
+                    "equivalent_diameter_mean_px",
+                    "orientation_mean_deg",
+                    "orientation_std_deg",
+                    "orientation_alignment_index",
+                    "orientation_entropy_bits",
+                    "excluded_small_features",
+                    "min_feature_pixels",
+                ]
+            )
+        available = [str(self.report_metric_list.item(i).text()) for i in range(self.report_metric_list.count())]
+        if not available and isinstance(self._latest_results_payload, dict):
+            pred = self._latest_results_payload.get("predicted_metrics", {})
+            corr = self._latest_results_payload.get("corrected_metrics", {})
+            keys = sorted(set(pred.keys()) | set(corr.keys())) if isinstance(pred, dict) and isinstance(corr, dict) else []
+            self._refresh_report_metric_checklist(keys, selected=defaults)
+            return
+        self._refresh_report_metric_checklist(available, selected=defaults)
+
     def _results_export_config_from_ui(self) -> DesktopResultExportConfig:
         cal = self.state.spatial_calibration
         return DesktopResultExportConfig(
@@ -1864,6 +2202,14 @@ class QtSegmentationMainWindow(QMainWindow):
             calibration_notes="" if cal is None else cal.notes,
             write_html_report=bool(self.chk_report_html.isChecked()),
             write_pdf_report=bool(self.chk_report_pdf.isChecked()),
+            write_csv_report=bool(self.chk_report_csv.isChecked()),
+            write_batch_summary=True,
+            report_profile=str(self.report_profile_combo.currentText()).strip().lower(),
+            selected_metric_keys=self._selected_report_metric_keys(),
+            include_sections=self._selected_report_sections(),
+            sort_metrics="name",
+            top_k_key_metrics=int(self.report_top_k_spin.value()),
+            include_artifact_manifest=bool(self.chk_artifact_manifest.isChecked()),
         )
 
     def _apply_calibration(self, calibration: SpatialCalibration | None, *, image_path: str | None = None) -> None:
@@ -1986,6 +2332,12 @@ class QtSegmentationMainWindow(QMainWindow):
             metric_keys = [k for k in preferred if k in pred_metrics or k in corr_metrics]
             extra_keys = sorted((set(pred_metrics.keys()) | set(corr_metrics.keys())) - set(metric_keys))
             metric_keys.extend(extra_keys)
+            selected_defaults = (
+                self._selected_report_metric_keys()
+                if hasattr(self, "report_metric_list") and self.report_metric_list.count() > 0
+                else tuple(self._ui_config.export_defaults.selected_metric_keys)
+            )
+            self._refresh_report_metric_checklist(metric_keys, selected=selected_defaults)
             self.results_table.setRowCount(len(metric_keys))
             for r, key in enumerate(metric_keys):
                 self.results_table.setItem(r, 0, QTableWidgetItem(str(key)))
@@ -3449,6 +3801,7 @@ class QtSegmentationMainWindow(QMainWindow):
         sess = self.state.correction_session
         corrected_mask = sess.current_mask if sess is not None else None
         try:
+            export_cfg = self._results_export_config_from_ui()
             export_dir = self.result_exporter.export(
                 run,
                 output_dir=out_dir,
@@ -3456,13 +3809,97 @@ class QtSegmentationMainWindow(QMainWindow):
                 annotator=self.annotator_edit.text().strip() or "unknown",
                 notes=self.notes_edit.text().strip(),
                 class_map=self.state.class_map,
-                config=self._results_export_config_from_ui(),
+                config=export_cfg,
             )
-            self.logger.info("Exported desktop results package: %s", export_dir)
+            self.logger.info(
+                "Exported desktop results package: %s profile=%s metrics_selected=%d sections=%s html=%s pdf=%s csv=%s",
+                export_dir,
+                export_cfg.report_profile,
+                len(export_cfg.selected_metric_keys),
+                ",".join(export_cfg.include_sections),
+                bool(export_cfg.write_html_report),
+                bool(export_cfg.write_pdf_report),
+                bool(export_cfg.write_csv_report),
+            )
             QMessageBox.information(self, "Results Exported", f"Saved results package:\n{export_dir}")
         except Exception as exc:
             self.logger.exception("Results package export failed")
             QMessageBox.critical(self, "Results Export Error", str(exc))
+
+    def _selected_history_records(self) -> list[DesktopRunRecord]:
+        selected = self.history_list.selectedIndexes() if hasattr(self, "history_list") else []
+        if not selected:
+            return self.workflow.history()
+        rows = sorted({int(idx.row()) for idx in selected})
+        out: list[DesktopRunRecord] = []
+        for row in rows:
+            try:
+                out.append(self.workflow.get(row))
+            except Exception:
+                continue
+        return out
+
+    def on_export_batch_results(self) -> None:
+        records = self._selected_history_records()
+        if not records:
+            QMessageBox.warning(self, "No runs", "No history runs available for batch export.")
+            return
+        out_dir = QFileDialog.getExistingDirectory(self, "Select batch export directory")
+        if not out_dir:
+            return
+        corrected_map: dict[str, np.ndarray] = {}
+        if self.state.current_run is not None and self.state.correction_session is not None:
+            corrected_map[str(self.state.current_run.run_id)] = np.asarray(self.state.correction_session.current_mask)
+        try:
+            export_dir = self.result_exporter.export_batch(
+                records,
+                output_dir=out_dir,
+                corrected_masks=corrected_map,
+                annotator=self.annotator_edit.text().strip() or "unknown",
+                notes=self.notes_edit.text().strip(),
+                class_map=self.state.class_map,
+                config=self._results_export_config_from_ui(),
+            )
+            self.logger.info(
+                "Exported batch results package: %s runs=%d profile=%s sections=%s",
+                export_dir,
+                len(records),
+                self.report_profile_combo.currentText(),
+                ",".join(self._selected_report_sections()),
+            )
+            QMessageBox.information(self, "Batch Results Exported", f"Saved batch results package:\n{export_dir}")
+        except Exception as exc:
+            self.logger.exception("Batch results package export failed")
+            QMessageBox.critical(self, "Batch Results Export Error", str(exc))
+
+    def on_open_appearance_settings(self) -> None:
+        dialog = AppearanceExportSettingsDialog(
+            config=self._ui_config,
+            source_path=self._ui_config_source,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        self._ui_config = dialog.selected_config()
+        self._ui_config_source = dialog.selected_path()
+        self._apply_style()
+        self.chk_report_html.setChecked(bool(self._ui_config.export_defaults.write_html_report))
+        self.chk_report_pdf.setChecked(bool(self._ui_config.export_defaults.write_pdf_report))
+        self.chk_report_csv.setChecked(bool(self._ui_config.export_defaults.write_csv_report))
+        self.report_profile_combo.setCurrentText(str(self._ui_config.export_defaults.report_profile))
+        self.report_top_k_spin.setValue(int(self._ui_config.export_defaults.top_k_key_metrics))
+        self.chk_artifact_manifest.setChecked(bool(self._ui_config.export_defaults.include_artifact_manifest))
+        for section, chk in self.report_section_checks.items():
+            chk.setChecked(section in set(self._ui_config.export_defaults.include_sections))
+        self.on_reset_profile_report_metrics()
+        self.logger.info(
+            "Applied UI settings from dialog source=%s base_font=%d heading_font=%d mono_font=%d high_contrast=%s",
+            self._ui_config_source or "<unspecified>",
+            int(self._ui_config.appearance.base_font_size),
+            int(self._ui_config.appearance.heading_font_size),
+            int(self._ui_config.appearance.monospace_font_size),
+            bool(self._ui_config.appearance.high_contrast),
+        )
 
     def on_save_project(self) -> None:
         run = self.state.current_run
@@ -3511,6 +3948,22 @@ class QtSegmentationMainWindow(QMainWindow):
                     "results_cmap": self.results_cmap.currentText(),
                     "report_html": bool(self.chk_report_html.isChecked()),
                     "report_pdf": bool(self.chk_report_pdf.isChecked()),
+                    "report_csv": bool(self.chk_report_csv.isChecked()),
+                    "report_profile": self.report_profile_combo.currentText(),
+                    "report_top_k": int(self.report_top_k_spin.value()),
+                    "report_sections": list(self._selected_report_sections()),
+                    "report_selected_metrics": list(self._selected_report_metric_keys()),
+                    "report_include_artifact_manifest": bool(self.chk_artifact_manifest.isChecked()),
+                    "report_advanced_enabled": bool(self.report_advanced_group.isChecked()),
+                    "ui_config_source": self._ui_config_source,
+                    "ui_base_font_size": int(self._ui_config.appearance.base_font_size),
+                    "ui_heading_font_size": int(self._ui_config.appearance.heading_font_size),
+                    "ui_monospace_font_size": int(self._ui_config.appearance.monospace_font_size),
+                    "ui_control_padding_px": int(self._ui_config.appearance.control_padding_px),
+                    "ui_panel_spacing_px": int(self._ui_config.appearance.panel_spacing_px),
+                    "ui_table_row_padding_px": int(self._ui_config.appearance.table_row_padding_px),
+                    "ui_table_min_row_height_px": int(self._ui_config.appearance.table_min_row_height_px),
+                    "ui_high_contrast": bool(self._ui_config.appearance.high_contrast),
                     "calibration": (
                         None if self.state.spatial_calibration is None else self.state.spatial_calibration.as_dict()
                     ),
@@ -3573,6 +4026,61 @@ class QtSegmentationMainWindow(QMainWindow):
             self.results_cmap.setCurrentText(str(loaded.ui_state.get("results_cmap", self.results_cmap.currentText())))
             self.chk_report_html.setChecked(bool(loaded.ui_state.get("report_html", self.chk_report_html.isChecked())))
             self.chk_report_pdf.setChecked(bool(loaded.ui_state.get("report_pdf", self.chk_report_pdf.isChecked())))
+            self.chk_report_csv.setChecked(bool(loaded.ui_state.get("report_csv", self.chk_report_csv.isChecked())))
+            self.report_profile_combo.setCurrentText(
+                str(loaded.ui_state.get("report_profile", self.report_profile_combo.currentText()))
+            )
+            self.report_top_k_spin.setValue(int(loaded.ui_state.get("report_top_k", self.report_top_k_spin.value())))
+            self.chk_artifact_manifest.setChecked(
+                bool(loaded.ui_state.get("report_include_artifact_manifest", self.chk_artifact_manifest.isChecked()))
+            )
+            self.report_advanced_group.setChecked(
+                bool(loaded.ui_state.get("report_advanced_enabled", self.report_advanced_group.isChecked()))
+            )
+            loaded_sections = loaded.ui_state.get("report_sections", [])
+            if isinstance(loaded_sections, list):
+                loaded_section_set = {str(v) for v in loaded_sections}
+                for name, chk in self.report_section_checks.items():
+                    chk.setChecked(name in loaded_section_set)
+            loaded_metrics = loaded.ui_state.get("report_selected_metrics", [])
+            if isinstance(loaded_metrics, list):
+                self._refresh_report_metric_checklist(
+                    [str(v) for v in loaded_metrics if str(v).strip()],
+                    selected=tuple(str(v) for v in loaded_metrics if str(v).strip()),
+                )
+
+            ui_base_font_size = loaded.ui_state.get("ui_base_font_size")
+            if ui_base_font_size is not None:
+                exp_defaults = self._ui_config.export_defaults
+                self._ui_config = DesktopUIConfig(
+                    schema_version="microseg.desktop_ui_config.v1",
+                    appearance=DesktopAppearanceConfig(
+                        base_font_size=int(loaded.ui_state.get("ui_base_font_size", self._ui_config.appearance.base_font_size)),
+                        heading_font_size=int(loaded.ui_state.get("ui_heading_font_size", self._ui_config.appearance.heading_font_size)),
+                        monospace_font_size=int(
+                            loaded.ui_state.get("ui_monospace_font_size", self._ui_config.appearance.monospace_font_size)
+                        ),
+                        control_padding_px=int(
+                            loaded.ui_state.get("ui_control_padding_px", self._ui_config.appearance.control_padding_px)
+                        ),
+                        panel_spacing_px=int(
+                            loaded.ui_state.get("ui_panel_spacing_px", self._ui_config.appearance.panel_spacing_px)
+                        ),
+                        table_row_padding_px=int(
+                            loaded.ui_state.get("ui_table_row_padding_px", self._ui_config.appearance.table_row_padding_px)
+                        ),
+                        table_min_row_height_px=int(
+                            loaded.ui_state.get(
+                                "ui_table_min_row_height_px",
+                                self._ui_config.appearance.table_min_row_height_px,
+                            )
+                        ),
+                        high_contrast=bool(loaded.ui_state.get("ui_high_contrast", self._ui_config.appearance.high_contrast)),
+                    ),
+                    export_defaults=exp_defaults,
+                )
+                self._apply_style()
+            self._ui_config_source = str(loaded.ui_state.get("ui_config_source", self._ui_config_source or ""))
             cal_payload = loaded.ui_state.get("calibration")
             cal_obj = None
             if isinstance(cal_payload, dict):

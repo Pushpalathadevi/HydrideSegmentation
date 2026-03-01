@@ -30,7 +30,10 @@ See `docs/mission_statement.md`.
   - split-view synchronized zoom/pan and layer transparency
   - Results Dashboard with adjustable orientation/size plotting controls
   - scalar statistics panel (fraction/count/density/orientation/size summaries)
-  - full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`)
+  - full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`, `results_metrics.csv`, `artifacts_manifest.json`)
+  - configurable report profiles (`balanced`/`full`/`audit`) with section + metric selection
+  - multi-image batch summary export (`batch_results_summary.json`, `batch_results_report.html`, `batch_results_report.pdf`, `batch_metrics.csv`)
+  - YAML-driven desktop appearance settings (font sizes, contrast, spacing) with in-app settings dialog
   - project/session save-load
   - Dataset Prep + QA workspace (preview, prepare, QA, training gate)
   - Run Review workspace for report summary + metric-delta comparison
@@ -81,6 +84,11 @@ See `docs/windows_offline_installer.md`.
 Qt GUI:
 ```bash
 hydride-gui
+```
+
+Qt GUI with explicit appearance config:
+```bash
+hydride-gui --ui-config configs/app/desktop_ui.default.yml
 ```
 
 Legacy Tk GUI fallback:
@@ -363,6 +371,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 ## Documentation
 
 - Docs index: `docs/README.md`
+- Code architecture + data flow map: `docs/code_architecture_map.md`
 - Mission: `docs/mission_statement.md`
 - Phase roadmap: `docs/development_roadmap.md`
 - Deployment + productization master roadmap: `docs/deployment_productization_master_roadmap.md`

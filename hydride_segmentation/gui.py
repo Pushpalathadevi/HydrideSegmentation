@@ -56,13 +56,19 @@ def main() -> None:
         default="qt",
         help="GUI framework to launch (default: qt)",
     )
+    parser.add_argument(
+        "--ui-config",
+        type=str,
+        default="",
+        help="Optional desktop UI YAML config path (Qt only)",
+    )
     args = parser.parse_args()
 
     if args.debug:
         run_debug()
     else:
         if args.framework == "qt":
-            launch_qt_gui()
+            launch_qt_gui(ui_config_path=str(args.ui_config or "").strip() or None)
         else:
             from tkinterdnd2 import TkinterDnD
             from hydride_segmentation.core.gui_app import HydrideSegmentationGUI

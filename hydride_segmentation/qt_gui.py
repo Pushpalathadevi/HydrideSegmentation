@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-def launch_qt_gui() -> None:
+def launch_qt_gui(*, ui_config_path: str | None = None) -> None:
     """Launch Qt desktop application."""
 
     try:
@@ -16,15 +16,19 @@ def launch_qt_gui() -> None:
     from hydride_segmentation.qt.main_window import QtSegmentationMainWindow
 
     app = QApplication.instance() or QApplication([])
-    win = QtSegmentationMainWindow()
+    win = QtSegmentationMainWindow(ui_config_path=ui_config_path)
     win.show()
     app.exec()
 
 
 def main() -> None:
     """Console entry point wrapper."""
+    import argparse
 
-    launch_qt_gui()
+    parser = argparse.ArgumentParser(description="Launch MicroSeg Qt desktop app")
+    parser.add_argument("--ui-config", type=str, default="", help="Optional desktop UI YAML config path")
+    args = parser.parse_args()
+    launch_qt_gui(ui_config_path=str(args.ui_config or "").strip() or None)
 
 
 if __name__ == "__main__":  # pragma: no cover

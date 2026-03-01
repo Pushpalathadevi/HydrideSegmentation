@@ -35,6 +35,10 @@ Current phase coverage includes:
 - `test_phase24_sota_backends.py` new backend factory smoke checks for SMP ResNet101 decoder family and `hf_upernet_swin_large`
 - `test_phase25_deployment_ops.py` deployment package validation, deploy preflight failure detection, runtime health/error-code checks, promotion gate registry updates, and support-bundle artifact collection
 - `test_phase26_deployment_runtime_modes.py` queue-safe service worker behavior, canary-shadow package comparison, and deployment perf harness outputs
+- `test_phase27_desktop_ui_config.py` YAML desktop UI config validation/clamping and stylesheet generation checks
+- `test_phase27_desktop_report_customization.py` single-run report profile/section/metric customization and JSON/HTML/CSV artifact checks
+- `test_phase27_desktop_batch_export.py` multi-run batch results summary export (JSON/HTML/CSV aggregate artifacts)
+- `test_phase27_qt_settings_smoke.py` Qt offscreen smoke for settings/config application and GUI-to-export config wiring
 
 - `test_data_preparation_module.py` paired image/mask collector, RGB red-threshold + red-dominance fallback binarization, noisy-grayscale auto-Otsu fallback, short-side resize+crop alignment, empty-mask warn/error policy, manifests/QA reports, debug criteria exports, and dry-run behavior
 - `test_mask_binary_normalization.py` binary-mask auto-normalization option (`two_value_zero_background`) for 2-value indexed masks
