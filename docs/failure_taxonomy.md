@@ -22,6 +22,9 @@ Source of truth:
 | `MICROSEG_DEPLOY_PREPROCESS_FAILED` | deployment | Input preprocessing failed |
 | `MICROSEG_DEPLOY_INFERENCE_FAILED` | deployment | Inference execution failed |
 | `MICROSEG_DEPLOY_OUTPUT_WRITE_FAILED` | deployment | Runtime output write failed |
+| `MICROSEG_SERVICE_QUEUE_FULL` | service | Worker queue capacity exceeded |
+| `MICROSEG_SERVICE_JOB_NOT_FOUND` | service | Requested job id does not exist |
+| `MICROSEG_SERVICE_JOB_TIMEOUT` | service | Wait timeout while job still running |
 | `MICROSEG_UNKNOWN_INTERNAL` | internal | Unclassified internal error |
 
 ## Where Codes Are Emitted
@@ -31,6 +34,9 @@ Source of truth:
 
 2. `microseg-cli deploy-health`
 - global and per-image steps include `error_code` fields in `runtime_health_report.json`.
+
+3. `microseg-cli deploy-worker-run`
+- per-job records include `error_code` for rejection/failure/timeout paths.
 
 ## Operational Guidance
 

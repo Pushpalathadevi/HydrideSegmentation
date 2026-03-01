@@ -15,6 +15,9 @@ Reference templates:
 - `configs/preflight.default.yml`
 - `configs/deployment_package.default.yml`
 - `configs/deploy_health.default.yml`
+- `configs/deploy_worker.default.yml`
+- `configs/deploy_canary_shadow.default.yml`
+- `configs/deploy_perf.default.yml`
 - `configs/promotion_policy.default.yml`
 - `configs/support_bundle.default.yml`
 - `configs/registry_validation.default.yml`
@@ -336,7 +339,7 @@ microseg-cli evaluate --config configs/evaluate.default.yml --enable-gpu --devic
 CLI inference/package commands persist `resolved_config.json` with outputs.
 CLI training/evaluation commands also persist `resolved_config.json` beside artifacts/reports.
 Training additionally writes:
-- `report.json` with status/progress/ETA/history
+- `report.json` with status/progress/ETA/history and timing summaries (`mean_train_epoch_seconds`, `mean_validation_epoch_seconds`, `mean_epoch_runtime_seconds`)
 - `training_report.html` for rapid visual review (tracked sample panels include per-image metrics, including epoch-by-epoch section)
 - `eval_samples/epoch_XXX` tracked validation panels
 
@@ -357,6 +360,9 @@ microseg-cli deploy-package --config configs/deployment_package.default.yml --mo
 microseg-cli deploy-validate --package-dir outputs/deployments/<package_dir> --strict
 microseg-cli deploy-smoke --package-dir outputs/deployments/<package_dir> --image-path test_data/sample.png
 microseg-cli deploy-health --config configs/deploy_health.default.yml --package-dir outputs/deployments/<package_dir> --image-dir test_data --max-workers 4 --strict
+microseg-cli deploy-worker-run --config configs/deploy_worker.default.yml --package-dir outputs/deployments/<package_dir> --image-dir test_data --max-workers 4 --max-queue-size 64 --strict
+microseg-cli deploy-canary-shadow --config configs/deploy_canary_shadow.default.yml --baseline-package-dir outputs/deployments/<baseline_pkg> --candidate-package-dir outputs/deployments/<candidate_pkg> --image-dir test_data --mask-dir test_data/masks --strict
+microseg-cli deploy-perf --config configs/deploy_perf.default.yml --package-dir outputs/deployments/<package_dir> --image-dir test_data --warmup-runs 1 --repeat 3 --max-workers 4 --strict
 ```
 
 Model promotion gate:

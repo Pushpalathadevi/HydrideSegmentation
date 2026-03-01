@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,14 @@ from src.microseg.corrections.classes import binary_remapped_foreground_values, 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _format_seconds(seconds: float) -> str:
+    seconds = max(0.0, float(seconds))
+    total = int(round(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def _ensure_logger() -> logging.Logger:
@@ -142,6 +151,7 @@ class TorchPixelClassifierTrainer:
         import torch
 
         logger = _ensure_logger()
+        run_start = time.perf_counter()
         torch.manual_seed(int(config.seed))
 
         dataset_root = Path(config.dataset_dir)
@@ -187,8 +197,10 @@ class TorchPixelClassifierTrainer:
         logger.info("TRACK_EXPORT_START | backend=torch_pixel epoch=0 selected=0 note=unsupported")
         logger.info("TRACK_EXPORT_END | backend=torch_pixel epoch=0 selected=0 elapsed=00:00:00")
 
+        epoch_train_seconds: list[float] = []
         for epoch_idx in range(int(config.epochs)):
             logger.info("EPOCH_TRAIN_START | backend=torch_pixel epoch=%d/%d", epoch_idx + 1, int(config.epochs))
+            epoch_start = time.perf_counter()
             perm = torch.randperm(n, device=device)
             for start in range(0, n, batch_size):
                 idx = perm[start:start + batch_size]
@@ -197,10 +209,21 @@ class TorchPixelClassifierTrainer:
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
-            logger.info("EPOCH_TRAIN_END | backend=torch_pixel epoch=%d/%d", epoch_idx + 1, int(config.epochs))
+            epoch_elapsed = time.perf_counter() - epoch_start
+            epoch_train_seconds.append(float(epoch_elapsed))
+            logger.info(
+                "EPOCH_TRAIN_END | backend=torch_pixel epoch=%d/%d elapsed=%s",
+                epoch_idx + 1,
+                int(config.epochs),
+                _format_seconds(epoch_elapsed),
+            )
 
         model_path = output_dir / "torch_pixel_classifier.pt"
         manifest_path = output_dir / "training_manifest.json"
+        training_runtime_seconds = time.perf_counter() - run_start
+        mean_train_epoch_seconds = (
+            float(sum(epoch_train_seconds) / len(epoch_train_seconds)) if epoch_train_seconds else None
+        )
 
         checkpoint = {
             "schema_version": "microseg.torch_pixel_classifier.v1",
@@ -224,6 +247,13 @@ class TorchPixelClassifierTrainer:
             "train_samples": int(x_np.shape[0]),
             "model_file": model_path.name,
             "classes": checkpoint["class_values"],
+            "training_runtime_seconds": float(training_runtime_seconds),
+            "training_runtime_human": _format_seconds(training_runtime_seconds),
+            "training_epoch_count": int(len(epoch_train_seconds)),
+            "mean_train_epoch_seconds": mean_train_epoch_seconds,
+            "mean_validation_epoch_seconds": None,
+            "mean_epoch_runtime_seconds": mean_train_epoch_seconds,
+            "validation_timing_supported": False,
         }
         logger.info("REPORT_UPDATE_START | backend=torch_pixel path=%s", manifest_path)
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -236,6 +266,10 @@ class TorchPixelClassifierTrainer:
             "device": device,
             "classes": checkpoint["class_values"],
             "train_samples": int(x_np.shape[0]),
+            "training_runtime_seconds": manifest["training_runtime_seconds"],
+            "mean_train_epoch_seconds": manifest["mean_train_epoch_seconds"],
+            "mean_validation_epoch_seconds": manifest["mean_validation_epoch_seconds"],
+            "mean_epoch_runtime_seconds": manifest["mean_epoch_runtime_seconds"],
         }
 
 

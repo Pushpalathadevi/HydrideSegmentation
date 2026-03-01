@@ -19,6 +19,9 @@ Additional workflow config:
 - `preflight.default.yml` for unified train/eval/benchmark/deploy preflight checks
 - `deployment_package.default.yml` for deployment bundle creation inputs
 - `deploy_health.default.yml` for runtime deployment health checks and queue-style batch validation
+- `deploy_worker.default.yml` for queue-safe deployment service worker batch execution
+- `deploy_canary_shadow.default.yml` for candidate-vs-baseline canary/shadow deployment comparison
+- `deploy_perf.default.yml` for deployment latency/throughput harness runs
 - `promotion_policy.default.yml` for objective model-promotion thresholds
 - `support_bundle.default.yml` for run diagnostics/support artifact bundling
 - `registry_validation.default.yml` for frozen registry validation

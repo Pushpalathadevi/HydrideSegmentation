@@ -83,6 +83,9 @@ def test_phase20_benchmark_suite_dry_run(tmp_path: Path) -> None:
     assert "run_events_log" in payload["rows"][0]
     assert "train_log" in payload["rows"][0]
     assert "eval_log" in payload["rows"][0]
+    assert "mean_train_epoch_seconds" in payload["rows"][0]
+    assert "mean_validation_epoch_seconds" in payload["rows"][0]
+    assert "mean_epoch_runtime_seconds" in payload["rows"][0]
 
 
 def test_phase20_benchmark_mode_autogenerates_missing_manifest(tmp_path: Path) -> None:

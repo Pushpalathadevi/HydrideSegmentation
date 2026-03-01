@@ -39,6 +39,8 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
                 "val_loss": 0.7,
                 "val_accuracy": 0.71,
                 "val_iou": 0.52,
+                "train_epoch_seconds": 3.0,
+                "validation_epoch_seconds": 1.5,
                 "epoch_runtime_seconds": 5.0,
                 "tracked_samples": [
                     {
@@ -56,6 +58,8 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
                 "val_loss": 0.5,
                 "val_accuracy": 0.76,
                 "val_iou": 0.58,
+                "train_epoch_seconds": 2.2,
+                "validation_epoch_seconds": 1.1,
                 "epoch_runtime_seconds": 4.0,
                 "tracked_samples": [
                     {
@@ -101,6 +105,9 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
     row = payload["rows"][0]
     assert row["training_runtime_seconds"] == 12.0
     assert row["last_val_accuracy"] == 0.76
+    assert row["mean_train_epoch_seconds"] == pytest.approx(2.6)
+    assert row["mean_validation_epoch_seconds"] == pytest.approx(1.3)
+    assert row["mean_epoch_runtime_seconds"] == pytest.approx(4.5)
     assert row["loss_curve_png"]
     assert row["accuracy_curve_png"]
     assert row["iou_curve_png"]
@@ -118,10 +125,12 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
     assert "Last Val Accuracy" in dashboard_text
     assert "Last Train Loss" in dashboard_text
     assert "Eval Mean IoU" in dashboard_text
+    assert "Train Epoch Time" in dashboard_text
 
     with (output_root / "benchmark_aggregate.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert rows
     assert "mean_last_val_accuracy" in rows[0]
+    assert "mean_train_epoch_seconds" in rows[0]
     assert "mean_cohen_kappa" in rows[0]
     assert "quality_score" in rows[0]

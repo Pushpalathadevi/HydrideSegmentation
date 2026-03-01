@@ -149,6 +149,47 @@ def _predict_from_artifact(
     raise ValueError(f"unsupported model artifact for deployment smoke: {model_artifact}")
 
 
+def build_predictor_from_artifact(
+    model_artifact: str | Path,
+    *,
+    enable_gpu: bool,
+    device_policy: str,
+):
+    """Build a reusable predictor callable from a concrete model artifact path."""
+
+    artifact = Path(model_artifact).resolve()
+    if artifact.is_file() and artifact.suffix.lower() == ".joblib":
+        model = load_pixel_classifier(artifact)
+        return lambda image_rgb: predict_index_mask(image_rgb, model)
+
+    if artifact.is_file() and artifact.suffix.lower() in {".pt", ".pth", ".ckpt"}:
+        try:
+            bundle = load_unet_binary_model(
+                artifact,
+                enable_gpu=bool(enable_gpu),
+                device_policy=str(device_policy),
+            )
+
+            def _predict(image_rgb: np.ndarray) -> np.ndarray:
+                return predict_unet_binary_mask(image_rgb, bundle).astype(np.uint8)
+
+            return _predict
+        except Exception:
+            bundle = load_torch_pixel_classifier(
+                artifact,
+                enable_gpu=bool(enable_gpu),
+                device_policy=str(device_policy),
+            )
+            return lambda image_rgb: predict_index_mask_torch(image_rgb, bundle)
+
+    if artifact.is_dir():
+        raise ValueError(
+            "directory model artifacts are not directly inferable without a model loader contract; "
+            "package a concrete checkpoint file for smoke inference"
+        )
+    raise ValueError(f"unsupported model artifact for deployment smoke: {artifact}")
+
+
 def predict_from_artifact(
     image_rgb: np.ndarray,
     model_artifact: str | Path,
@@ -158,13 +199,12 @@ def predict_from_artifact(
 ) -> np.ndarray:
     """Public inference helper for deployment runtime tooling."""
 
-    artifact = Path(model_artifact).resolve()
-    return _predict_from_artifact(
-        image_rgb,
-        artifact,
+    predictor = build_predictor_from_artifact(
+        model_artifact,
         enable_gpu=bool(enable_gpu),
         device_policy=str(device_policy),
     )
+    return np.asarray(predictor(image_rgb), dtype=np.uint8)
 
 
 def resolve_model_artifact_from_package(

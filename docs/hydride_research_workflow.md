@@ -400,7 +400,7 @@ What this already includes:
 - resolved key hyperparameters (`epochs`, `batch_size`, `learning_rate`, `weight_decay`, plus architecture knobs)
 - training-history summaries (`last_*` loss/accuracy/IoU, epochs completed, best training val-loss)
 - model footprint fields (`model_parameter_count`, checkpoint/model artifact size in bytes/MB)
-- runtime effort fields (training runtime, evaluation runtime, and total runtime)
+- runtime effort fields (training runtime, evaluation runtime, total runtime, mean train-epoch runtime, mean validation-epoch runtime)
 - run-level training curve gallery (`loss`, `accuracy`, `IoU` vs epoch)
 - tracked sample IoU-vs-epoch evolution curves and delta summaries
 - train/eval config references and artifact paths

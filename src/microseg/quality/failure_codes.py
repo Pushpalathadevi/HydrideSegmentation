@@ -30,6 +30,9 @@ DEPLOY_MODEL_LOAD_FAILED = "MICROSEG_DEPLOY_MODEL_LOAD_FAILED"
 DEPLOY_PREPROCESS_FAILED = "MICROSEG_DEPLOY_PREPROCESS_FAILED"
 DEPLOY_INFERENCE_FAILED = "MICROSEG_DEPLOY_INFERENCE_FAILED"
 DEPLOY_OUTPUT_WRITE_FAILED = "MICROSEG_DEPLOY_OUTPUT_WRITE_FAILED"
+SERVICE_QUEUE_FULL = "MICROSEG_SERVICE_QUEUE_FULL"
+SERVICE_JOB_NOT_FOUND = "MICROSEG_SERVICE_JOB_NOT_FOUND"
+SERVICE_JOB_TIMEOUT = "MICROSEG_SERVICE_JOB_TIMEOUT"
 
 
 FAILURE_CODE_REGISTRY: dict[str, FailureCodeDescriptor] = {
@@ -102,6 +105,21 @@ FAILURE_CODE_REGISTRY: dict[str, FailureCodeDescriptor] = {
         code=DEPLOY_OUTPUT_WRITE_FAILED,
         category="deployment",
         description="Deployment runtime failed writing output artifacts.",
+    ),
+    SERVICE_QUEUE_FULL: FailureCodeDescriptor(
+        code=SERVICE_QUEUE_FULL,
+        category="service",
+        description="Service queue is full and cannot accept more jobs.",
+    ),
+    SERVICE_JOB_NOT_FOUND: FailureCodeDescriptor(
+        code=SERVICE_JOB_NOT_FOUND,
+        category="service",
+        description="Requested service job id was not found.",
+    ),
+    SERVICE_JOB_TIMEOUT: FailureCodeDescriptor(
+        code=SERVICE_JOB_TIMEOUT,
+        category="service",
+        description="Service job wait timeout expired before completion.",
     ),
 }
 

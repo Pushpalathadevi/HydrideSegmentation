@@ -24,6 +24,9 @@ Current scripts:
   - `deploy-validate` validates package integrity and optional SHA256 checks.
   - `deploy-smoke` runs one-image smoke inference from a deployment package.
   - `deploy-health` runs runtime health checks (`package_validation`, `model_load`, `preprocess`, `inference`, `output_write`) and supports queue-style concurrent batch validation (`--image-dir`, `--max-workers`).
+  - `deploy-worker-run` runs queue-safe service-mode worker batches with bounded queue controls (`--max-workers`, `--max-queue-size`).
+  - `deploy-canary-shadow` compares candidate and baseline packages on the same images (with optional GT-mask quality gain reporting).
+  - `deploy-perf` runs deployment latency/throughput harness (`warmup`, `repeat`, `p95`, `throughput`).
   - `promote-model` applies threshold policy to benchmark aggregate rows and can update registry stage metadata.
   - `support-bundle` collects run diagnostics/log artifacts into a zipped support bundle.
   - `compatibility-matrix` writes environment/runtime fingerprint JSON for reproducibility audits.
@@ -43,7 +46,7 @@ Current scripts:
 - `hydride_benchmark_suite.py` runs multi-model hydride benchmark suites (train+eval) and writes consolidated
   JSON/CSV summaries and a single HTML comparison dashboard.
   - writes queue-debuggable structured logs: `logs/suite_events.jsonl` and `logs/<run_tag>/run_events.jsonl`.
-  - includes per-run training curves (`loss`, `accuracy`, `IoU` vs epoch), model artifact size, parameter count, and train/eval/total runtime fields.
+  - includes per-run training curves (`loss`, `accuracy`, `IoU` vs epoch), model artifact size, parameter count, train/eval/total runtime, and mean epoch timing fields (`mean_train_epoch_seconds`, `mean_validation_epoch_seconds`, `mean_epoch_runtime_seconds`).
   - includes tracked validation-sample panel galleries with per-image metric blocks from training reports.
   - includes trainable-parameter count, checkpoint weight statistics, runtime hardware fields, and FLOPs estimates when available.
   - includes `cohen_kappa` in run-level and aggregate benchmark metrics.

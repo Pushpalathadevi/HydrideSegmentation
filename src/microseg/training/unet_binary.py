@@ -138,6 +138,25 @@ def _format_seconds(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def _history_metric_values(history: list[dict[str, Any]], key: str) -> list[float]:
+    values: list[float] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        try:
+            value = float(item.get(key))
+        except Exception:
+            continue
+        values.append(value)
+    return values
+
+
+def _mean_or_none(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return float(sum(values) / len(values))
+
+
 def _code_version() -> str:
     try:
         from src.microseg.version import __version__
@@ -1983,6 +2002,20 @@ class UNetBinaryTrainer:
             peak_mb = _current_gpu_peak_memory_mb(str(device))
             if peak_mb is not None:
                 hardware_payload["gpu_peak_memory_allocated_mb"] = float(peak_mb)
+            epoch_runtime_values = _history_metric_values(history, "epoch_runtime_seconds")
+            train_epoch_values = _history_metric_values(history, "train_epoch_seconds")
+            validation_epoch_values = _history_metric_values(history, "validation_epoch_seconds")
+            tracking_export_values = _history_metric_values(history, "tracking_export_seconds")
+            epoch_timing_summary = {
+                "mean_epoch_runtime_seconds": _mean_or_none(epoch_runtime_values),
+                "mean_train_epoch_seconds": _mean_or_none(train_epoch_values),
+                "mean_validation_epoch_seconds": _mean_or_none(validation_epoch_values),
+                "mean_tracking_export_seconds": _mean_or_none(tracking_export_values),
+                "epochs_with_runtime": len(epoch_runtime_values),
+                "epochs_with_train_timing": len(train_epoch_values),
+                "epochs_with_validation_timing": len(validation_epoch_values),
+                "epochs_with_tracking_timing": len(tracking_export_values),
+            }
             payload: dict[str, Any] = {
                 "schema_version": "microseg.training_report.v1",
                 "backend": backend_label,
@@ -2007,6 +2040,11 @@ class UNetBinaryTrainer:
                 "model_checkpoint_size_mb": (
                     float(checkpoint_size_bytes) / (1024.0 * 1024.0) if checkpoint_size_bytes is not None else None
                 ),
+                "mean_epoch_runtime_seconds": epoch_timing_summary["mean_epoch_runtime_seconds"],
+                "mean_train_epoch_seconds": epoch_timing_summary["mean_train_epoch_seconds"],
+                "mean_validation_epoch_seconds": epoch_timing_summary["mean_validation_epoch_seconds"],
+                "mean_tracking_export_seconds": epoch_timing_summary["mean_tracking_export_seconds"],
+                "epoch_timing_summary": epoch_timing_summary,
                 "compute_effort": {
                     "train_samples_processed": int(train_samples_processed),
                     "val_samples_processed": int(val_samples_processed),
@@ -2346,6 +2384,9 @@ class UNetBinaryTrainer:
                     "val_loss": val_loss,
                     "val_accuracy": val_acc,
                     "val_iou": val_iou,
+                    "train_epoch_seconds": float(epoch_timings.get("train", 0.0)),
+                    "validation_epoch_seconds": float(epoch_timings.get("validation", 0.0)),
+                    "tracking_export_seconds": float(epoch_timings.get("export_tracking", 0.0)),
                     "epoch_runtime_seconds": epoch_runtime,
                     "tracked_samples": latest_samples,
                 }
@@ -2421,6 +2462,9 @@ class UNetBinaryTrainer:
                         "val_loss": val_loss,
                         "val_accuracy": val_acc,
                         "val_iou": val_iou,
+                        "train_epoch_seconds": float(epoch_timings.get("train", 0.0)),
+                        "validation_epoch_seconds": float(epoch_timings.get("validation", 0.0)),
+                        "tracking_export_seconds": float(epoch_timings.get("export_tracking", 0.0)),
                         "epoch_runtime_seconds": epoch_runtime,
                         "eta_seconds": eta_total,
                     },
@@ -2518,6 +2562,10 @@ class UNetBinaryTrainer:
                 int(flops_per_sample_forward)
                 * ((3 * int(train_samples_processed)) + int(val_samples_processed) + int(tracking_samples_processed))
             )
+        history_epoch_runtime_values = _history_metric_values(history, "epoch_runtime_seconds")
+        history_train_epoch_values = _history_metric_values(history, "train_epoch_seconds")
+        history_validation_epoch_values = _history_metric_values(history, "validation_epoch_seconds")
+        history_tracking_epoch_values = _history_metric_values(history, "tracking_export_seconds")
         manifest = {
             "schema_version": "microseg.training_manifest.v2",
             "backend": backend_label,
@@ -2562,6 +2610,10 @@ class UNetBinaryTrainer:
             "html_report_path": html_report_path.name if html_report_path.exists() else "",
             "runtime_seconds": final_runtime,
             "runtime_human": _format_seconds(final_runtime),
+            "mean_epoch_runtime_seconds": _mean_or_none(history_epoch_runtime_values),
+            "mean_train_epoch_seconds": _mean_or_none(history_train_epoch_values),
+            "mean_validation_epoch_seconds": _mean_or_none(history_validation_epoch_values),
+            "mean_tracking_export_seconds": _mean_or_none(history_tracking_epoch_values),
             "history": history,
         }
         manifest_path = output_dir / "training_manifest.json"
@@ -2584,6 +2636,10 @@ class UNetBinaryTrainer:
             "model_trainable_parameter_count": model_trainable_parameter_count,
             "model_weight_statistics": model_weight_stats,
             "runtime_hardware": runtime_hardware,
+            "mean_epoch_runtime_seconds": _mean_or_none(history_epoch_runtime_values),
+            "mean_train_epoch_seconds": _mean_or_none(history_train_epoch_values),
+            "mean_validation_epoch_seconds": _mean_or_none(history_validation_epoch_values),
+            "mean_tracking_export_seconds": _mean_or_none(history_tracking_epoch_values),
             "compute_effort": {
                 "train_samples_processed": int(train_samples_processed),
                 "val_samples_processed": int(val_samples_processed),

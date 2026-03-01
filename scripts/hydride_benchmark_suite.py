@@ -447,11 +447,17 @@ def _checkpoint_state_stats(model_path: Path) -> dict[str, Any]:
 
 def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) -> dict[str, Any]:
     report = _read_json(train_dir / "report.json")
-    history_raw = report.get("history", [])
+    manifest = _read_json(train_dir / "training_manifest.json")
+    runtime_source = report if report else manifest
+    history_raw = report.get("history", manifest.get("history", []))
     history = history_raw if isinstance(history_raw, list) else []
     progress = report.get("progress", {})
     if not isinstance(progress, dict):
         progress = {}
+    if not progress:
+        progress_from_manifest = manifest.get("progress", {})
+        if isinstance(progress_from_manifest, dict):
+            progress = progress_from_manifest
 
     epochs_loss, train_loss = _extract_history_series(history, "train_loss")
     _, val_loss = _extract_history_series(history, "val_loss")
@@ -460,6 +466,8 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
     _, train_iou = _extract_history_series(history, "train_iou")
     _, val_iou = _extract_history_series(history, "val_iou")
     _, epoch_runtime = _extract_history_series(history, "epoch_runtime_seconds")
+    _, train_epoch_runtime = _extract_history_series(history, "train_epoch_seconds")
+    _, validation_epoch_runtime = _extract_history_series(history, "validation_epoch_seconds")
 
     curves_dir = output_root / "curves"
     loss_curve = curves_dir / f"{run_tag}_loss_curve.png"
@@ -488,10 +496,39 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
         y_label="IoU",
     )
 
-    epoch_total = _safe_int(progress.get("epochs_total")) or len(history)
-    epoch_done = _safe_int(progress.get("epochs_completed")) or len(history)
+    epoch_total = (
+        _safe_int(progress.get("epochs_total"))
+        or _safe_int(runtime_source.get("training_epochs_total"))
+        or _safe_int(manifest.get("training_epoch_count"))
+        or _safe_int(manifest.get("training_epoch_equivalent_count"))
+        or len(history)
+    )
+    epoch_done = (
+        _safe_int(progress.get("epochs_completed"))
+        or _safe_int(runtime_source.get("training_epochs_completed"))
+        or _safe_int(manifest.get("training_epoch_count"))
+        or _safe_int(manifest.get("training_epoch_equivalent_count"))
+        or len(history)
+    )
 
-    avg_epoch_runtime = (sum(epoch_runtime) / len(epoch_runtime)) if epoch_runtime else _safe_float(report.get("runtime_seconds"))
+    training_runtime_seconds = _safe_float(runtime_source.get("runtime_seconds"))
+    if training_runtime_seconds is None:
+        training_runtime_seconds = _safe_float(runtime_source.get("training_runtime_seconds"))
+    avg_epoch_runtime = (sum(epoch_runtime) / len(epoch_runtime)) if epoch_runtime else _safe_float(
+        runtime_source.get("mean_epoch_runtime_seconds")
+    )
+    if avg_epoch_runtime is None and training_runtime_seconds is not None and int(epoch_done) > 0:
+        avg_epoch_runtime = float(training_runtime_seconds) / float(max(1, int(epoch_done)))
+    mean_train_epoch_runtime = (sum(train_epoch_runtime) / len(train_epoch_runtime)) if train_epoch_runtime else _safe_float(
+        runtime_source.get("mean_train_epoch_seconds")
+    )
+    if mean_train_epoch_runtime is None:
+        mean_train_epoch_runtime = avg_epoch_runtime
+    mean_validation_epoch_runtime = (
+        (sum(validation_epoch_runtime) / len(validation_epoch_runtime))
+        if validation_epoch_runtime
+        else _safe_float(runtime_source.get("mean_validation_epoch_seconds"))
+    )
     sample_metric_keys = [
         "pixel_accuracy",
         "macro_f1",
@@ -604,29 +641,31 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
         for item in tracked_sample_evolution
         if _safe_float(item.get("delta_iou")) is not None
     ]
-    runtime_hardware = report.get("runtime_hardware", {})
+    runtime_hardware = runtime_source.get("runtime_hardware", {})
     if not isinstance(runtime_hardware, dict):
         runtime_hardware = {}
-    compute_effort = report.get("compute_effort", {})
+    compute_effort = runtime_source.get("compute_effort", {})
     if not isinstance(compute_effort, dict):
         compute_effort = {}
-    weight_stats = report.get("model_weight_statistics", {})
+    weight_stats = runtime_source.get("model_weight_statistics", {})
     if not isinstance(weight_stats, dict):
         weight_stats = {}
-    runtime_device = str(report.get("device", "")).strip()
-    runtime_device_reason = str(report.get("device_reason", "")).strip()
+    runtime_device = str(runtime_source.get("device", "")).strip()
+    runtime_device_reason = str(runtime_source.get("device_reason", "")).strip()
 
     return {
-        "training_status": str(report.get("status", "")),
-        "training_runtime_seconds": _safe_float(report.get("runtime_seconds")),
-        "training_runtime_human": str(report.get("runtime_human", "")),
+        "training_status": str(runtime_source.get("status", "")),
+        "training_runtime_seconds": training_runtime_seconds,
+        "training_runtime_human": str(
+            runtime_source.get("runtime_human", runtime_source.get("training_runtime_human", ""))
+        ),
         "runtime_device": runtime_device,
         "runtime_device_reason": runtime_device_reason,
         "runtime_hardware": runtime_hardware,
         "training_epochs_total": epoch_total,
         "training_epochs_completed": epoch_done,
         "training_history_points": len(history),
-        "best_val_loss_train": _safe_float(report.get("best_val_loss")),
+        "best_val_loss_train": _safe_float(runtime_source.get("best_val_loss")),
         "last_train_loss": train_loss[-1] if train_loss else None,
         "last_val_loss": val_loss[-1] if val_loss else None,
         "last_train_accuracy": train_acc[-1] if train_acc else None,
@@ -634,6 +673,9 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
         "last_train_iou": train_iou[-1] if train_iou else None,
         "last_val_iou": val_iou[-1] if val_iou else None,
         "avg_epoch_runtime_seconds": avg_epoch_runtime,
+        "mean_epoch_runtime_seconds": avg_epoch_runtime,
+        "mean_train_epoch_seconds": mean_train_epoch_runtime,
+        "mean_validation_epoch_seconds": mean_validation_epoch_runtime,
         "loss_curve_png": str(loss_curve) if loss_curve.exists() else "",
         "accuracy_curve_png": str(acc_curve) if acc_curve.exists() else "",
         "iou_curve_png": str(iou_curve) if iou_curve.exists() else "",
@@ -646,10 +688,10 @@ def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) ->
         "tracked_sample_evolution_count": len(tracked_sample_evolution),
         "best_tracked_sample_delta_iou": max(tracked_deltas) if tracked_deltas else None,
         "worst_tracked_sample_delta_iou": min(tracked_deltas) if tracked_deltas else None,
-        "model_parameter_count_report": _safe_int(report.get("model_parameter_count")),
-        "model_trainable_parameter_count": _safe_int(report.get("model_trainable_parameter_count")),
-        "model_checkpoint_size_bytes": _safe_int(report.get("model_checkpoint_size_bytes")),
-        "model_checkpoint_size_mb": _safe_float(report.get("model_checkpoint_size_mb")),
+        "model_parameter_count_report": _safe_int(runtime_source.get("model_parameter_count")),
+        "model_trainable_parameter_count": _safe_int(runtime_source.get("model_trainable_parameter_count")),
+        "model_checkpoint_size_bytes": _safe_int(runtime_source.get("model_checkpoint_size_bytes")),
+        "model_checkpoint_size_mb": _safe_float(runtime_source.get("model_checkpoint_size_mb")),
         "model_weight_tensor_count": _safe_int(weight_stats.get("tensor_count")),
         "model_weight_value_count": _safe_int(weight_stats.get("value_count")),
         "model_weight_mean": _safe_float(weight_stats.get("mean")),
@@ -702,6 +744,9 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         mean_eval_rt, std_eval_rt = _mean_and_std(items, "runtime_seconds")
         mean_train_rt, std_train_rt = _mean_and_std(items, "training_runtime_seconds")
         mean_total_rt, std_total_rt = _mean_and_std(items, "total_runtime_seconds")
+        mean_train_epoch_rt, std_train_epoch_rt = _mean_and_std(items, "mean_train_epoch_seconds")
+        mean_val_epoch_rt, std_val_epoch_rt = _mean_and_std(items, "mean_validation_epoch_seconds")
+        mean_epoch_rt, std_epoch_rt = _mean_and_std(items, "mean_epoch_runtime_seconds")
         mean_params, _ = _mean_and_std(items, "model_parameter_count")
         mean_trainable_params, _ = _mean_and_std(items, "model_trainable_parameter_count")
         mean_ckpt_mb, _ = _mean_and_std(items, "model_artifact_size_mb")
@@ -789,6 +834,12 @@ def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "std_training_runtime_seconds": std_train_rt,
                 "mean_total_runtime_seconds": mean_total_rt,
                 "std_total_runtime_seconds": std_total_rt,
+                "mean_train_epoch_seconds": mean_train_epoch_rt,
+                "std_train_epoch_seconds": std_train_epoch_rt,
+                "mean_validation_epoch_seconds": mean_val_epoch_rt,
+                "std_validation_epoch_seconds": std_val_epoch_rt,
+                "mean_epoch_runtime_seconds": mean_epoch_rt,
+                "std_epoch_runtime_seconds": std_epoch_rt,
                 "mean_model_parameter_count": mean_params,
                 "mean_model_trainable_parameter_count": mean_trainable_params,
                 "mean_model_artifact_size_mb": mean_ckpt_mb,
@@ -982,7 +1033,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         "</div>",
         "<h2>Model Summary</h2>",
         "<table border='1' cellpadding='6' cellspacing='0'>",
-        "<tr><th>Model</th><th>Rank Quality</th><th>Rank Efficiency</th><th>Rank Runtime</th><th>Rank Robustness</th><th>Runs</th><th>OK</th><th>Failed</th><th>Quality Score</th><th>Efficiency Score</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Weighted F1 (mean±std)</th><th>Balanced Acc (mean±std)</th><th>Cohen Kappa (mean±std)</th><th>Foreground Dice (mean±std)</th><th>Foreground Specificity (mean)</th><th>FPR (mean)</th><th>FNR (mean)</th><th>MCC (mean)</th><th>Tracked Val Sample IoU (mean)</th><th>Tracked IoU Span (mean)</th><th>Overfit Gap IoU (train-val, mean)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params (mean)</th><th>Trainable Params (mean)</th><th>Model Size MB (mean)</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (mean est.)</th><th>GPU Peak MB (mean)</th></tr>",
+        "<tr><th>Model</th><th>Rank Quality</th><th>Rank Efficiency</th><th>Rank Runtime</th><th>Rank Robustness</th><th>Runs</th><th>OK</th><th>Failed</th><th>Quality Score</th><th>Efficiency Score</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Weighted F1 (mean±std)</th><th>Balanced Acc (mean±std)</th><th>Cohen Kappa (mean±std)</th><th>Foreground Dice (mean±std)</th><th>Foreground Specificity (mean)</th><th>FPR (mean)</th><th>FNR (mean)</th><th>MCC (mean)</th><th>Tracked Val Sample IoU (mean)</th><th>Tracked IoU Span (mean)</th><th>Overfit Gap IoU (train-val, mean)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Train Epoch Time (s, mean±std)</th><th>Validation Epoch Time (s, mean±std)</th><th>Epoch Runtime (s, mean±std)</th><th>Params (mean)</th><th>Trainable Params (mean)</th><th>Model Size MB (mean)</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (mean est.)</th><th>GPU Peak MB (mean)</th></tr>",
     ]
     for item in agg:
         lines.append(
@@ -1014,6 +1065,9 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{float(item.get('mean_eval_runtime_seconds', 0.0)):.2f}</td>"
             f"<td>{float(item.get('mean_training_runtime_seconds', 0.0)):.2f}</td>"
             f"<td>{float(item.get('mean_total_runtime_seconds', 0.0)):.2f}</td>"
+            f"<td>{float(item.get('mean_train_epoch_seconds', 0.0)):.4f} ± {float(item.get('std_train_epoch_seconds', 0.0)):.4f}</td>"
+            f"<td>{float(item.get('mean_validation_epoch_seconds', 0.0)):.4f} ± {float(item.get('std_validation_epoch_seconds', 0.0)):.4f}</td>"
+            f"<td>{float(item.get('mean_epoch_runtime_seconds', 0.0)):.4f} ± {float(item.get('std_epoch_runtime_seconds', 0.0)):.4f}</td>"
             f"<td>{float(item.get('mean_model_parameter_count', 0.0)):.0f}</td>"
             f"<td>{float(item.get('mean_model_trainable_parameter_count', 0.0)):.0f}</td>"
             f"<td>{float(item.get('mean_model_artifact_size_mb', 0.0)):.2f}</td>"
@@ -1050,7 +1104,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             "</table>",
             "<h2>Run-Level Results</h2>",
             "<table border='1' cellpadding='6' cellspacing='0'>",
-            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Status Detail</th><th>Backend</th><th>Architecture</th><th>Init</th><th>Runtime Device</th><th>GPU</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Weighted F1</th><th>Balanced Acc</th><th>Cohen Kappa</th><th>Foreground Dice</th><th>Foreground Precision</th><th>Foreground Recall</th><th>Foreground Specificity</th><th>FPR</th><th>FNR</th><th>MCC</th><th>Area Abs Err</th><th>Count Abs Err</th><th>Size W</th><th>Orientation W</th><th>Tracked Val Sample IoU</th><th>Tracked Sample Count</th><th>Tracked Evol. Curves</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Params</th><th>Trainable Params</th><th>Model Size MB</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (est.)</th><th>GPU Peak MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
+            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Status Detail</th><th>Backend</th><th>Architecture</th><th>Init</th><th>Runtime Device</th><th>GPU</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Weighted F1</th><th>Balanced Acc</th><th>Cohen Kappa</th><th>Foreground Dice</th><th>Foreground Precision</th><th>Foreground Recall</th><th>Foreground Specificity</th><th>FPR</th><th>FNR</th><th>MCC</th><th>Area Abs Err</th><th>Count Abs Err</th><th>Size W</th><th>Orientation W</th><th>Tracked Val Sample IoU</th><th>Tracked Sample Count</th><th>Tracked Evol. Curves</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Train Epoch Time (s)</th><th>Validation Epoch Time (s)</th><th>Epoch Runtime (s)</th><th>Params</th><th>Trainable Params</th><th>Model Size MB</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (est.)</th><th>GPU Peak MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
         ]
     )
     for row in rows:
@@ -1094,6 +1148,9 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{_safe_float(row.get('runtime_seconds')) or 0.0:.2f}</td>"
             f"<td>{_safe_float(row.get('training_runtime_seconds')) or 0.0:.2f}</td>"
             f"<td>{_safe_float(row.get('total_runtime_seconds')) or 0.0:.2f}</td>"
+            f"<td>{_safe_float(row.get('mean_train_epoch_seconds')) or 0.0:.4f}</td>"
+            f"<td>{_safe_float(row.get('mean_validation_epoch_seconds')) or 0.0:.4f}</td>"
+            f"<td>{_safe_float(row.get('mean_epoch_runtime_seconds')) or 0.0:.4f}</td>"
             f"<td>{_safe_int(row.get('model_parameter_count')) or 0}</td>"
             f"<td>{_safe_int(row.get('model_trainable_parameter_count')) or 0}</td>"
             f"<td>{_safe_float(row.get('model_artifact_size_mb')) or 0.0:.2f}</td>"
@@ -1131,6 +1188,9 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
                         ("Last Train Loss", row.get("last_train_loss")),
                         ("Last Val Loss", row.get("last_val_loss")),
                         ("Best Val Loss", row.get("best_val_loss_train")),
+                        ("Mean Train Epoch Seconds", row.get("mean_train_epoch_seconds")),
+                        ("Mean Validation Epoch Seconds", row.get("mean_validation_epoch_seconds")),
+                        ("Mean Epoch Runtime Seconds", row.get("mean_epoch_runtime_seconds")),
                     ]
                 )
                 + "</div>"
@@ -1644,6 +1704,9 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "last_train_iou": train_meta.get("last_train_iou"),
                 "last_val_iou": train_meta.get("last_val_iou"),
                 "avg_epoch_runtime_seconds": train_meta.get("avg_epoch_runtime_seconds"),
+                "mean_epoch_runtime_seconds": train_meta.get("mean_epoch_runtime_seconds"),
+                "mean_train_epoch_seconds": train_meta.get("mean_train_epoch_seconds"),
+                "mean_validation_epoch_seconds": train_meta.get("mean_validation_epoch_seconds"),
                 "loss_curve_png": train_meta.get("loss_curve_png"),
                 "accuracy_curve_png": train_meta.get("accuracy_curve_png"),
                 "iou_curve_png": train_meta.get("iou_curve_png"),
@@ -1766,6 +1829,9 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "last_train_iou",
             "last_val_iou",
             "avg_epoch_runtime_seconds",
+            "mean_epoch_runtime_seconds",
+            "mean_train_epoch_seconds",
+            "mean_validation_epoch_seconds",
             "tracked_samples_count",
             "tracked_samples_mean_iou",
             "tracked_samples_min_iou",
@@ -1858,6 +1924,12 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "std_training_runtime_seconds",
             "mean_total_runtime_seconds",
             "std_total_runtime_seconds",
+            "mean_train_epoch_seconds",
+            "std_train_epoch_seconds",
+            "mean_validation_epoch_seconds",
+            "std_validation_epoch_seconds",
+            "mean_epoch_runtime_seconds",
+            "std_epoch_runtime_seconds",
             "mean_model_parameter_count",
             "mean_model_trainable_parameter_count",
             "mean_model_artifact_size_mb",

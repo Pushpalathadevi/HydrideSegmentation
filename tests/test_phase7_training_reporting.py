@@ -95,6 +95,12 @@ def test_phase7_unet_training_writes_reports_and_tracking_artifacts(tmp_path: Pa
     first = payload["history"][0]
     assert "train_accuracy" in first
     assert "val_accuracy" in first
+    assert "train_epoch_seconds" in first
+    assert "validation_epoch_seconds" in first
+    assert float(first["train_epoch_seconds"]) >= 0.0
+    assert float(first["validation_epoch_seconds"]) >= 0.0
+    assert payload.get("mean_train_epoch_seconds") is not None
+    assert payload.get("mean_validation_epoch_seconds") is not None
 
     html_text = (out / "training_report.html").read_text(encoding="utf-8")
     assert "Tracked Validation Samples By Epoch" in html_text

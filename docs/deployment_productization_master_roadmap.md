@@ -95,6 +95,9 @@ Completed P0 implementations aligned to this roadmap:
 5. Support bundle + compatibility fingerprint commands (`support-bundle`, `compatibility-matrix`) for post-mortem diagnostics.
 6. Benchmark suite preflight logic consolidated to shared helper (single source of truth for pretrained readiness checks).
 7. Stage 6 runtime health baseline added via `microseg-cli deploy-health` (global + per-image checks with failure codes and queue-style concurrency controls).
+8. Service-mode worker batch command added (`microseg-cli deploy-worker-run`) with bounded queue controls.
+9. Canary/shadow package comparison command added (`microseg-cli deploy-canary-shadow`) with disagreement and GT-backed gain summaries.
+10. Deployment performance harness added (`microseg-cli deploy-perf`) with throughput and p50/p90/p95/p99 latency reporting.
 
 ## Stage 0: Governance And Baseline Freeze
 

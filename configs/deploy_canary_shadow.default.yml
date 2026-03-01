@@ -1,0 +1,15 @@
+baseline_package_dir: outputs/deployments/baseline
+candidate_package_dir: outputs/deployments/candidate
+output_dir: outputs/deployments/canary_shadow
+image_paths: []
+image_dir: test_data
+glob_patterns:
+  - "*.png"
+  - "*.jpg"
+mask_dir: ""
+enable_gpu: false
+device_policy: cpu
+report_path: outputs/deployments/canary_shadow/canary_shadow_report.json
+max_mean_disagreement: -1.0
+min_mean_candidate_iou_gain: -1.0
+strict: false

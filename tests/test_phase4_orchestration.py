@@ -62,6 +62,13 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     deploy_validate_cmd = builder.deploy_validate(package_dir="outputs/deployments/p1", strict=True)
     deploy_smoke_cmd = builder.deploy_smoke(package_dir="outputs/deployments/p1", image_path="x.png")
     deploy_health_cmd = builder.deploy_health(package_dir="outputs/deployments/p1", image_dir="test_data")
+    deploy_worker_cmd = builder.deploy_worker_run(package_dir="outputs/deployments/p1", image_dir="test_data")
+    deploy_canary_cmd = builder.deploy_canary_shadow(
+        baseline_package_dir="outputs/deployments/base",
+        candidate_package_dir="outputs/deployments/cand",
+        image_dir="test_data",
+    )
+    deploy_perf_cmd = builder.deploy_perf(package_dir="outputs/deployments/p1", image_dir="test_data")
     promote_cmd = builder.promote_model(
         summary_json="outputs/hydride_benchmark/summary.json",
         model_name="unet_binary",
@@ -83,6 +90,9 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     assert deploy_validate_cmd[2] == "deploy-validate"
     assert deploy_smoke_cmd[2] == "deploy-smoke"
     assert deploy_health_cmd[2] == "deploy-health"
+    assert deploy_worker_cmd[2] == "deploy-worker-run"
+    assert deploy_canary_cmd[2] == "deploy-canary-shadow"
+    assert deploy_perf_cmd[2] == "deploy-perf"
     assert promote_cmd[2] == "promote-model"
     assert support_cmd[2] == "support-bundle"
     assert compat_cmd[2] == "compatibility-matrix"

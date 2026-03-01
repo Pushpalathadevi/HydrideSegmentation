@@ -297,6 +297,69 @@ class OrchestrationCommandBuilder:
             args.extend(["--output-dir", output_dir])
         return args
 
+    def deploy_worker_run(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        package_dir: str | None = None,
+        image_dir: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["deploy-worker-run"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if package_dir:
+            args.extend(["--package-dir", package_dir])
+        if image_dir:
+            args.extend(["--image-dir", image_dir])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args
+
+    def deploy_canary_shadow(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        baseline_package_dir: str | None = None,
+        candidate_package_dir: str | None = None,
+        image_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["deploy-canary-shadow"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if baseline_package_dir:
+            args.extend(["--baseline-package-dir", baseline_package_dir])
+        if candidate_package_dir:
+            args.extend(["--candidate-package-dir", candidate_package_dir])
+        if image_dir:
+            args.extend(["--image-dir", image_dir])
+        return args
+
+    def deploy_perf(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        package_dir: str | None = None,
+        image_dir: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["deploy-perf"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if package_dir:
+            args.extend(["--package-dir", package_dir])
+        if image_dir:
+            args.extend(["--image-dir", image_dir])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args
+
     def promote_model(
         self,
         *,

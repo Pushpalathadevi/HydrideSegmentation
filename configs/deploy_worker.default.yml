@@ -1,0 +1,15 @@
+package_dir: outputs/deployments/latest
+output_dir: outputs/deployments/service
+image_paths: []
+image_dir: test_data
+glob_patterns:
+  - "*.png"
+  - "*.jpg"
+max_workers: 2
+max_queue_size: 32
+timeout_seconds: 0.0
+await_completion: true
+enable_gpu: false
+device_policy: cpu
+report_path: outputs/deployments/service/service_batch_report.json
+strict: false

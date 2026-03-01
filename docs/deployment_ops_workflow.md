@@ -58,6 +58,49 @@ Runtime health report contains global and per-image step checks with machine-rea
 - inference
 - output write
 
+## 4c. Service-Mode Worker Batch (Queue-Safe Controls)
+
+```bash
+microseg-cli deploy-worker-run \
+  --config configs/deploy_worker.default.yml \
+  --package-dir outputs/deployments/<package_dir> \
+  --image-dir test_data \
+  --max-workers 4 \
+  --max-queue-size 64 \
+  --strict
+```
+
+This command exercises bounded queue behavior and produces `service_batch_report.json`.
+
+## 4d. Canary/Shadow Comparison
+
+```bash
+microseg-cli deploy-canary-shadow \
+  --config configs/deploy_canary_shadow.default.yml \
+  --baseline-package-dir outputs/deployments/<baseline_pkg> \
+  --candidate-package-dir outputs/deployments/<candidate_pkg> \
+  --image-dir test_data \
+  --mask-dir test_data/masks \
+  --strict
+```
+
+Output includes per-image disagreement masks and aggregate disagreement/gain metrics.
+
+## 4e. Performance Harness
+
+```bash
+microseg-cli deploy-perf \
+  --config configs/deploy_perf.default.yml \
+  --package-dir outputs/deployments/<package_dir> \
+  --image-dir test_data \
+  --warmup-runs 1 \
+  --repeat 3 \
+  --max-workers 4 \
+  --strict
+```
+
+Reports include throughput and latency (`mean`, `p50`, `p90`, `p95`, `p99`) plus per-request CSV rows.
+
 ## 5. Promotion Gate (Benchmark Evidence)
 
 ```bash

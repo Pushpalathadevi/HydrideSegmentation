@@ -1,0 +1,16 @@
+package_dir: outputs/deployments/latest
+output_dir: outputs/deployments/perf
+image_paths: []
+image_dir: test_data
+glob_patterns:
+  - "*.png"
+  - "*.jpg"
+warmup_runs: 1
+repeat: 2
+max_workers: 1
+enable_gpu: false
+device_policy: cpu
+report_path: outputs/deployments/perf/deployment_perf_report.json
+max_p95_ms: 0.0
+min_throughput_img_s: 0.0
+strict: false

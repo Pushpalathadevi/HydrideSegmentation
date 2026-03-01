@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,14 @@ except Exception as exc:  # pragma: no cover - import guard
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _format_seconds(seconds: float) -> str:
+    seconds = max(0.0, float(seconds))
+    total = int(round(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def _ensure_logger() -> logging.Logger:
@@ -143,6 +152,7 @@ class PixelClassifierTrainer:
 
     def train(self, config: PixelTrainingConfig) -> dict[str, Any]:
         logger = _ensure_logger()
+        run_start = time.perf_counter()
         dataset_root = Path(config.dataset_dir)
         output_dir = Path(config.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -176,10 +186,17 @@ class PixelClassifierTrainer:
         logger.info("METRIC_REDUCTION_END | backend=pixel_classifier epoch=0")
         logger.info("TRACK_EXPORT_START | backend=pixel_classifier epoch=0 selected=0 note=unsupported")
         logger.info("TRACK_EXPORT_END | backend=pixel_classifier epoch=0 selected=0 elapsed=00:00:00")
+        logger.info("EPOCH_TRAIN_START | backend=pixel_classifier epoch=1/1")
+        fit_start = time.perf_counter()
         clf.fit(x, y)
+        fit_runtime_seconds = time.perf_counter() - fit_start
+        logger.info("EPOCH_TRAIN_END | backend=pixel_classifier epoch=1/1 elapsed=%s", _format_seconds(fit_runtime_seconds))
 
         model_path = output_dir / "pixel_classifier.joblib"
         metadata_path = output_dir / "training_manifest.json"
+        training_runtime_seconds = time.perf_counter() - run_start
+        epoch_equivalent_count = int(getattr(clf, "n_iter_", 0) or 0) or 1
+        mean_train_epoch_seconds = float(fit_runtime_seconds) / float(max(1, epoch_equivalent_count))
         logger.info("CKPT_SAVE_START | backend=pixel_classifier path=%s", model_path)
         joblib.dump(clf, model_path)
         logger.info("CKPT_SAVE_END | backend=pixel_classifier path=%s size_bytes=%d", model_path, int(model_path.stat().st_size))
@@ -192,6 +209,14 @@ class PixelClassifierTrainer:
             "train_samples": int(x.shape[0]),
             "classes": [int(v) for v in np.unique(y).tolist()],
             "model_file": model_path.name,
+            "training_runtime_seconds": float(training_runtime_seconds),
+            "training_runtime_human": _format_seconds(training_runtime_seconds),
+            "fit_runtime_seconds": float(fit_runtime_seconds),
+            "training_epoch_equivalent_count": int(epoch_equivalent_count),
+            "mean_train_epoch_seconds": float(mean_train_epoch_seconds),
+            "mean_validation_epoch_seconds": None,
+            "mean_epoch_runtime_seconds": float(mean_train_epoch_seconds),
+            "validation_timing_supported": False,
         }
         logger.info("REPORT_UPDATE_START | backend=pixel_classifier path=%s", metadata_path)
         metadata_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -202,6 +227,10 @@ class PixelClassifierTrainer:
             "manifest_path": str(metadata_path),
             "classes": payload["classes"],
             "train_samples": payload["train_samples"],
+            "training_runtime_seconds": payload["training_runtime_seconds"],
+            "mean_train_epoch_seconds": payload["mean_train_epoch_seconds"],
+            "mean_validation_epoch_seconds": payload["mean_validation_epoch_seconds"],
+            "mean_epoch_runtime_seconds": payload["mean_epoch_runtime_seconds"],
         }
 
 

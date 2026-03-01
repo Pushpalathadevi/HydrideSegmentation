@@ -34,11 +34,17 @@ from src.microseg.dataops import (
     run_dataset_quality_checks,
 )
 from src.microseg.deployment import (
+    CanaryShadowConfig,
     DeploymentPackageConfig,
-    DeploymentSmokeConfig,
-    create_deployment_package,
-    run_runtime_health,
+    DeploymentPerfConfig,
     RuntimeHealthConfig,
+    DeploymentSmokeConfig,
+    ServiceWorkerConfig,
+    create_deployment_package,
+    run_canary_shadow_compare,
+    run_deployment_perf,
+    run_runtime_health,
+    run_service_worker_batch,
     run_deployment_smoke,
     validate_deployment_package,
 )
@@ -1042,6 +1048,169 @@ def _deploy_health(args: argparse.Namespace) -> int:
     return 0
 
 
+def _deploy_worker_run(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    package_dir = str(args.package_dir or cfg.get("package_dir") or "").strip()
+    if not package_dir:
+        raise ValueError("package directory is required (--package-dir or config:package_dir)")
+    if args.image_path:
+        image_paths = tuple(str(v).strip() for v in args.image_path if str(v).strip())
+    else:
+        image_paths = tuple(_parse_name_list(cfg.get("image_paths", [])))
+    patterns = _parse_name_list(cfg.get("glob_patterns", args.glob_patterns))
+    if not patterns:
+        patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]
+    result = run_service_worker_batch(
+        ServiceWorkerConfig(
+            package_dir=package_dir,
+            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/deployments/service"),
+            max_workers=max(1, int(cfg.get("max_workers", args.max_workers))),
+            max_queue_size=max(1, int(cfg.get("max_queue_size", args.max_queue_size))),
+            enable_gpu=bool(cfg.get("enable_gpu", args.enable_gpu)),
+            device_policy=str(cfg.get("device_policy", args.device_policy)),
+        ),
+        image_paths=image_paths,
+        image_dir=str(args.image_dir or cfg.get("image_dir") or ""),
+        glob_patterns=tuple(patterns),
+        await_completion=bool(cfg.get("await_completion", not args.no_await_completion)),
+        timeout_seconds=(
+            float(cfg.get("timeout_seconds", args.timeout_seconds))
+            if float(cfg.get("timeout_seconds", args.timeout_seconds)) > 0
+            else None
+        ),
+        report_path=str(args.report_path or cfg.get("report_path") or ""),
+    )
+    print(f"service worker report: {result.report_path}")
+    print(
+        "jobs: total={total} accepted={accepted} rejected={rejected} completed={completed} failed={failed}".format(
+            total=result.total_submitted,
+            accepted=result.accepted,
+            rejected=result.rejected,
+            completed=result.completed,
+            failed=result.failed,
+        )
+    )
+    if bool(cfg.get("strict", args.strict)) and (result.failed > 0 or result.rejected > 0):
+        return 2
+    return 0
+
+
+def _deploy_canary_shadow(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    baseline_package_dir = str(args.baseline_package_dir or cfg.get("baseline_package_dir") or "").strip()
+    candidate_package_dir = str(args.candidate_package_dir or cfg.get("candidate_package_dir") or "").strip()
+    if not baseline_package_dir or not candidate_package_dir:
+        raise ValueError(
+            "both baseline and candidate package dirs are required "
+            "(--baseline-package-dir/--candidate-package-dir or config fields)"
+        )
+    if args.image_path:
+        image_paths = tuple(str(v).strip() for v in args.image_path if str(v).strip())
+    else:
+        image_paths = tuple(_parse_name_list(cfg.get("image_paths", [])))
+    patterns = _parse_name_list(cfg.get("glob_patterns", args.glob_patterns))
+    if not patterns:
+        patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]
+
+    result = run_canary_shadow_compare(
+        CanaryShadowConfig(
+            baseline_package_dir=baseline_package_dir,
+            candidate_package_dir=candidate_package_dir,
+            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/deployments/canary_shadow"),
+            image_paths=image_paths,
+            image_dir=str(args.image_dir or cfg.get("image_dir") or ""),
+            glob_patterns=tuple(patterns),
+            mask_dir=str(args.mask_dir or cfg.get("mask_dir") or ""),
+            enable_gpu=bool(cfg.get("enable_gpu", args.enable_gpu)),
+            device_policy=str(cfg.get("device_policy", args.device_policy)),
+        ),
+        report_path=str(args.report_path or cfg.get("report_path") or ""),
+    )
+    payload = json.loads(Path(result.report_path).read_text(encoding="utf-8"))
+    mean_disagreement = float(payload.get("mean_disagreement_fraction", 0.0))
+    mean_iou_gain = float(payload.get("mean_candidate_iou_gain", 0.0))
+    print(f"canary-shadow report: {result.report_path}")
+    print(f"images: total={result.total_images} failed={result.failed_images}")
+    print(f"mean disagreement: {mean_disagreement:.6f}")
+    print(f"mean candidate IoU gain: {mean_iou_gain:.6f}")
+    max_disagree = float(cfg.get("max_mean_disagreement", args.max_mean_disagreement))
+    min_iou_gain = float(cfg.get("min_mean_candidate_iou_gain", args.min_mean_candidate_iou_gain))
+    strict = bool(cfg.get("strict", args.strict))
+    threshold_fail = False
+    if max_disagree >= 0 and mean_disagreement > max_disagree:
+        threshold_fail = True
+        print(
+            "threshold failed: mean disagreement {:.6f} > allowed {:.6f}".format(
+                mean_disagreement, max_disagree
+            )
+        )
+    if min_iou_gain > -1 and mean_iou_gain < min_iou_gain:
+        threshold_fail = True
+        print(
+            "threshold failed: mean candidate IoU gain {:.6f} < required {:.6f}".format(
+                mean_iou_gain, min_iou_gain
+            )
+        )
+    if strict and (result.failed_images > 0 or threshold_fail):
+        return 2
+    return 0
+
+
+def _deploy_perf(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    package_dir = str(args.package_dir or cfg.get("package_dir") or "").strip()
+    if not package_dir:
+        raise ValueError("package directory is required (--package-dir or config:package_dir)")
+    if args.image_path:
+        image_paths = tuple(str(v).strip() for v in args.image_path if str(v).strip())
+    else:
+        image_paths = tuple(_parse_name_list(cfg.get("image_paths", [])))
+    patterns = _parse_name_list(cfg.get("glob_patterns", args.glob_patterns))
+    if not patterns:
+        patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]
+    result = run_deployment_perf(
+        DeploymentPerfConfig(
+            package_dir=package_dir,
+            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/deployments/perf"),
+            image_paths=image_paths,
+            image_dir=str(args.image_dir or cfg.get("image_dir") or ""),
+            glob_patterns=tuple(patterns),
+            warmup_runs=max(0, int(cfg.get("warmup_runs", args.warmup_runs))),
+            repeat=max(1, int(cfg.get("repeat", args.repeat))),
+            max_workers=max(1, int(cfg.get("max_workers", args.max_workers))),
+            enable_gpu=bool(cfg.get("enable_gpu", args.enable_gpu)),
+            device_policy=str(cfg.get("device_policy", args.device_policy)),
+        ),
+        report_path=str(args.report_path or cfg.get("report_path") or ""),
+    )
+    payload = json.loads(Path(result.report_path).read_text(encoding="utf-8"))
+    p95 = float(payload.get("latency_ms_p95", 0.0))
+    throughput = float(payload.get("throughput_images_per_second", 0.0))
+    print(f"deploy perf report: {result.report_path}")
+    print(f"samples csv: {result.csv_path}")
+    print(
+        "perf: total={total} failed={failed} p95_ms={p95:.3f} throughput_img_s={tps:.3f}".format(
+            total=int(payload.get("total_requests", 0)),
+            failed=int(payload.get("failed_requests", 0)),
+            p95=p95,
+            tps=throughput,
+        )
+    )
+    strict = bool(cfg.get("strict", args.strict))
+    max_p95_ms = float(cfg.get("max_p95_ms", args.max_p95_ms))
+    min_tps = float(cfg.get("min_throughput_img_s", args.min_throughput_img_s))
+    threshold_fail = False
+    if max_p95_ms > 0 and p95 > max_p95_ms:
+        threshold_fail = True
+        print(f"threshold failed: p95_ms {p95:.3f} > allowed {max_p95_ms:.3f}")
+    if min_tps > 0 and throughput < min_tps:
+        threshold_fail = True
+        print(f"threshold failed: throughput {throughput:.3f} < required {min_tps:.3f}")
+    if strict and (not result.ok or threshold_fail):
+        return 2
+    return 0
+
+
 def _promote_model(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     summary_path = str(args.summary_json or cfg.get("summary_json") or "").strip()
@@ -1590,6 +1759,89 @@ def _build_parser() -> argparse.ArgumentParser:
     deploy_health.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
     deploy_health.add_argument("--strict", action="store_true", help="Exit non-zero when any health check fails")
     deploy_health.set_defaults(handler=_deploy_health)
+
+    deploy_worker = sub.add_parser(
+        "deploy-worker-run",
+        help="Run queue-safe deployment worker batch (service-mode core for API/batch pipelines)",
+    )
+    deploy_worker.add_argument("--config", type=str, help="YAML config path")
+    deploy_worker.add_argument("--set", action="append", default=[], help="Override key=value")
+    deploy_worker.add_argument("--package-dir", type=str, help="Deployment package directory")
+    deploy_worker.add_argument("--image-path", action="append", default=[], help="Input image path (repeatable)")
+    deploy_worker.add_argument("--image-dir", type=str, default="", help="Directory to scan for input images")
+    deploy_worker.add_argument(
+        "--glob-patterns",
+        type=str,
+        default="*.png,*.jpg,*.jpeg,*.bmp,*.tif,*.tiff",
+        help="Comma-separated glob patterns used with --image-dir",
+    )
+    deploy_worker.add_argument("--output-dir", type=str, default="outputs/deployments/service")
+    deploy_worker.add_argument("--report-path", type=str, default="")
+    deploy_worker.add_argument("--max-workers", type=int, default=2)
+    deploy_worker.add_argument("--max-queue-size", type=int, default=32)
+    deploy_worker.add_argument("--timeout-seconds", type=float, default=0.0)
+    deploy_worker.add_argument(
+        "--no-await-completion",
+        action="store_true",
+        help="Submit jobs and return queued/rejected statuses without waiting for completion",
+    )
+    deploy_worker.add_argument("--enable-gpu", action="store_true")
+    deploy_worker.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
+    deploy_worker.add_argument("--strict", action="store_true")
+    deploy_worker.set_defaults(handler=_deploy_worker_run)
+
+    deploy_canary = sub.add_parser(
+        "deploy-canary-shadow",
+        help="Compare candidate vs baseline deployment packages on same images",
+    )
+    deploy_canary.add_argument("--config", type=str, help="YAML config path")
+    deploy_canary.add_argument("--set", action="append", default=[], help="Override key=value")
+    deploy_canary.add_argument("--baseline-package-dir", type=str, help="Baseline deployment package directory")
+    deploy_canary.add_argument("--candidate-package-dir", type=str, help="Candidate deployment package directory")
+    deploy_canary.add_argument("--image-path", action="append", default=[], help="Input image path (repeatable)")
+    deploy_canary.add_argument("--image-dir", type=str, default="", help="Directory to scan for input images")
+    deploy_canary.add_argument("--mask-dir", type=str, default="", help="Optional GT mask directory for quality gains")
+    deploy_canary.add_argument(
+        "--glob-patterns",
+        type=str,
+        default="*.png,*.jpg,*.jpeg,*.bmp,*.tif,*.tiff",
+        help="Comma-separated glob patterns used with --image-dir",
+    )
+    deploy_canary.add_argument("--output-dir", type=str, default="outputs/deployments/canary_shadow")
+    deploy_canary.add_argument("--report-path", type=str, default="")
+    deploy_canary.add_argument("--max-mean-disagreement", type=float, default=-1.0)
+    deploy_canary.add_argument("--min-mean-candidate-iou-gain", type=float, default=-1.0)
+    deploy_canary.add_argument("--enable-gpu", action="store_true")
+    deploy_canary.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
+    deploy_canary.add_argument("--strict", action="store_true")
+    deploy_canary.set_defaults(handler=_deploy_canary_shadow)
+
+    deploy_perf = sub.add_parser(
+        "deploy-perf",
+        help="Run deployment latency/throughput benchmark harness",
+    )
+    deploy_perf.add_argument("--config", type=str, help="YAML config path")
+    deploy_perf.add_argument("--set", action="append", default=[], help="Override key=value")
+    deploy_perf.add_argument("--package-dir", type=str, help="Deployment package directory")
+    deploy_perf.add_argument("--image-path", action="append", default=[], help="Input image path (repeatable)")
+    deploy_perf.add_argument("--image-dir", type=str, default="", help="Directory to scan for input images")
+    deploy_perf.add_argument(
+        "--glob-patterns",
+        type=str,
+        default="*.png,*.jpg,*.jpeg,*.bmp,*.tif,*.tiff",
+        help="Comma-separated glob patterns used with --image-dir",
+    )
+    deploy_perf.add_argument("--output-dir", type=str, default="outputs/deployments/perf")
+    deploy_perf.add_argument("--report-path", type=str, default="")
+    deploy_perf.add_argument("--warmup-runs", type=int, default=1)
+    deploy_perf.add_argument("--repeat", type=int, default=1)
+    deploy_perf.add_argument("--max-workers", type=int, default=1)
+    deploy_perf.add_argument("--max-p95-ms", type=float, default=0.0)
+    deploy_perf.add_argument("--min-throughput-img-s", type=float, default=0.0)
+    deploy_perf.add_argument("--enable-gpu", action="store_true")
+    deploy_perf.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
+    deploy_perf.add_argument("--strict", action="store_true")
+    deploy_perf.set_defaults(handler=_deploy_perf)
 
     promote = sub.add_parser("promote-model", help="Evaluate benchmark summary against policy and update registry stage")
     promote.add_argument("--config", type=str, help="YAML config path")

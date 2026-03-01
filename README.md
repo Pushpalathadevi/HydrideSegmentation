@@ -232,6 +232,35 @@ microseg-cli deploy-health \
   --max-workers 4 --strict
 ```
 
+Deployment service-mode worker batch (bounded queue):
+```bash
+microseg-cli deploy-worker-run \
+  --config configs/deploy_worker.default.yml \
+  --package-dir outputs/deployments/<package_dir> \
+  --image-dir test_data \
+  --max-workers 4 --max-queue-size 64 --strict
+```
+
+Canary-shadow package comparison:
+```bash
+microseg-cli deploy-canary-shadow \
+  --config configs/deploy_canary_shadow.default.yml \
+  --baseline-package-dir outputs/deployments/<baseline_pkg> \
+  --candidate-package-dir outputs/deployments/<candidate_pkg> \
+  --image-dir test_data \
+  --mask-dir test_data/masks \
+  --strict
+```
+
+Deployment latency/throughput benchmark:
+```bash
+microseg-cli deploy-perf \
+  --config configs/deploy_perf.default.yml \
+  --package-dir outputs/deployments/<package_dir> \
+  --image-dir test_data \
+  --warmup-runs 1 --repeat 3 --max-workers 4 --strict
+```
+
 Promotion gate from benchmark summary:
 ```bash
 microseg-cli promote-model \
@@ -298,7 +327,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - `run_training_jobs.sh` hard-fails if `./.venv/bin/python` is missing or if dependency sanity checks fail (including `pydantic>=2`).
 - Benchmark mode now supports hard-fail dataset freeze checks (`expected_dataset_manifest_sha256`, `expected_split_id_file`).
 - When `benchmark_mode=true` and `dataset_manifest.json` is missing, the suite auto-generates it from `train/val/test`.
-- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch) with per-image metric blocks under each curve, tracked validation sample panels with per-image metric blocks, model size/weight statistics, parameter and trainable-parameter counts, runtime effort metrics (including FLOPs estimates when available), and evaluation scientific metrics.
+- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch) with per-image metric blocks under each curve, tracked validation sample panels with per-image metric blocks, model size/weight statistics, parameter and trainable-parameter counts, runtime effort metrics (including FLOPs estimates when available), mean epoch timing metrics (`mean_train_epoch_seconds`, `mean_validation_epoch_seconds`, `mean_epoch_runtime_seconds`), and evaluation scientific metrics.
 - Canonical campaign artifacts: `summary.json` and `summary.html` (compatibility files `benchmark_summary.json` and `benchmark_dashboard.html` are still emitted).
 - If a local-pretrained run is missing required weights/registry artifacts, it is marked `pretrained_missing` with actionable fix text in the run log, and remaining runs continue.
 - Per-suite and per-run structured event logs are written (`logs/suite_events.jsonl`, `logs/<run_tag>/run_events.jsonl`) along with continuous `train.log` / `eval.log`.
@@ -350,6 +379,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Phase 18 transformer backend status: `docs/phase18_transformer_backends.md`
 - Phase 19 SOTA HF transformer integration status: `docs/phase19_hf_sota_transformers.md`
 - Phase 20 benchmark suite orchestration status: `docs/phase20_benchmark_suite_orchestration.md`
+- Phase 26 deployment runtime modes status: `docs/phase26_deployment_runtime_modes.md`
 - Offline pretrained transfer workflow: `docs/offline_pretrained_transfer_workflow.md`
 - Single-file HPC top-10 real-data runbook (scratch + local-pretrained + dashboard): `docs/hpc_airgap_top5_realdata_runbook.md`
 - Pretrained model catalog + citations: `docs/pretrained_model_catalog.md`

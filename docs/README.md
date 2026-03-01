@@ -33,6 +33,7 @@ Core planning and governance docs:
 - Phase 20 benchmark suite orchestration status: `phase20_benchmark_suite_orchestration.md`
 - Phase 21 benchmark analytics hardening status: `phase21_benchmark_analytics_hardening.md`
 - Phase 23 enterprise desktop deployment readiness status: `phase23_enterprise_desktop_readiness.md`
+- Phase 26 deployment runtime modes status: `phase26_deployment_runtime_modes.md`
 - Repository health audit: `repo_health_audit.md`
 - Frozen checkpoint registry guide: `frozen_checkpoint_registry.md`
 - HPC GA user guide: `hpc_ga_user_guide.md`
