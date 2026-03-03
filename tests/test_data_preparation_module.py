@@ -336,6 +336,29 @@ def test_pipeline_paired_jpg_rgb_png_outputs_mado(tmp_path: Path) -> None:
     assert qa["split_counts"]["train"] + qa["split_counts"]["val"] + qa["split_counts"]["test"] == 6
 
 
+def test_pipeline_split_caps_route_remainder_to_train(tmp_path: Path) -> None:
+    input_dir = _build_paired_dataset(tmp_path, n=12)
+    output_dir = tmp_path / "out_split_caps"
+    cfg = DatasetPrepConfig.from_dict({
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "styles": ["mado"],
+        "train_pct": 0.8,
+        "val_pct": 0.25,
+        "max_val_examples": 1,
+        "max_test_examples": 1,
+        "target_size": 32,
+    })
+    result = DatasetPreparer(cfg).run()
+    assert result.total_pairs == 12
+    assert result.split_counts == {"train": 10, "val": 1, "test": 1}
+
+    qa = json.loads((output_dir / "dataset_qa_report.json").read_text(encoding="utf-8"))
+    assert qa["split_counts"] == {"train": 10, "val": 1, "test": 1}
+    assert qa["split_policy"]["max_val_examples"] == 1
+    assert qa["split_policy"]["max_test_examples"] == 1
+
+
 def test_pipeline_maps_grayscale_binary01_mask_to_255(tmp_path: Path) -> None:
     input_dir = tmp_path / "pairs_gray01"
     input_dir.mkdir(parents=True, exist_ok=True)

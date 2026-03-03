@@ -47,10 +47,11 @@ Current scripts:
   JSON/CSV summaries and a single HTML comparison dashboard.
   - writes queue-debuggable structured logs: `logs/suite_events.jsonl` and `logs/<run_tag>/run_events.jsonl`.
   - includes per-run training curves (`loss`, `accuracy`, `IoU` vs epoch), model artifact size, parameter count, train/eval/total runtime, and mean epoch timing fields (`mean_train_epoch_seconds`, `mean_validation_epoch_seconds`, `mean_epoch_runtime_seconds`).
-  - includes tracked validation-sample panel galleries with per-image metric blocks from training reports.
+  - includes tracked validation-sample panel galleries with collapsible image sections and compact two-column per-image metric blocks.
   - includes trainable-parameter count, checkpoint weight statistics, runtime hardware fields, and FLOPs estimates when available.
   - includes `cohen_kappa` in run-level and aggregate benchmark metrics.
   - emits canonical campaign artifacts `summary.json` + `summary.html` (plus compatibility files `benchmark_summary.json` + `benchmark_dashboard.html`).
+  - `summary.html` now includes a detail index with jump links to run-level visual diagnostics.
   - local-pretrained runs with missing weights are marked `pretrained_missing`, logged with actionable fixes, and remaining runs continue.
   - aggregate output includes mean/std rollups for quality and runtime metrics across seeds.
   - installed console entry point: `microseg-benchmark-suite`

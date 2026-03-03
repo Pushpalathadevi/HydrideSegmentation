@@ -42,6 +42,8 @@ empty_mask_action: warn
 
 train_pct: 0.8
 val_pct: 0.1
+max_val_examples: null
+max_test_examples: null
 seed: 42
 
 image_ext: .png

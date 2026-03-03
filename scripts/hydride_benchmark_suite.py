@@ -981,15 +981,15 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             if value is None:
                 continue
             items.append(
-                "<li><b>"
+                "<div class='metric-item'><b>"
                 + html.escape(key.replace("_", " "))
                 + "</b>: "
                 + f"{float(value):.6f}"
-                + "</li>"
+                + "</div>"
             )
         if not items:
             return ""
-        return "<ul style='margin:8px 0 0 18px;'>" + "".join(items) + "</ul>"
+        return "<div class='metric-grid'>" + "".join(items) + "</div>"
 
     def _metrics_block_html(items: list[tuple[str, object]]) -> str:
         rows_html: list[str] = []
@@ -997,15 +997,30 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             value = _safe_float(raw_value)
             value_text = f"{float(value):.6f}" if value is not None else "n/a"
             rows_html.append(
-                "<li><b>"
+                "<div class='metric-item'><b>"
                 + html.escape(str(label))
                 + "</b>: "
                 + value_text
-                + "</li>"
+                + "</div>"
             )
         if not rows_html:
             return ""
-        return "<ul style='margin:8px 0 0 18px;'>" + "".join(rows_html) + "</ul>"
+        return "<div class='metric-grid'>" + "".join(rows_html) + "</div>"
+
+    def _anchor_for_run(row: dict[str, Any]) -> str:
+        return _safe_name(f"{row.get('model', '')}_seed_{row.get('seed', '')}")
+
+    def _artifact_link(path_value: object, *, label: str) -> str:
+        path_text = str(path_value or "").strip()
+        if not path_text:
+            return "-"
+        return (
+            "<a href='"
+            + html.escape(path_text)
+            + "' target='_blank' rel='noopener noreferrer'>"
+            + html.escape(label)
+            + "</a>"
+        )
 
     style = (
         "<style>"
@@ -1016,6 +1031,11 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         "th,td{border:1px solid #bbb;padding:6px 8px;vertical-align:top;}"
         "th{background:#f0f0f0;position:sticky;top:0;}"
         ".mono{font-family:Menlo,Consolas,monospace;font-size:12px;}"
+        "details{border:1px solid #bbb;border-radius:6px;background:#fff;padding:8px 10px;margin:10px 0;}"
+        "summary{cursor:pointer;font-weight:600;}"
+        ".metric-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:6px 14px;margin-top:8px;}"
+        ".metric-item{font-size:12px;line-height:1.3;}"
+        ".detail-note{font-size:12px;color:#444;}"
         "</style>"
     )
     lines: list[str] = [
@@ -1163,13 +1183,45 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             f"<td>{html.escape(hparams)}</td>"
             f"<td>{html.escape(str(row.get('train_config','')))}</td>"
             f"<td>{html.escape(str(row.get('train_dir','')))}</td>"
-            f"<td>{html.escape(str(row.get('eval_report','')))}</td>"
-            f"<td>{html.escape(str(row.get('loss_curve_png','')))}</td>"
-            f"<td>{html.escape(str(row.get('accuracy_curve_png','')))}</td>"
-            f"<td>{html.escape(str(row.get('iou_curve_png','')))}</td>"
+            f"<td>{_artifact_link(row.get('eval_report', ''), label='open report')}</td>"
+            f"<td>{_artifact_link(row.get('loss_curve_png', ''), label='open loss')}</td>"
+            f"<td>{_artifact_link(row.get('accuracy_curve_png', ''), label='open accuracy')}</td>"
+            f"<td>{_artifact_link(row.get('iou_curve_png', ''), label='open IoU')}</td>"
             "</tr>"
         )
-    lines.extend(["</table>", "<h2>Training Curve Gallery</h2>"])
+    lines.extend(
+        [
+            "</table>",
+            "<h2>Detailed Visual Index</h2>",
+            "<p class='detail-note'>Major outcomes are summarized above. Use links below to jump to run-level image metrics.</p>",
+            "<table border='1' cellpadding='6' cellspacing='0'>",
+            "<tr><th>Model</th><th>Seed</th><th>Mean IoU</th><th>Macro F1</th><th>Tracked Mean IoU</th><th>Total Runtime (s)</th><th>Details</th></tr>",
+        ]
+    )
+    for row in rows:
+        anchor = _anchor_for_run(row)
+        lines.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('model', '')))}</td>"
+            f"<td>{html.escape(str(row.get('seed', '')))}</td>"
+            f"<td>{_safe_float(row.get('mean_iou')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('macro_f1')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('tracked_samples_mean_iou')) or 0.0:.6f}</td>"
+            f"<td>{_safe_float(row.get('total_runtime_seconds')) or 0.0:.2f}</td>"
+            "<td>"
+            f"<a href='#curves-{anchor}'>curves</a> | "
+            f"<a href='#tracked-{anchor}'>tracked-evolution</a> | "
+            f"<a href='#samples-{anchor}'>validation-panels</a>"
+            "</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "<h2>Training Curve Gallery</h2>",
+            "<p class='detail-note'>Click a run to expand curve images. Each image can also be opened directly in a new tab.</p>",
+        ]
+    )
     for row in rows:
         title = f"{row.get('model', '')} seed {row.get('seed', '')}"
         loss_curve = str(row.get("loss_curve_png", ""))
@@ -1177,12 +1229,18 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         iou_curve = str(row.get("iou_curve_png", ""))
         if not loss_curve and not acc_curve and not iou_curve:
             continue
-        lines.append(f"<h3>{html.escape(title)}</h3>")
-        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;'>")
+        anchor = _anchor_for_run(row)
+        lines.append(
+            f"<details id='curves-{anchor}'>"
+            f"<summary>{html.escape(title)} | Eval Mean IoU {_safe_float(row.get('mean_iou')) or 0.0:.6f}</summary>"
+        )
+        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;'>")
         if loss_curve:
             lines.append(
                 "<div><div><b>Loss vs Epoch</b></div>"
-                f"<img src='{html.escape(loss_curve)}' style='max-width:520px;border:1px solid #333;'>"
+                f"<div class='detail-note'>{_artifact_link(loss_curve, label='open image')}</div>"
+                "<details><summary>Show image</summary>"
+                f"<img src='{html.escape(loss_curve)}' style='max-width:520px;border:1px solid #333;'></details>"
                 + _metrics_block_html(
                     [
                         ("Last Train Loss", row.get("last_train_loss")),
@@ -1198,7 +1256,9 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         if acc_curve:
             lines.append(
                 "<div><div><b>Accuracy vs Epoch</b></div>"
-                f"<img src='{html.escape(acc_curve)}' style='max-width:520px;border:1px solid #333;'>"
+                f"<div class='detail-note'>{_artifact_link(acc_curve, label='open image')}</div>"
+                "<details><summary>Show image</summary>"
+                f"<img src='{html.escape(acc_curve)}' style='max-width:520px;border:1px solid #333;'></details>"
                 + _metrics_block_html(
                     [
                         ("Last Train Accuracy", row.get("last_train_accuracy")),
@@ -1211,7 +1271,9 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
         if iou_curve:
             lines.append(
                 "<div><div><b>IoU vs Epoch</b></div>"
-                f"<img src='{html.escape(iou_curve)}' style='max-width:520px;border:1px solid #333;'>"
+                f"<div class='detail-note'>{_artifact_link(iou_curve, label='open image')}</div>"
+                "<details><summary>Show image</summary>"
+                f"<img src='{html.escape(iou_curve)}' style='max-width:520px;border:1px solid #333;'></details>"
                 + _metrics_block_html(
                     [
                         ("Last Train IoU", row.get("last_train_iou")),
@@ -1222,14 +1284,23 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
                 )
                 + "</div>"
             )
-        lines.append("</div>")
-    lines.extend(["<h2>Tracked Sample Evolution (IoU vs Epoch)</h2>"])
+        lines.append("</div></details>")
+    lines.extend(
+        [
+            "<h2>Tracked Sample Evolution (IoU vs Epoch)</h2>",
+            "<p class='detail-note'>Each run section below can be expanded for a summary table and optional curve previews.</p>",
+        ]
+    )
     for row in rows:
         tracked_evolution = row.get("tracked_sample_evolution")
         if not isinstance(tracked_evolution, list) or not tracked_evolution:
             continue
         title = f"{row.get('model', '')} seed {row.get('seed', '')}"
-        lines.append(f"<h3>{html.escape(title)}</h3>")
+        anchor = _anchor_for_run(row)
+        lines.append(
+            f"<details id='tracked-{anchor}'>"
+            f"<summary>{html.escape(title)} ({len(tracked_evolution)} tracked samples)</summary>"
+        )
         lines.append(
             "<table border='1' cellpadding='6' cellspacing='0'>"
             "<tr><th>Sample</th><th>Points</th><th>First IoU</th><th>Last IoU</th><th>Delta IoU</th><th>Best IoU</th><th>Worst IoU</th><th>Curve</th></tr>"
@@ -1238,7 +1309,7 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             if not isinstance(item, dict):
                 continue
             curve_png = str(item.get("iou_curve_png", "")).strip()
-            curve_cell = html.escape(curve_png) if curve_png else "-"
+            curve_cell = _artifact_link(curve_png, label="open curve") if curve_png else "-"
             lines.append(
                 "<tr>"
                 f"<td>{html.escape(str(item.get('sample_name', '')))}</td>"
@@ -1252,7 +1323,8 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
                 "</tr>"
             )
         lines.append("</table>")
-        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;'>")
+        lines.append("<details><summary>Show curve previews</summary>")
+        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;'>")
         for item in tracked_evolution:
             if not isinstance(item, dict):
                 continue
@@ -1265,16 +1337,24 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
                 + "</b></div>"
                 + f"<img src='{html.escape(curve_png)}' style='max-width:520px;border:1px solid #333;'></div>"
             )
-        lines.append("</div>")
+        lines.append("</div></details></details>")
 
-    lines.extend(["<h2>Validation Sample Panels</h2>"])
+    lines.extend(
+        [
+            "<h2>Validation Sample Panels</h2>",
+            "<p class='detail-note'>Panels are collapsed by default. Expand a sample to show image metrics and panel preview.</p>",
+        ]
+    )
     for row in rows:
         tracked_samples = row.get("tracked_samples")
         if not isinstance(tracked_samples, list) or not tracked_samples:
             continue
         title = f"{row.get('model', '')} seed {row.get('seed', '')}"
-        lines.append(f"<h3>{html.escape(title)}</h3>")
-        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;'>")
+        anchor = _anchor_for_run(row)
+        lines.append(
+            f"<details id='samples-{anchor}'>"
+            f"<summary>{html.escape(title)} ({len(tracked_samples)} samples)</summary>"
+        )
         for sample in tracked_samples:
             if not isinstance(sample, dict):
                 continue
@@ -1285,16 +1365,18 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
                 continue
             iou_text = f" (IoU: {float(sample_iou):.6f})" if sample_iou is not None else ""
             lines.append(
-                "<div><div><b>"
+                "<details>"
+                "<summary><b>"
                 + html.escape(sample_name or "tracked_sample")
                 + "</b>"
                 + iou_text
-                + "</div>"
+                + "</summary>"
+                + f"<div class='detail-note'>{_artifact_link(panel_png, label='open image')}</div>"
                 + f"<img src='{html.escape(panel_png)}' style='max-width:520px;border:1px solid #333;'>"
                 + _tracked_sample_metrics_html(sample)
-                + "</div>"
+                + "</details>"
             )
-        lines.append("</div>")
+        lines.append("</details>")
     lines.extend(["</body></html>"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

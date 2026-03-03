@@ -37,6 +37,7 @@ It currently targets binary segmentation and is designed to extend to multiclass
   - `keep_aspect_no_pad`
   - `short_side_to_target_crop` (scale shortest side to target, then crop)
 - Split-aware crop modes (`crop_mode_train`, `crop_mode_eval`).
+- Optional split caps for evaluation sets (`max_val_examples`, `max_test_examples`) with remainder routed to training.
 - Multi-format export (`.png`, `.tif/.tiff`) with Pillow TIFF fallback.
 - Deterministic `manifest.json` with split counts, record-level stats, and warnings.
 - Dataset QA artifacts: `dataset_qa_report.json` and `dataset_qa_report.html`.
@@ -65,7 +66,9 @@ prep-dataset \
   --allow-red-dominance-fallback \
   --auto-otsu-for-noisy-grayscale \
   --empty-mask-action warn \
-  --seed 42
+  --seed 42 \
+  --max-val-examples 200 \
+  --max-test-examples 200
 ```
 
 Dry run:
@@ -87,6 +90,8 @@ python scripts/microseg_cli.py prepare_dataset \
   --seed 42 \
   --train-frac 0.8 \
   --val-frac 0.1 \
+  --max-val-examples 200 \
+  --max-test-examples 200 \
   --dry-run
 ```
 

@@ -126,6 +126,10 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
     assert "Last Train Loss" in dashboard_text
     assert "Eval Mean IoU" in dashboard_text
     assert "Train Epoch Time" in dashboard_text
+    assert "Detailed Visual Index" in dashboard_text
+    assert "metric-grid" in dashboard_text
+    assert "<details" in dashboard_text
+    assert "open image" in dashboard_text
 
     with (output_root / "benchmark_aggregate.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

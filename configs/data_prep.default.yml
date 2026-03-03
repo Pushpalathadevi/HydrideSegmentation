@@ -57,6 +57,8 @@ target_size:
 resize_policy: letterbox_pad
 crop_mode_train: random
 crop_mode_eval: center
+max_val_examples: null
+max_test_examples: null
 empty_mask_action: warn
 progress_log_interval: 20
 qa_report_name: dataset_qa_report.json

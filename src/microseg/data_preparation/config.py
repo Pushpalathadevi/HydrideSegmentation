@@ -41,6 +41,8 @@ class DatasetPrepConfig:
     styles: list[str] = field(default_factory=lambda: ["oxford", "mado"])
     train_pct: float = 0.8
     val_pct: float = 0.1
+    max_val_examples: int | None = None
+    max_test_examples: int | None = None
     seed: int = 42
     dry_run: bool = False
     strict_pairing: bool = True
@@ -91,6 +93,19 @@ class DatasetPrepConfig:
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "DatasetPrepConfig":
         data = dict(raw)
+        if "val_max_examples" in data and "max_val_examples" not in data:
+            data["max_val_examples"] = data.get("val_max_examples")
+        if "test_max_examples" in data and "max_test_examples" not in data:
+            data["max_test_examples"] = data.get("test_max_examples")
+        for key in ("max_val_examples", "max_test_examples"):
+            raw_value = data.get(key)
+            if raw_value is None or raw_value == "":
+                data[key] = None
+                continue
+            value = int(raw_value)
+            if value < 0:
+                raise ValueError(f"{key} must be >= 0")
+            data[key] = value
         if isinstance(data.get("target_size"), int):
             size = int(data["target_size"])
             data["target_size"] = (size, size)

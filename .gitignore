@@ -78,6 +78,9 @@ pre_trained_weights/**
 !pre_trained_weights/metadata/
 !pre_trained_weights/metadata/*.json
 
+# Local transfer archives for air-gapped copy (never commit)
+transfer_bundle/
+
 # Local development
 .env.local
 .env.development.local

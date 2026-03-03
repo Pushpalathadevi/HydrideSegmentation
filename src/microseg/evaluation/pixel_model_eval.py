@@ -299,25 +299,32 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
             except Exception:
                 continue
             items.append(
-                "<li><b>"
+                "<div class='metric-item'><b>"
                 + html.escape(key.replace("_", " "))
                 + "</b>: "
                 + f"{value:.6f}"
-                + "</li>"
+                + "</div>"
             )
         if not items:
             return ""
-        return "<ul style='margin:8px 0 0 18px;'>" + "".join(items) + "</ul>"
+        return "<div class='metric-grid'>" + "".join(items) + "</div>"
 
     gallery: list[str] = []
     for sample in samples:
         panel = html.escape(str(sample.get("panel", "")))
+        sample_name = html.escape(str(sample.get("sample_name", "")))
+        panel_link = (
+            "<a href='" + panel + "' target='_blank' rel='noopener noreferrer'>open image</a>"
+            if panel
+            else "-"
+        )
         gallery.append(
-            "<div style='margin:10px 0;padding:10px;border:1px solid #ddd;'>"
-            f"<div><b>{html.escape(str(sample.get('sample_name', '')))}</b></div>"
+            "<details style='margin:10px 0;padding:10px;border:1px solid #ddd;background:#fff;'>"
+            f"<summary><b>{sample_name}</b></summary>"
+            f"<div style='font-size:12px;margin:6px 0;'>{panel_link}</div>"
             f"<img src='{panel}' style='max-width:100%;border:1px solid #333;'>"
             + _sample_metrics_block(sample)
-            + "</div>"
+            + "</details>"
         )
 
     class_rows: list[str] = []
@@ -370,7 +377,16 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
             confusion_rows.append(f"<tr><th>{html.escape(str(lbl))}</th>{row_html}</tr>")
 
     html_text = (
-        "<html><head><meta charset='utf-8'><title>MicroSeg Evaluation Report</title></head><body>"
+        "<html><head><meta charset='utf-8'><title>MicroSeg Evaluation Report</title>"
+        "<style>"
+        "body{font-family:Arial,sans-serif;margin:18px;background:#f8fafc;color:#1f2933;}"
+        "table{border-collapse:collapse;width:100%;margin:12px 0;background:#fff;}"
+        "th,td{border:1px solid #cfd8e3;padding:6px 8px;text-align:left;vertical-align:top;}"
+        "th{background:#ecf1f8;}"
+        ".metric-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:6px 14px;margin-top:8px;}"
+        ".metric-item{font-size:12px;line-height:1.3;}"
+        "details>summary{cursor:pointer;}"
+        "</style></head><body>"
         "<h1>MicroSeg Evaluation Report</h1>"
         f"<p><b>Backend:</b> {html.escape(str(payload.get('backend', '')))}</p>"
         f"<p><b>Runtime Device:</b> {html.escape(str(payload.get('runtime_device', '')))}</p>"
@@ -417,7 +433,7 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         + "".join(rows)
         + "</table>"
         "<h2>Tracked Samples (Input | GT | Pred | Diff)</h2>"
-        "<p>Each sample panel includes per-image values for all available run metrics.</p>"
+        "<p>Each sample panel is collapsed by default and includes per-image values in a compact two-column layout.</p>"
         + "".join(gallery)
         + "</body></html>"
     )

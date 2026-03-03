@@ -7,6 +7,7 @@ from dataclasses import asdict
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -665,6 +666,16 @@ def _prepare_dataset_paired(args: argparse.Namespace) -> int:
     if not output_root:
         raise ValueError("output root is required (--output-root or config:output_dir)")
 
+    def _optional_int(value: Any) -> int | None:
+        if value is None or value == "":
+            return None
+        return int(value)
+
+    max_val_examples_raw = cfg.get("max_val_examples", cfg.get("val_max_examples", args.max_val_examples))
+    max_test_examples_raw = cfg.get("max_test_examples", cfg.get("test_max_examples", args.max_test_examples))
+    max_val_examples = _optional_int(max_val_examples_raw)
+    max_test_examples = _optional_int(max_test_examples_raw)
+
     resolved = DatasetPrepConfig.from_dict({
         **cfg,
         "input_dir": str(input_dir),
@@ -672,6 +683,8 @@ def _prepare_dataset_paired(args: argparse.Namespace) -> int:
         "styles": [part.strip() for part in str(args.style or cfg.get("style", "mado")).split(",") if part.strip()],
         "train_pct": float(cfg.get("train_pct", args.train_frac)),
         "val_pct": float(cfg.get("val_pct", args.val_frac)),
+        "max_val_examples": max_val_examples,
+        "max_test_examples": max_test_examples,
         "seed": int(cfg.get("seed", args.seed)),
         "dry_run": bool(cfg.get("dry_run", args.dry_run)),
         "target_size": int(cfg.get("target_size", args.target_size)),
@@ -1578,6 +1591,8 @@ def _build_parser() -> argparse.ArgumentParser:
     paired.add_argument("--seed", type=int, default=42)
     paired.add_argument("--train-frac", type=float, default=0.8)
     paired.add_argument("--val-frac", type=float, default=0.1)
+    paired.add_argument("--max-val-examples", type=int, default=None, help="Optional cap on validation split count")
+    paired.add_argument("--max-test-examples", type=int, default=None, help="Optional cap on test split count")
     paired.add_argument("--dry-run", action="store_true")
     paired.set_defaults(handler=_prepare_dataset_paired)
 

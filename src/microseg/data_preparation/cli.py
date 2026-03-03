@@ -21,6 +21,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train-pct", "--train-frac", type=float, default=0.8)
     parser.add_argument("--val-pct", "--val-frac", type=float, default=0.1)
+    parser.add_argument("--max-val-examples", type=int, default=None, help="Optional cap on validation split count")
+    parser.add_argument("--max-test-examples", type=int, default=None, help="Optional cap on test split count")
     parser.add_argument("--skip-sanity", action="store_true")
     parser.add_argument("--debug-limit", type=int, default=100)
     parser.add_argument("--num-debug", type=int, default=8)
@@ -65,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "train_pct": args.train_pct,
         "val_pct": args.val_pct,
+        "max_val_examples": args.max_val_examples,
+        "max_test_examples": args.max_test_examples,
         "skip_sanity": args.skip_sanity,
         "target_size": [args.target_size, args.target_size],
         "resize_policy": "short_side_to_target_crop",

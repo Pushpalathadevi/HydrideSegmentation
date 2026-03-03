@@ -160,9 +160,12 @@ python scripts/microseg_cli.py prepare_dataset \
   --allow-red-dominance-fallback \
   --auto-otsu-for-noisy-grayscale \
   --empty-mask-action warn \
-  --seed 42 --train-frac 0.8 --val-frac 0.1
+  --seed 42 --train-frac 0.8 --val-frac 0.1 \
+  --max-val-examples 200 \
+  --max-test-examples 200
 ```
 Use `--dry-run` to validate pairing and inspect planned outputs without writing dataset files.
+`--max-val-examples` and `--max-test-examples` are optional caps; any remainder is assigned to `train`.
 
 `prepare_dataset` supports `{stem}.jpg + {stem}_mask.png` (and `{stem}.png`) pairing in one folder.
 In debug mode (`--debug --num-debug N`), dataset preparation exports input/output images, input/processed masks, mask-difference views, overlay panels, and per-sample criteria JSON.
@@ -335,7 +338,8 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - `run_training_jobs.sh` hard-fails if `./.venv/bin/python` is missing or if dependency sanity checks fail (including `pydantic>=2`).
 - Benchmark mode now supports hard-fail dataset freeze checks (`expected_dataset_manifest_sha256`, `expected_split_id_file`).
 - When `benchmark_mode=true` and `dataset_manifest.json` is missing, the suite auto-generates it from `train/val/test`.
-- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch) with per-image metric blocks under each curve, tracked validation sample panels with per-image metric blocks, model size/weight statistics, parameter and trainable-parameter counts, runtime effort metrics (including FLOPs estimates when available), mean epoch timing metrics (`mean_train_epoch_seconds`, `mean_validation_epoch_seconds`, `mean_epoch_runtime_seconds`), and evaluation scientific metrics.
+- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch) with compact two-column per-image metric blocks, tracked validation sample panels with compact per-image metric blocks, model size/weight statistics, parameter and trainable-parameter counts, runtime effort metrics (including FLOPs estimates when available), mean epoch timing metrics (`mean_train_epoch_seconds`, `mean_validation_epoch_seconds`, `mean_epoch_runtime_seconds`), and evaluation scientific metrics.
+- Dashboard visual sections are collapsed by default and linked from a detail index to reduce scrolling.
 - Canonical campaign artifacts: `summary.json` and `summary.html` (compatibility files `benchmark_summary.json` and `benchmark_dashboard.html` are still emitted).
 - If a local-pretrained run is missing required weights/registry artifacts, it is marked `pretrained_missing` with actionable fix text in the run log, and remaining runs continue.
 - Per-suite and per-run structured event logs are written (`logs/suite_events.jsonl`, `logs/<run_tag>/run_events.jsonl`) along with continuous `train.log` / `eval.log`.

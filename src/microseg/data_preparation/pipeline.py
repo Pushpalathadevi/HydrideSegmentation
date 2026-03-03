@@ -204,6 +204,12 @@ class DatasetPreparer:
                 "missing_images": pairing_report.missing_images,
             },
             "split_counts": split_counts,
+            "split_policy": {
+                "train_pct": float(self.cfg.train_pct),
+                "val_pct": float(self.cfg.val_pct),
+                "max_val_examples": self.cfg.max_val_examples,
+                "max_test_examples": self.cfg.max_test_examples,
+            },
             "processed_pairs": len(records),
             "read_failures": read_failures,
             "empty_output_masks": {
@@ -265,10 +271,25 @@ class DatasetPreparer:
     def _build_splits(self, n: int) -> dict[str, list[int]]:
         idx = list(range(n))
         self.rng.shuffle(idx)
-        n_trainval = int(round(n * self.cfg.train_pct))
-        trainval = idx[:n_trainval]
-        test = idx[n_trainval:]
-        n_val = int(round(len(trainval) * self.cfg.val_pct))
+        n_trainval_ratio = int(round(n * self.cfg.train_pct))
+        n_trainval_ratio = max(0, min(n, n_trainval_ratio))
+        n_test_ratio = n - n_trainval_ratio
+        n_val_ratio = int(round(n_trainval_ratio * self.cfg.val_pct))
+        n_val_ratio = max(0, min(n_trainval_ratio, n_val_ratio))
+
+        n_test = n_test_ratio
+        if self.cfg.max_test_examples is not None:
+            n_test = min(n_test, int(self.cfg.max_test_examples))
+        n_test = max(0, min(n, n_test))
+
+        n_remaining = n - n_test
+        n_val = min(n_val_ratio, n_remaining)
+        if self.cfg.max_val_examples is not None:
+            n_val = min(n_val, int(self.cfg.max_val_examples))
+        n_val = max(0, min(n_remaining, n_val))
+
+        trainval = idx[:n_remaining]
+        test = idx[n_remaining:]
         val = trainval[:n_val]
         train = trainval[n_val:]
         return {"train": sorted(train), "val": sorted(val), "test": sorted(test)}
