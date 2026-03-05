@@ -49,15 +49,17 @@ Current scripts:
   end-to-end pipeline integrity checks.
   - supports optional `--resize-width/--resize-height` downscaling to keep transformer debug runs fast on CPU.
 - `hydride_benchmark_suite.py` runs multi-model hydride benchmark suites (train+eval) and writes consolidated
-  JSON/CSV summaries and a single HTML comparison dashboard.
+  JSON/CSV summaries and concise HTML comparison dashboards.
   - writes queue-debuggable structured logs: `logs/suite_events.jsonl` and `logs/<run_tag>/run_events.jsonl`.
+  - executes model families in fixed order: transformer -> deeplab -> advanced -> unet.
+  - supports `--single-seed` override (or `single_seed_only` in YAML) to run only the first configured seed.
   - includes per-run training curves (`loss`, `accuracy`, `IoU` vs epoch), model artifact size, parameter count, train/eval/total runtime, and mean epoch timing fields (`mean_train_epoch_seconds`, `mean_validation_epoch_seconds`, `mean_epoch_runtime_seconds`).
-  - includes tracked validation-sample panel galleries with collapsible image sections and compact two-column per-image metric blocks.
+  - emits one per-run detail page (`runs/<run_tag>/inside.html`) with links to plots/panels/logs; images are opened on demand rather than embedded at summary load.
   - includes trainable-parameter count, checkpoint weight statistics, runtime hardware fields, and FLOPs estimates when available.
   - includes `cohen_kappa` in run-level and aggregate benchmark metrics.
   - emits canonical campaign artifacts `summary.json` + `summary.html` (plus compatibility files `benchmark_summary.json` + `benchmark_dashboard.html`).
-  - `summary.html` now includes a detail index with jump links to run-level visual diagnostics.
   - local-pretrained runs with missing weights are marked `pretrained_missing`, logged with actionable fixes, and remaining runs continue.
+  - failed runs generate explicit skip/failure logs and the suite continues by default (`continue_on_failure=true`).
   - aggregate output includes mean/std rollups for quality and runtime metrics across seeds.
   - installed console entry point: `microseg-benchmark-suite`
 - `build_windows_installer.ps1` builds the Qt desktop executable (`PyInstaller`) and optional single offline installer (`Inno Setup`).

@@ -12,12 +12,19 @@
 - `scripts/hydride_benchmark_suite.py`
 - supports:
   - train + eval execution loops across models and seeds
+  - deterministic execution ordering by model family:
+    - transformer first
+    - deeplab next
+    - advanced non-unet models next
+    - `unet_binary` last
+  - single-seed CLI override (`--single-seed`) to run only the first configured seed
+  - default resilient continuation on per-run failures (`continue_on_failure=true`)
   - strict mode fail handling
   - dry-run planning mode
   - live per-run log streaming to `logs/<run_tag>/train.log|eval.log`
   - optional watchdog timeouts (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`)
   - consolidated JSON/CSV summary outputs
-  - HTML dashboard generation
+  - concise HTML summary generation + per-run `inside.html` detail pages with on-demand links to curves/panels/logs
 
 2. Top-5 suite config:
 - `configs/hydride/benchmark_suite.top5.yml`

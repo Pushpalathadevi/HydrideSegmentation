@@ -354,19 +354,27 @@ Single-script top-10 hydride benchmark run + dashboard:
 ```bash
 python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_suite.top5.yml --strict
 ```
+- Optional single-seed override from CLI (uses the first seed in suite YAML):
+```bash
+python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_suite.top5.yml --single-seed
+```
 - Slurm single-job wrapper (repo-root-safe, enforces `./.venv` in job runtime):
 ```bash
 ./submitJob_1GPU.sh ./run_training_jobs.sh --dataset tiny --profile smoke
+./submitJob_1GPU.sh ./run_training_jobs.sh --dataset tiny --profile full --single_seed true
 ./submitJob_1GPU.sh ./run_training_jobs.sh --dataset custom --dataset_dir /path/to/HydrideData6.0/mado_style --profile full
 ```
 - The wrapper exports `HYDRIDE_REPO_ROOT` from submission time, so `run_training_jobs.sh` can recover repo root even when Slurm stages the script into a spool directory.
 - `run_training_jobs.sh` hard-fails if `./.venv/bin/python` is missing or if dependency sanity checks fail (including `pydantic>=2`).
 - Benchmark mode now supports hard-fail dataset freeze checks (`expected_dataset_manifest_sha256`, `expected_split_id_file`).
 - When `benchmark_mode=true` and `dataset_manifest.json` is missing, the suite auto-generates it from `train/val/test`.
-- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, and HTML dashboard sections for run-level training curves (`loss`, `accuracy`, `IoU` vs epoch) with compact two-column per-image metric blocks, tracked validation sample panels with compact per-image metric blocks, model size/weight statistics, parameter and trainable-parameter counts, runtime effort metrics (including FLOPs estimates when available), mean epoch timing metrics (`mean_train_epoch_seconds`, `mean_validation_epoch_seconds`, `mean_epoch_runtime_seconds`), and evaluation scientific metrics.
-- Dashboard visual sections are collapsed by default and linked from a detail index to reduce scrolling.
+- Outputs include consolidated JSON/CSV summaries, aggregate mean/std tables, concise HTML summary pages, and per-run `inside.html` detail pages with links for training curves (`loss`, `accuracy`, `IoU`), tracked validation evolution curves, and validation sample panels.
+- Summary/inside pages avoid embedded image preloading; heavy plots/panels open only through links.
 - Canonical campaign artifacts: `summary.json` and `summary.html` (compatibility files `benchmark_summary.json` and `benchmark_dashboard.html` are still emitted).
+- Suite execution order is now deterministic by model family: transformers first, then DeepLab, then other advanced models, and `unet_binary` last.
 - If a local-pretrained run is missing required weights/registry artifacts, it is marked `pretrained_missing` with actionable fix text in the run log, and remaining runs continue.
+- Failed train/eval runs write explicit skip/failure logs and do not stop remaining runs unless `continue_on_failure` is disabled in suite YAML.
+- `run_training_jobs.sh` now defaults to non-strict completion (`--strict false`) so partial-success campaigns still finish and archive successful runs.
 - Per-suite and per-run structured event logs are written (`logs/suite_events.jsonl`, `logs/<run_tag>/run_events.jsonl`) along with continuous `train.log` / `eval.log`.
 - Metrics include `cohen_kappa` in evaluation, benchmark CSV, and dashboard summaries.
 - Optional suite YAML watchdog keys (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`) can auto-terminate stuck runs and continue the campaign.

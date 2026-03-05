@@ -246,3 +246,87 @@ def test_phase20_run_cmd_idle_watchdog_timeout(tmp_path: Path) -> None:
     text = log_path.read_text(encoding="utf-8")
     assert "start" in text
     assert "[watchdog] idle_timeout triggered" in text
+
+
+def test_phase20_suite_reorders_experiments_transformer_first_unet_last(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "hydride_benchmark_suite.py"
+
+    cfg = {
+        "dataset_dir": "outputs/prepared_dataset_hydride_v1",
+        "output_root": str(tmp_path / "suite"),
+        "eval_config": "configs/hydride/evaluate.hydride.yml",
+        "eval_split": "test",
+        "python_executable": sys.executable,
+        "seeds": [42],
+        "benchmark_mode": False,
+        "experiments": [
+            {"name": "unet_binary", "train_config": "configs/hydride/train.unet_binary.baseline.yml"},
+            {"name": "smp_fpn_resnet101", "train_config": "configs/hydride/train.smp_fpn_resnet101_scratch.yml"},
+            {
+                "name": "smp_deeplabv3plus_resnet101",
+                "train_config": "configs/hydride/train.smp_deeplabv3plus_resnet101_scratch.yml",
+            },
+            {"name": "hf_segformer_b0", "train_config": "configs/hydride/train.hf_segformer_b0_scratch.yml"},
+        ],
+    }
+    cfg_path = tmp_path / "suite_order.yml"
+    cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, str(script), "--config", str(cfg_path), "--dry-run"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    payload = json.loads((tmp_path / "suite" / "benchmark_summary.json").read_text(encoding="utf-8"))
+    observed = [str(row.get("model")) for row in payload.get("rows", [])]
+    assert observed == [
+        "hf_segformer_b0",
+        "smp_deeplabv3plus_resnet101",
+        "smp_fpn_resnet101",
+        "unet_binary",
+    ]
+    families = [str(row.get("execution_family")) for row in payload.get("rows", [])]
+    assert families == ["transformer", "deeplab", "advanced", "unet"]
+
+
+def test_phase20_single_seed_override_uses_first_seed_only(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "hydride_benchmark_suite.py"
+
+    cfg = {
+        "dataset_dir": "outputs/prepared_dataset_hydride_v1",
+        "output_root": str(tmp_path / "suite"),
+        "eval_config": "configs/hydride/evaluate.hydride.yml",
+        "eval_split": "test",
+        "python_executable": sys.executable,
+        "seeds": [42, 43, 44],
+        "benchmark_mode": False,
+        "experiments": [
+            {"name": "unet_binary", "train_config": "configs/hydride/train.unet_binary.baseline.yml"},
+            {"name": "hf_segformer_b0", "train_config": "configs/hydride/train.hf_segformer_b0_scratch.yml"},
+        ],
+    }
+    cfg_path = tmp_path / "suite_single_seed.yml"
+    cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, str(script), "--config", str(cfg_path), "--dry-run", "--single-seed"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    payload = json.loads((tmp_path / "suite" / "benchmark_summary.json").read_text(encoding="utf-8"))
+    assert payload.get("configured_seeds") == [42, 43, 44]
+    assert payload.get("effective_seeds") == [42]
+    assert payload.get("single_seed_override") is True
+    rows = payload.get("rows", [])
+    assert len(rows) == 2
+    assert {int(row.get("seed")) for row in rows} == {42}

@@ -22,8 +22,8 @@
   - loss vs epoch
   - accuracy vs epoch
   - IoU vs epoch
-- curve gallery integrated in benchmark HTML dashboard
-- each curve image now includes a compact metric block directly below the image (final train/val snapshots + eval metrics)
+- links consolidated in per-run `inside.html` pages generated under `runs/<run_tag>/inside.html`
+- top-level `summary.html` remains concise and routes heavy visual artifacts through links (no eager image embedding)
 
 3. UNet/transformer trainer history enrichment:
 - `src/microseg/training/unet_binary.py` now records:

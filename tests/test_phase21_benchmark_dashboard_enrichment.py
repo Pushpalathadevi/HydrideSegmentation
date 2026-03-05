@@ -115,21 +115,24 @@ def test_phase21_benchmark_dashboard_includes_curves_and_training_stats(tmp_path
     assert Path(row["loss_curve_png"]).exists()
     assert Path(row["accuracy_curve_png"]).exists()
     assert Path(row["iou_curve_png"]).exists()
+    assert row["inside_html"]
+    assert Path(row["inside_html"]).exists()
     assert (output_root / "summary.json").exists()
     assert (output_root / "summary.html").exists()
 
     dashboard_text = (output_root / "benchmark_dashboard.html").read_text(encoding="utf-8")
-    assert "Training Curve Gallery" in dashboard_text
-    assert "Accuracy vs Epoch" in dashboard_text
-    assert "Tracked Sample Evolution" in dashboard_text
-    assert "Last Val Accuracy" in dashboard_text
-    assert "Last Train Loss" in dashboard_text
-    assert "Eval Mean IoU" in dashboard_text
-    assert "Train Epoch Time" in dashboard_text
-    assert "Detailed Visual Index" in dashboard_text
-    assert "metric-grid" in dashboard_text
-    assert "<details" in dashboard_text
-    assert "open image" in dashboard_text
+    assert "Hydride Benchmark Summary" in dashboard_text
+    assert "Run Order & Links" in dashboard_text
+    assert "open run page" in dashboard_text
+    assert "Extended Aggregate Metrics" in dashboard_text
+    assert "<img" not in dashboard_text
+
+    inside_text = Path(row["inside_html"]).read_text(encoding="utf-8")
+    assert "Hydride Run Detail" in inside_text
+    assert "Retrospective Plot Links" in inside_text
+    assert "Validation Panel Links" in inside_text
+    assert "open loss curve" in inside_text
+    assert "<img" not in inside_text
 
     with (output_root / "benchmark_aggregate.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

@@ -15,6 +15,7 @@ import statistics
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime, timezone
 from typing import Any
 
@@ -312,6 +313,74 @@ def _safe_name(text: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(text).strip())
     cleaned = cleaned.strip("._-")
     return cleaned or "sample"
+
+
+def _as_bool(value: object, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return bool(default)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _classify_experiment_family(exp: dict[str, Any], *, repo_root: Path) -> tuple[str, int]:
+    family_priority = {
+        "transformer": 0,
+        "deeplab": 1,
+        "advanced": 2,
+        "unet": 3,
+    }
+    explicit_family = str(exp.get("execution_family", "")).strip().lower()
+    if explicit_family in family_priority:
+        return explicit_family, int(family_priority[explicit_family])
+
+    texts: list[str] = [
+        str(exp.get("name", "")),
+        str(exp.get("train_config", "")),
+    ]
+    train_config = str(exp.get("train_config", "")).strip()
+    if train_config:
+        cfg_path = _resolve_path(train_config, base=repo_root)
+        try:
+            cfg = _load_yaml(cfg_path)
+        except Exception:
+            cfg = {}
+        if isinstance(cfg, dict):
+            texts.extend(
+                [
+                    str(cfg.get("backend", "")),
+                    str(cfg.get("backend_label", "")),
+                    str(cfg.get("model_architecture", "")),
+                ]
+            )
+
+    search = " ".join(part.lower() for part in texts if str(part).strip())
+    transformer_tokens = ("segformer", "transunet", "swin", "transformer", "upernet", "vit")
+    if any(token in search for token in transformer_tokens):
+        return "transformer", int(family_priority["transformer"])
+    if "deeplab" in search:
+        return "deeplab", int(family_priority["deeplab"])
+    if "unet_binary" in search:
+        return "unet", int(family_priority["unet"])
+    return "advanced", int(family_priority["advanced"])
+
+
+def _artifact_link(path_value: object, *, label: str) -> str:
+    path_text = str(path_value or "").strip()
+    if not path_text:
+        return "-"
+    return (
+        "<a href='"
+        + html.escape(path_text)
+        + "' target='_blank' rel='noopener noreferrer'>"
+        + html.escape(label)
+        + "</a>"
+    )
 
 
 def _extract_history_series(history: list[dict[str, Any]], key: str) -> tuple[list[int], list[float]]:
@@ -925,11 +994,126 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> Non
             w.writerow({k: row.get(k, "") for k in fields})
 
 
+def _write_run_inside_page(path: Path, row: dict[str, Any], *, summary_path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _fmt(raw: object, *, digits: int = 6) -> str:
+        value = _safe_float(raw)
+        if value is None:
+            return "n/a"
+        return f"{float(value):.{digits}f}"
+
+    tracked_samples = row.get("tracked_samples", [])
+    if not isinstance(tracked_samples, list):
+        tracked_samples = []
+    tracked_evolution = row.get("tracked_sample_evolution", [])
+    if not isinstance(tracked_evolution, list):
+        tracked_evolution = []
+
+    title = f"{row.get('model', '')} seed {row.get('seed', '')}"
+    style = (
+        "<style>"
+        "body{font-family:Arial,sans-serif;margin:16px;line-height:1.4;}"
+        "table{border-collapse:collapse;margin:10px 0;width:100%;}"
+        "th,td{border:1px solid #bbb;padding:6px 8px;vertical-align:top;}"
+        "th{background:#f4f4f4;}"
+        ".cards{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 16px;}"
+        ".card{border:1px solid #bbb;border-radius:6px;padding:8px 10px;min-width:200px;background:#fafafa;}"
+        "details{border:1px solid #bbb;border-radius:6px;background:#fff;padding:8px 10px;margin:10px 0;}"
+        "summary{cursor:pointer;font-weight:600;}"
+        ".small{font-size:12px;color:#444;}"
+        "</style>"
+    )
+
+    lines: list[str] = [
+        "<html><head><meta charset='utf-8'><title>Hydride Run Detail</title>" + style + "</head><body>",
+        "<h1>Hydride Run Detail</h1>",
+        f"<h2>{html.escape(title)}</h2>",
+        "<p>"
+        + _artifact_link(summary_path, label="back to summary")
+        + "</p>",
+        "<div class='cards'>",
+        f"<div class='card'><b>Status</b><div>{html.escape(str(row.get('status', '')))}</div></div>",
+        f"<div class='card'><b>Status Detail</b><div>{html.escape(str(row.get('status_message', '') or '-'))}</div></div>",
+        f"<div class='card'><b>Execution Family</b><div>{html.escape(str(row.get('execution_family', 'advanced')))}</div></div>",
+        f"<div class='card'><b>Mean IoU</b><div>{_fmt(row.get('mean_iou'))}</div></div>",
+        f"<div class='card'><b>Macro F1</b><div>{_fmt(row.get('macro_f1'))}</div></div>",
+        f"<div class='card'><b>Total Runtime (s)</b><div>{_fmt(row.get('total_runtime_seconds'), digits=2)}</div></div>",
+        "</div>",
+        "<h3>Core Artifacts</h3>",
+        "<table>",
+        "<tr><th>Item</th><th>Link</th></tr>",
+        f"<tr><td>Train Config</td><td>{html.escape(str(row.get('train_config', '')))}</td></tr>",
+        f"<tr><td>Train Dir</td><td>{_artifact_link(row.get('train_dir', ''), label='open train dir')}</td></tr>",
+        f"<tr><td>Model Artifact</td><td>{_artifact_link(row.get('model_artifact_path', ''), label='open model')}</td></tr>",
+        f"<tr><td>Eval Report</td><td>{_artifact_link(row.get('eval_report', ''), label='open eval report')}</td></tr>",
+        f"<tr><td>Train Log</td><td>{_artifact_link(row.get('train_log', ''), label='open train log')}</td></tr>",
+        f"<tr><td>Eval Log</td><td>{_artifact_link(row.get('eval_log', ''), label='open eval log')}</td></tr>",
+        f"<tr><td>Run Events</td><td>{_artifact_link(row.get('run_events_log', ''), label='open run events')}</td></tr>",
+        "</table>",
+        "<details open>",
+        "<summary>Retrospective Plot Links</summary>",
+        "<table>",
+        "<tr><th>Plot</th><th>Link</th></tr>",
+        f"<tr><td>Loss Curve</td><td>{_artifact_link(row.get('loss_curve_png', ''), label='open loss curve')}</td></tr>",
+        f"<tr><td>Accuracy Curve</td><td>{_artifact_link(row.get('accuracy_curve_png', ''), label='open accuracy curve')}</td></tr>",
+        f"<tr><td>IoU Curve</td><td>{_artifact_link(row.get('iou_curve_png', ''), label='open IoU curve')}</td></tr>",
+        "</table>",
+        "<p class='small'>Images are loaded only when you open their links.</p>",
+        "</details>",
+        "<details>",
+        f"<summary>Tracked Sample Evolution ({len(tracked_evolution)})</summary>",
+        "<table>",
+        "<tr><th>Sample</th><th>Points</th><th>First IoU</th><th>Last IoU</th><th>Delta</th><th>Curve</th></tr>",
+    ]
+    for item in tracked_evolution:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "<tr>"
+            f"<td>{html.escape(str(item.get('sample_name', '')))}</td>"
+            f"<td>{int(_safe_int(item.get('points')) or 0)}</td>"
+            f"<td>{_fmt(item.get('first_iou'))}</td>"
+            f"<td>{_fmt(item.get('last_iou'))}</td>"
+            f"<td>{_fmt(item.get('delta_iou'))}</td>"
+            f"<td>{_artifact_link(item.get('iou_curve_png', ''), label='open curve')}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "</details>",
+            "<details>",
+            f"<summary>Validation Panel Links ({len(tracked_samples)})</summary>",
+            "<table>",
+            "<tr><th>Sample</th><th>IoU</th><th>Panel</th><th>Prediction</th><th>Ground Truth</th></tr>",
+        ]
+    )
+    for item in tracked_samples:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "<tr>"
+            f"<td>{html.escape(str(item.get('sample_name', '')))}</td>"
+            f"<td>{_fmt(item.get('iou'))}</td>"
+            f"<td>{_artifact_link(item.get('panel_png', ''), label='open panel')}</td>"
+            f"<td>{_artifact_link(item.get('pred_png', ''), label='open prediction')}</td>"
+            f"<td>{_artifact_link(item.get('gt_png', ''), label='open ground-truth')}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "<p class='small'>Panels are opened on demand from links to avoid heavy initial page load.</p>",
+            "</details>",
+            "</body></html>",
+        ]
+    )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    total_runs = len(rows)
-    failed_runs = len([r for r in rows if str(r.get("status", "")).strip().lower() != "ok"])
-    ok_runs = total_runs - failed_runs
 
     def _pick_best(items: list[dict[str, Any]], key: str, *, higher_is_better: bool = True) -> dict[str, Any] | None:
         if not items:
@@ -939,457 +1123,190 @@ def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str,
             return None
         return sorted(filtered, key=lambda item: float(item.get(key, 0.0)), reverse=higher_is_better)[0]
 
+    def _summary_line(item: dict[str, Any] | None, metric_key: str, *, digits: int = 6) -> str:
+        if item is None:
+            return "n/a"
+        model = html.escape(str(item.get("model", "")))
+        value = _safe_float(item.get(metric_key))
+        if value is None:
+            return model
+        return f"{model} ({float(value):.{digits}f})"
+
+    def _fmt(raw: object, *, digits: int = 6) -> str:
+        value = _safe_float(raw)
+        if value is None:
+            return "n/a"
+        return f"{float(value):.{digits}f}"
+
+    rows_sorted = sorted(
+        rows,
+        key=lambda row: (
+            int(_safe_int(row.get("execution_run_index")) or 10_000_000),
+            str(row.get("model", "")),
+            int(_safe_int(row.get("seed")) or 0),
+        ),
+    )
+    model_family_map: dict[str, str] = {}
+    for row in rows_sorted:
+        model_name = str(row.get("model", "")).strip()
+        if not model_name:
+            continue
+        model_family_map.setdefault(model_name, str(row.get("execution_family", "advanced")).strip() or "advanced")
+
+    for row in rows_sorted:
+        inside_path_text = str(row.get("inside_html", "")).strip()
+        if inside_path_text:
+            inside_path = Path(inside_path_text)
+        else:
+            train_dir_text = str(row.get("train_dir", "")).strip()
+            if train_dir_text:
+                inside_path = Path(train_dir_text) / "inside.html"
+            else:
+                fallback_tag = _safe_name(f"{row.get('model', '')}_seed{row.get('seed', '')}")
+                inside_path = path.parent / "runs" / fallback_tag / "inside.html"
+            row["inside_html"] = str(inside_path)
+        _write_run_inside_page(inside_path, row, summary_path=path)
+
+    total_runs = len(rows_sorted)
+    failed_runs = len([r for r in rows_sorted if str(r.get("status", "")).strip().lower() != "ok"])
+    ok_runs = total_runs - failed_runs
     best_quality = _pick_best(agg, "quality_score", higher_is_better=True)
     best_efficiency = _pick_best(agg, "efficiency_score", higher_is_better=True)
     fastest = _pick_best(agg, "mean_total_runtime_seconds", higher_is_better=False)
 
-    def _summary_line(item: dict[str, Any] | None, metric_key: str) -> str:
-        if item is None:
-            return "n/a"
-        model = html.escape(str(item.get("model", "")))
-        value = float(item.get(metric_key, 0.0))
-        return f"{model} ({value:.6f})"
-
-    tracked_sample_metric_order = [
-        "pixel_accuracy",
-        "macro_f1",
-        "mean_iou",
-        "macro_precision",
-        "macro_recall",
-        "weighted_f1",
-        "balanced_accuracy",
-        "cohen_kappa",
-        "frequency_weighted_iou",
-        "foreground_precision",
-        "foreground_recall",
-        "foreground_specificity",
-        "foreground_iou",
-        "foreground_dice",
-        "false_positive_rate",
-        "false_negative_rate",
-        "matthews_corrcoef",
-        "mask_area_fraction_abs_error",
-        "hydride_count_abs_error",
-        "hydride_size_wasserstein",
-        "hydride_orientation_wasserstein",
-    ]
-
-    def _tracked_sample_metrics_html(sample: dict[str, Any]) -> str:
-        items: list[str] = []
-        for key in tracked_sample_metric_order:
-            value = _safe_float(sample.get(key))
-            if value is None:
-                continue
-            items.append(
-                "<div class='metric-item'><b>"
-                + html.escape(key.replace("_", " "))
-                + "</b>: "
-                + f"{float(value):.6f}"
-                + "</div>"
-            )
-        if not items:
-            return ""
-        return "<div class='metric-grid'>" + "".join(items) + "</div>"
-
-    def _metrics_block_html(items: list[tuple[str, object]]) -> str:
-        rows_html: list[str] = []
-        for label, raw_value in items:
-            value = _safe_float(raw_value)
-            value_text = f"{float(value):.6f}" if value is not None else "n/a"
-            rows_html.append(
-                "<div class='metric-item'><b>"
-                + html.escape(str(label))
-                + "</b>: "
-                + value_text
-                + "</div>"
-            )
-        if not rows_html:
-            return ""
-        return "<div class='metric-grid'>" + "".join(rows_html) + "</div>"
-
-    def _anchor_for_run(row: dict[str, Any]) -> str:
-        return _safe_name(f"{row.get('model', '')}_seed_{row.get('seed', '')}")
-
-    def _artifact_link(path_value: object, *, label: str) -> str:
-        path_text = str(path_value or "").strip()
-        if not path_text:
-            return "-"
-        return (
-            "<a href='"
-            + html.escape(path_text)
-            + "' target='_blank' rel='noopener noreferrer'>"
-            + html.escape(label)
-            + "</a>"
-        )
+    agg_sorted = sorted(
+        agg,
+        key=lambda item: (
+            int(_safe_int(item.get("rank_quality")) or 10_000_000),
+            str(item.get("model", "")),
+        ),
+    )
 
     style = (
         "<style>"
-        "body{font-family:Arial,sans-serif;margin:16px;line-height:1.35;}"
-        ".cards{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0;}"
-        ".card{border:1px solid #bbb;border-radius:8px;padding:10px 12px;min-width:240px;background:#fafafa;}"
+        "body{font-family:Arial,sans-serif;margin:16px;line-height:1.4;}"
+        ".cards{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;}"
+        ".card{border:1px solid #bbb;border-radius:8px;padding:8px 10px;min-width:230px;background:#fafafa;}"
         "table{border-collapse:collapse;margin:10px 0;width:100%;}"
         "th,td{border:1px solid #bbb;padding:6px 8px;vertical-align:top;}"
-        "th{background:#f0f0f0;position:sticky;top:0;}"
-        ".mono{font-family:Menlo,Consolas,monospace;font-size:12px;}"
+        "th{background:#f0f0f0;}"
+        ".small{font-size:12px;color:#444;}"
         "details{border:1px solid #bbb;border-radius:6px;background:#fff;padding:8px 10px;margin:10px 0;}"
         "summary{cursor:pointer;font-weight:600;}"
-        ".metric-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:6px 14px;margin-top:8px;}"
-        ".metric-item{font-size:12px;line-height:1.3;}"
-        ".detail-note{font-size:12px;color:#444;}"
         "</style>"
     )
+
     lines: list[str] = [
-        "<html><head><meta charset='utf-8'><title>Hydride Benchmark Dashboard</title>"
-        + style
-        + "</head><body>",
-        "<h1>Hydride Benchmark Dashboard</h1>",
+        "<html><head><meta charset='utf-8'><title>Hydride Benchmark Summary</title>" + style + "</head><body>",
+        "<h1>Hydride Benchmark Summary</h1>",
+        "<p class='small'>Concise first view: open per-run inside pages for plots and sample panels.</p>",
         "<div class='cards'>",
         f"<div class='card'><b>Total Runs</b><div>{total_runs}</div></div>",
         f"<div class='card'><b>Successful Runs</b><div>{ok_runs}</div></div>",
         f"<div class='card'><b>Failed Runs</b><div>{failed_runs}</div></div>",
         f"<div class='card'><b>Top Quality</b><div>{_summary_line(best_quality, 'quality_score')}</div></div>",
         f"<div class='card'><b>Top Efficiency</b><div>{_summary_line(best_efficiency, 'efficiency_score')}</div></div>",
-        f"<div class='card'><b>Fastest Model (mean total runtime)</b><div>{_summary_line(fastest, 'mean_total_runtime_seconds')}</div></div>",
+        f"<div class='card'><b>Fastest (mean total runtime)</b><div>{_summary_line(fastest, 'mean_total_runtime_seconds', digits=2)}</div></div>",
         "</div>",
         "<h2>Model Summary</h2>",
-        "<table border='1' cellpadding='6' cellspacing='0'>",
-        "<tr><th>Model</th><th>Rank Quality</th><th>Rank Efficiency</th><th>Rank Runtime</th><th>Rank Robustness</th><th>Runs</th><th>OK</th><th>Failed</th><th>Quality Score</th><th>Efficiency Score</th><th>Pixel Acc (mean±std)</th><th>Macro F1 (mean±std)</th><th>Mean IoU (mean±std)</th><th>Weighted F1 (mean±std)</th><th>Balanced Acc (mean±std)</th><th>Cohen Kappa (mean±std)</th><th>Foreground Dice (mean±std)</th><th>Foreground Specificity (mean)</th><th>FPR (mean)</th><th>FNR (mean)</th><th>MCC (mean)</th><th>Tracked Val Sample IoU (mean)</th><th>Tracked IoU Span (mean)</th><th>Overfit Gap IoU (train-val, mean)</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Train Epoch Time (s, mean±std)</th><th>Validation Epoch Time (s, mean±std)</th><th>Epoch Runtime (s, mean±std)</th><th>Params (mean)</th><th>Trainable Params (mean)</th><th>Model Size MB (mean)</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (mean est.)</th><th>GPU Peak MB (mean)</th></tr>",
+        "<table>",
+        "<tr><th>Model</th><th>Family</th><th>Rank Quality</th><th>Rank Efficiency</th><th>Runs</th><th>OK</th><th>Failed</th><th>Mean IoU</th><th>Macro F1</th><th>Quality Score</th><th>Mean Total Runtime (s)</th></tr>",
     ]
-    for item in agg:
+    for item in agg_sorted:
+        model_name = str(item.get("model", ""))
         lines.append(
             "<tr>"
-            f"<td>{html.escape(str(item['model']))}</td>"
-            f"<td>{int(item.get('rank_quality', 0))}</td>"
-            f"<td>{int(item.get('rank_efficiency', 0))}</td>"
-            f"<td>{int(item.get('rank_runtime', 0))}</td>"
-            f"<td>{int(item.get('rank_robustness', 0))}</td>"
-            f"<td>{int(item.get('runs', 0))}</td>"
-            f"<td>{int(item.get('ok_runs', 0))}</td>"
-            f"<td>{int(item.get('failed_runs', 0))}</td>"
-            f"<td>{float(item.get('quality_score', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('efficiency_score', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_pixel_accuracy', 0.0)):.6f} ± {float(item.get('std_pixel_accuracy', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_macro_f1', 0.0)):.6f} ± {float(item.get('std_macro_f1', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_mean_iou', 0.0)):.6f} ± {float(item.get('std_mean_iou', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_weighted_f1', 0.0)):.6f} ± {float(item.get('std_weighted_f1', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_balanced_accuracy', 0.0)):.6f} ± {float(item.get('std_balanced_accuracy', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_cohen_kappa', 0.0)):.6f} ± {float(item.get('std_cohen_kappa', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_foreground_dice', 0.0)):.6f} ± {float(item.get('std_foreground_dice', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_foreground_specificity', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_false_positive_rate', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_false_negative_rate', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_matthews_corrcoef', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_tracked_samples_iou', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_tracked_iou_span', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_overfit_iou_gap', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_eval_runtime_seconds', 0.0)):.2f}</td>"
-            f"<td>{float(item.get('mean_training_runtime_seconds', 0.0)):.2f}</td>"
-            f"<td>{float(item.get('mean_total_runtime_seconds', 0.0)):.2f}</td>"
-            f"<td>{float(item.get('mean_train_epoch_seconds', 0.0)):.4f} ± {float(item.get('std_train_epoch_seconds', 0.0)):.4f}</td>"
-            f"<td>{float(item.get('mean_validation_epoch_seconds', 0.0)):.4f} ± {float(item.get('std_validation_epoch_seconds', 0.0)):.4f}</td>"
-            f"<td>{float(item.get('mean_epoch_runtime_seconds', 0.0)):.4f} ± {float(item.get('std_epoch_runtime_seconds', 0.0)):.4f}</td>"
-            f"<td>{float(item.get('mean_model_parameter_count', 0.0)):.0f}</td>"
-            f"<td>{float(item.get('mean_model_trainable_parameter_count', 0.0)):.0f}</td>"
-            f"<td>{float(item.get('mean_model_artifact_size_mb', 0.0)):.2f}</td>"
-            f"<td>{float(item.get('mean_model_weight_mean', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_model_weight_std', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_model_weight_min', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_model_weight_max', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_compute_estimated_total_tflops', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_runtime_gpu_peak_memory_allocated_mb', 0.0)):.2f}</td>"
+            f"<td>{html.escape(model_name)}</td>"
+            f"<td>{html.escape(model_family_map.get(model_name, 'advanced'))}</td>"
+            f"<td>{int(_safe_int(item.get('rank_quality')) or 0)}</td>"
+            f"<td>{int(_safe_int(item.get('rank_efficiency')) or 0)}</td>"
+            f"<td>{int(_safe_int(item.get('runs')) or 0)}</td>"
+            f"<td>{int(_safe_int(item.get('ok_runs')) or 0)}</td>"
+            f"<td>{int(_safe_int(item.get('failed_runs')) or 0)}</td>"
+            f"<td>{_fmt(item.get('mean_mean_iou'))}</td>"
+            f"<td>{_fmt(item.get('mean_macro_f1'))}</td>"
+            f"<td>{_fmt(item.get('quality_score'))}</td>"
+            f"<td>{_fmt(item.get('mean_total_runtime_seconds'), digits=2)}</td>"
             "</tr>"
         )
     lines.extend(
         [
             "</table>",
-            "<h2>Scientific Error Summary (Lower Is Better)</h2>",
-            "<table border='1' cellpadding='6' cellspacing='0'>",
-            "<tr><th>Model</th><th>Area Fraction Abs Error</th><th>Hydride Count Abs Error</th><th>Size Wasserstein</th><th>Orientation Wasserstein</th><th>Best Tracked Delta IoU (mean)</th><th>Worst Tracked Delta IoU (mean)</th></tr>",
+            "<h2>Run Order & Links</h2>",
+            "<table>",
+            "<tr><th>Order</th><th>Model</th><th>Seed</th><th>Family</th><th>Status</th><th>Mean IoU</th><th>Total Runtime (s)</th><th>Inside Page</th><th>Eval Report</th><th>Train Log</th><th>Eval Log</th></tr>",
         ]
     )
-    for item in agg:
+    for row in rows_sorted:
+        lines.append(
+            "<tr>"
+            f"<td>{int(_safe_int(row.get('execution_run_index')) or 0)}</td>"
+            f"<td>{html.escape(str(row.get('model', '')))}</td>"
+            f"<td>{html.escape(str(row.get('seed', '')))}</td>"
+            f"<td>{html.escape(str(row.get('execution_family', 'advanced')))}</td>"
+            f"<td>{html.escape(str(row.get('status', '')))}</td>"
+            f"<td>{_fmt(row.get('mean_iou'))}</td>"
+            f"<td>{_fmt(row.get('total_runtime_seconds'), digits=2)}</td>"
+            f"<td>{_artifact_link(row.get('inside_html', ''), label='open run page')}</td>"
+            f"<td>{_artifact_link(row.get('eval_report', ''), label='open report')}</td>"
+            f"<td>{_artifact_link(row.get('train_log', ''), label='open log')}</td>"
+            f"<td>{_artifact_link(row.get('eval_log', ''), label='open log')}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "<details>",
+            "<summary>Extended Aggregate Metrics</summary>",
+            "<table>",
+            "<tr><th>Model</th><th>Cohen Kappa (mean)</th><th>Foreground Dice (mean)</th><th>Hydride Count Abs Error (mean)</th><th>Params (mean)</th><th>Model Size MB (mean)</th><th>GPU Peak MB (mean)</th></tr>",
+        ]
+    )
+    for item in agg_sorted:
         lines.append(
             "<tr>"
             f"<td>{html.escape(str(item.get('model', '')))}</td>"
-            f"<td>{float(item.get('mean_mask_area_fraction_abs_error', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_hydride_count_abs_error', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_hydride_size_wasserstein', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_hydride_orientation_wasserstein', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_best_tracked_sample_delta_iou', 0.0)):.6f}</td>"
-            f"<td>{float(item.get('mean_worst_tracked_sample_delta_iou', 0.0)):.6f}</td>"
+            f"<td>{_fmt(item.get('mean_cohen_kappa'))}</td>"
+            f"<td>{_fmt(item.get('mean_foreground_dice'))}</td>"
+            f"<td>{_fmt(item.get('mean_hydride_count_abs_error'))}</td>"
+            f"<td>{_fmt(item.get('mean_model_parameter_count'), digits=0)}</td>"
+            f"<td>{_fmt(item.get('mean_model_artifact_size_mb'), digits=2)}</td>"
+            f"<td>{_fmt(item.get('mean_runtime_gpu_peak_memory_allocated_mb'), digits=2)}</td>"
             "</tr>"
         )
     lines.extend(
         [
             "</table>",
-            "<h2>Run-Level Results</h2>",
-            "<table border='1' cellpadding='6' cellspacing='0'>",
-            "<tr><th>Model</th><th>Seed</th><th>Status</th><th>Status Detail</th><th>Backend</th><th>Architecture</th><th>Init</th><th>Runtime Device</th><th>GPU</th><th>Pixel Acc</th><th>Macro F1</th><th>Mean IoU</th><th>Weighted F1</th><th>Balanced Acc</th><th>Cohen Kappa</th><th>Foreground Dice</th><th>Foreground Precision</th><th>Foreground Recall</th><th>Foreground Specificity</th><th>FPR</th><th>FNR</th><th>MCC</th><th>Area Abs Err</th><th>Count Abs Err</th><th>Size W</th><th>Orientation W</th><th>Tracked Val Sample IoU</th><th>Tracked Sample Count</th><th>Tracked Evol. Curves</th><th>Eval Runtime (s)</th><th>Train Runtime (s)</th><th>Total Runtime (s)</th><th>Train Epoch Time (s)</th><th>Validation Epoch Time (s)</th><th>Epoch Runtime (s)</th><th>Params</th><th>Trainable Params</th><th>Model Size MB</th><th>Weight Mean</th><th>Weight Std</th><th>Weight Min</th><th>Weight Max</th><th>Total TFLOPs (est.)</th><th>GPU Peak MB</th><th>Hyperparameters</th><th>Train Config</th><th>Train Dir</th><th>Eval Report</th><th>Loss Curve</th><th>Acc Curve</th><th>IoU Curve</th></tr>",
+            "<p class='small'>Images are not embedded in this summary; open each run page for retrospective links.</p>",
+            "</details>",
+            "</body></html>",
         ]
     )
-    for row in rows:
-        hparams = (
-            f"ep={row.get('resolved_epochs','')}, "
-            f"bs={row.get('resolved_batch_size','')}, "
-            f"lr={row.get('resolved_learning_rate','')}, "
-            f"wd={row.get('resolved_weight_decay','')}"
-        )
-        lines.append(
-            "<tr>"
-            f"<td>{html.escape(str(row.get('model','')))}</td>"
-            f"<td>{html.escape(str(row.get('seed','')))}</td>"
-            f"<td>{html.escape(str(row.get('status','')))}</td>"
-            f"<td>{html.escape(str(row.get('status_message','')))}</td>"
-            f"<td>{html.escape(str(row.get('resolved_backend') or row.get('backend','')))}</td>"
-            f"<td>{html.escape(str(row.get('resolved_model_architecture','')))}</td>"
-            f"<td>{html.escape(str(row.get('model_initialization','')))}</td>"
-            f"<td>{html.escape(str(row.get('runtime_device','')))}</td>"
-            f"<td>{html.escape(str(row.get('runtime_gpu_name','')))}</td>"
-            f"<td>{_safe_float(row.get('pixel_accuracy')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('macro_f1')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('mean_iou')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('weighted_f1')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('balanced_accuracy')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('cohen_kappa')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('foreground_dice')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('foreground_precision')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('foreground_recall')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('foreground_specificity')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('false_positive_rate')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('false_negative_rate')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('matthews_corrcoef')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('mask_area_fraction_abs_error')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('hydride_count_abs_error')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('hydride_size_wasserstein')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('hydride_orientation_wasserstein')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('tracked_samples_mean_iou')) or 0.0:.6f}</td>"
-            f"<td>{_safe_int(row.get('tracked_samples_count')) or 0}</td>"
-            f"<td>{_safe_int(row.get('tracked_sample_evolution_count')) or 0}</td>"
-            f"<td>{_safe_float(row.get('runtime_seconds')) or 0.0:.2f}</td>"
-            f"<td>{_safe_float(row.get('training_runtime_seconds')) or 0.0:.2f}</td>"
-            f"<td>{_safe_float(row.get('total_runtime_seconds')) or 0.0:.2f}</td>"
-            f"<td>{_safe_float(row.get('mean_train_epoch_seconds')) or 0.0:.4f}</td>"
-            f"<td>{_safe_float(row.get('mean_validation_epoch_seconds')) or 0.0:.4f}</td>"
-            f"<td>{_safe_float(row.get('mean_epoch_runtime_seconds')) or 0.0:.4f}</td>"
-            f"<td>{_safe_int(row.get('model_parameter_count')) or 0}</td>"
-            f"<td>{_safe_int(row.get('model_trainable_parameter_count')) or 0}</td>"
-            f"<td>{_safe_float(row.get('model_artifact_size_mb')) or 0.0:.2f}</td>"
-            f"<td>{_safe_float(row.get('model_weight_mean')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('model_weight_std')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('model_weight_min')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('model_weight_max')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('compute_estimated_total_tflops')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('runtime_gpu_peak_memory_allocated_mb')) or 0.0:.2f}</td>"
-            f"<td>{html.escape(hparams)}</td>"
-            f"<td>{html.escape(str(row.get('train_config','')))}</td>"
-            f"<td>{html.escape(str(row.get('train_dir','')))}</td>"
-            f"<td>{_artifact_link(row.get('eval_report', ''), label='open report')}</td>"
-            f"<td>{_artifact_link(row.get('loss_curve_png', ''), label='open loss')}</td>"
-            f"<td>{_artifact_link(row.get('accuracy_curve_png', ''), label='open accuracy')}</td>"
-            f"<td>{_artifact_link(row.get('iou_curve_png', ''), label='open IoU')}</td>"
-            "</tr>"
-        )
-    lines.extend(
-        [
-            "</table>",
-            "<h2>Detailed Visual Index</h2>",
-            "<p class='detail-note'>Major outcomes are summarized above. Use links below to jump to run-level image metrics.</p>",
-            "<table border='1' cellpadding='6' cellspacing='0'>",
-            "<tr><th>Model</th><th>Seed</th><th>Mean IoU</th><th>Macro F1</th><th>Tracked Mean IoU</th><th>Total Runtime (s)</th><th>Details</th></tr>",
-        ]
-    )
-    for row in rows:
-        anchor = _anchor_for_run(row)
-        lines.append(
-            "<tr>"
-            f"<td>{html.escape(str(row.get('model', '')))}</td>"
-            f"<td>{html.escape(str(row.get('seed', '')))}</td>"
-            f"<td>{_safe_float(row.get('mean_iou')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('macro_f1')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('tracked_samples_mean_iou')) or 0.0:.6f}</td>"
-            f"<td>{_safe_float(row.get('total_runtime_seconds')) or 0.0:.2f}</td>"
-            "<td>"
-            f"<a href='#curves-{anchor}'>curves</a> | "
-            f"<a href='#tracked-{anchor}'>tracked-evolution</a> | "
-            f"<a href='#samples-{anchor}'>validation-panels</a>"
-            "</td>"
-            "</tr>"
-        )
-    lines.extend(
-        [
-            "</table>",
-            "<h2>Training Curve Gallery</h2>",
-            "<p class='detail-note'>Click a run to expand curve images. Each image can also be opened directly in a new tab.</p>",
-        ]
-    )
-    for row in rows:
-        title = f"{row.get('model', '')} seed {row.get('seed', '')}"
-        loss_curve = str(row.get("loss_curve_png", ""))
-        acc_curve = str(row.get("accuracy_curve_png", ""))
-        iou_curve = str(row.get("iou_curve_png", ""))
-        if not loss_curve and not acc_curve and not iou_curve:
-            continue
-        anchor = _anchor_for_run(row)
-        lines.append(
-            f"<details id='curves-{anchor}'>"
-            f"<summary>{html.escape(title)} | Eval Mean IoU {_safe_float(row.get('mean_iou')) or 0.0:.6f}</summary>"
-        )
-        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;'>")
-        if loss_curve:
-            lines.append(
-                "<div><div><b>Loss vs Epoch</b></div>"
-                f"<div class='detail-note'>{_artifact_link(loss_curve, label='open image')}</div>"
-                "<details><summary>Show image</summary>"
-                f"<img src='{html.escape(loss_curve)}' style='max-width:520px;border:1px solid #333;'></details>"
-                + _metrics_block_html(
-                    [
-                        ("Last Train Loss", row.get("last_train_loss")),
-                        ("Last Val Loss", row.get("last_val_loss")),
-                        ("Best Val Loss", row.get("best_val_loss_train")),
-                        ("Mean Train Epoch Seconds", row.get("mean_train_epoch_seconds")),
-                        ("Mean Validation Epoch Seconds", row.get("mean_validation_epoch_seconds")),
-                        ("Mean Epoch Runtime Seconds", row.get("mean_epoch_runtime_seconds")),
-                    ]
-                )
-                + "</div>"
-            )
-        if acc_curve:
-            lines.append(
-                "<div><div><b>Accuracy vs Epoch</b></div>"
-                f"<div class='detail-note'>{_artifact_link(acc_curve, label='open image')}</div>"
-                "<details><summary>Show image</summary>"
-                f"<img src='{html.escape(acc_curve)}' style='max-width:520px;border:1px solid #333;'></details>"
-                + _metrics_block_html(
-                    [
-                        ("Last Train Accuracy", row.get("last_train_accuracy")),
-                        ("Last Val Accuracy", row.get("last_val_accuracy")),
-                        ("Eval Pixel Accuracy", row.get("pixel_accuracy")),
-                    ]
-                )
-                + "</div>"
-            )
-        if iou_curve:
-            lines.append(
-                "<div><div><b>IoU vs Epoch</b></div>"
-                f"<div class='detail-note'>{_artifact_link(iou_curve, label='open image')}</div>"
-                "<details><summary>Show image</summary>"
-                f"<img src='{html.escape(iou_curve)}' style='max-width:520px;border:1px solid #333;'></details>"
-                + _metrics_block_html(
-                    [
-                        ("Last Train IoU", row.get("last_train_iou")),
-                        ("Last Val IoU", row.get("last_val_iou")),
-                        ("Eval Mean IoU", row.get("mean_iou")),
-                        ("Tracked Samples Mean IoU", row.get("tracked_samples_mean_iou")),
-                    ]
-                )
-                + "</div>"
-            )
-        lines.append("</div></details>")
-    lines.extend(
-        [
-            "<h2>Tracked Sample Evolution (IoU vs Epoch)</h2>",
-            "<p class='detail-note'>Each run section below can be expanded for a summary table and optional curve previews.</p>",
-        ]
-    )
-    for row in rows:
-        tracked_evolution = row.get("tracked_sample_evolution")
-        if not isinstance(tracked_evolution, list) or not tracked_evolution:
-            continue
-        title = f"{row.get('model', '')} seed {row.get('seed', '')}"
-        anchor = _anchor_for_run(row)
-        lines.append(
-            f"<details id='tracked-{anchor}'>"
-            f"<summary>{html.escape(title)} ({len(tracked_evolution)} tracked samples)</summary>"
-        )
-        lines.append(
-            "<table border='1' cellpadding='6' cellspacing='0'>"
-            "<tr><th>Sample</th><th>Points</th><th>First IoU</th><th>Last IoU</th><th>Delta IoU</th><th>Best IoU</th><th>Worst IoU</th><th>Curve</th></tr>"
-        )
-        for item in tracked_evolution:
-            if not isinstance(item, dict):
-                continue
-            curve_png = str(item.get("iou_curve_png", "")).strip()
-            curve_cell = _artifact_link(curve_png, label="open curve") if curve_png else "-"
-            lines.append(
-                "<tr>"
-                f"<td>{html.escape(str(item.get('sample_name', '')))}</td>"
-                f"<td>{int(_safe_int(item.get('points')) or 0)}</td>"
-                f"<td>{_safe_float(item.get('first_iou')) or 0.0:.6f}</td>"
-                f"<td>{_safe_float(item.get('last_iou')) or 0.0:.6f}</td>"
-                f"<td>{_safe_float(item.get('delta_iou')) or 0.0:.6f}</td>"
-                f"<td>{_safe_float(item.get('best_iou')) or 0.0:.6f}</td>"
-                f"<td>{_safe_float(item.get('worst_iou')) or 0.0:.6f}</td>"
-                f"<td class='mono'>{curve_cell}</td>"
-                "</tr>"
-            )
-        lines.append("</table>")
-        lines.append("<details><summary>Show curve previews</summary>")
-        lines.append("<div style='display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;'>")
-        for item in tracked_evolution:
-            if not isinstance(item, dict):
-                continue
-            curve_png = str(item.get("iou_curve_png", "")).strip()
-            if not curve_png:
-                continue
-            lines.append(
-                "<div><div><b>"
-                + html.escape(str(item.get("sample_name", "")))
-                + "</b></div>"
-                + f"<img src='{html.escape(curve_png)}' style='max-width:520px;border:1px solid #333;'></div>"
-            )
-        lines.append("</div></details></details>")
-
-    lines.extend(
-        [
-            "<h2>Validation Sample Panels</h2>",
-            "<p class='detail-note'>Panels are collapsed by default. Expand a sample to show image metrics and panel preview.</p>",
-        ]
-    )
-    for row in rows:
-        tracked_samples = row.get("tracked_samples")
-        if not isinstance(tracked_samples, list) or not tracked_samples:
-            continue
-        title = f"{row.get('model', '')} seed {row.get('seed', '')}"
-        anchor = _anchor_for_run(row)
-        lines.append(
-            f"<details id='samples-{anchor}'>"
-            f"<summary>{html.escape(title)} ({len(tracked_samples)} samples)</summary>"
-        )
-        for sample in tracked_samples:
-            if not isinstance(sample, dict):
-                continue
-            panel_png = str(sample.get("panel_png", "")).strip()
-            sample_name = str(sample.get("sample_name", "")).strip()
-            sample_iou = _safe_float(sample.get("iou"))
-            if not panel_png:
-                continue
-            iou_text = f" (IoU: {float(sample_iou):.6f})" if sample_iou is not None else ""
-            lines.append(
-                "<details>"
-                "<summary><b>"
-                + html.escape(sample_name or "tracked_sample")
-                + "</b>"
-                + iou_text
-                + "</summary>"
-                + f"<div class='detail-note'>{_artifact_link(panel_png, label='open image')}</div>"
-                + f"<img src='{html.escape(panel_png)}' style='max-width:520px;border:1px solid #333;'>"
-                + _tracked_sample_metrics_html(sample)
-                + "</details>"
-            )
-        lines.append("</details>")
-    lines.extend(["</body></html>"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, skip_eval: bool) -> int:
+def run_suite(
+    cfg_path: Path,
+    *,
+    dry_run: bool,
+    strict: bool,
+    skip_train: bool,
+    skip_eval: bool,
+    single_seed: bool,
+) -> int:
     cfg = _load_yaml(cfg_path)
     dataset_dir = str(cfg.get("dataset_dir", "")).strip()
     output_root = Path(str(cfg.get("output_root", "outputs/benchmarks/suite_runs")).strip())
     eval_config = str(cfg.get("eval_config", "configs/hydride/evaluate.hydride.yml")).strip()
     eval_split = str(cfg.get("eval_split", "test")).strip()
     python_exe = str(cfg.get("python_executable", sys.executable)).strip() or sys.executable
-    seeds = [int(v) for v in _ensure_list(cfg.get("seeds", [42]))]
+    configured_seeds = [int(v) for v in _ensure_list(cfg.get("seeds", [42]))]
+    if not configured_seeds:
+        raise ValueError("suite config must include at least one seed")
+    single_seed_requested = bool(single_seed) or _as_bool(cfg.get("single_seed_only"), default=False)
+    seeds = [configured_seeds[0]] if single_seed_requested else list(configured_seeds)
     experiments = _ensure_list(cfg.get("experiments", []))
+    continue_on_failure = _as_bool(cfg.get("continue_on_failure"), default=True)
     benchmark_mode = bool(cfg.get("benchmark_mode", True))
     expected_manifest_sha = str(cfg.get("expected_dataset_manifest_sha256", "")).strip().lower()
     expected_split_id_file = str(cfg.get("expected_split_id_file", "")).strip()
@@ -1400,6 +1317,30 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
 
     if not dataset_dir:
         raise ValueError("dataset_dir is required in suite config")
+
+    repo_root = Path(__file__).resolve().parents[1]
+
+    prepared_experiments: list[dict[str, Any]] = []
+    for src_idx, exp in enumerate(experiments):
+        if not isinstance(exp, dict):
+            continue
+        exp_copy = dict(exp)
+        family, priority = _classify_experiment_family(exp_copy, repo_root=repo_root)
+        exp_copy["_execution_family"] = family
+        exp_copy["_execution_priority"] = int(priority)
+        exp_copy["_source_index"] = int(src_idx)
+        prepared_experiments.append(exp_copy)
+
+    def _int_or(value: object, default: int) -> int:
+        parsed = _safe_int(value)
+        return int(parsed) if parsed is not None else int(default)
+
+    prepared_experiments.sort(
+        key=lambda exp: (
+            _int_or(exp.get("_execution_priority"), 999),
+            _int_or(exp.get("_source_index"), 999_999),
+        )
+    )
 
     dataset_manifest = Path(dataset_dir) / "dataset_manifest.json"
 
@@ -1424,10 +1365,9 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             if sorted(expected_ids) != observed_ids:
                 raise RuntimeError("dataset split IDs do not match expected_split_id_file in benchmark_mode")
 
-    if not experiments:
+    if not prepared_experiments:
         raise ValueError("suite config must include experiments")
 
-    repo_root = Path(__file__).resolve().parents[1]
     cli = repo_root / "scripts" / "microseg_cli.py"
     output_root.mkdir(parents=True, exist_ok=True)
     suite_started_monotonic = time.monotonic()
@@ -1451,12 +1391,24 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
         strict=bool(strict),
         skip_train=bool(skip_train),
         skip_eval=bool(skip_eval),
+        continue_on_failure=bool(continue_on_failure),
+        single_seed_override=bool(single_seed_requested),
         eval_config=eval_config,
         eval_split=eval_split,
         python_executable=python_exe,
         benchmark_mode=bool(benchmark_mode),
-        experiment_count=len([exp for exp in experiments if isinstance(exp, dict)]),
+        experiment_count=len(prepared_experiments),
+        configured_seeds=list(configured_seeds),
         seeds=list(seeds),
+        experiment_execution_order=[
+            {
+                "name": str(exp.get("name", "")).strip(),
+                "family": str(exp.get("_execution_family", "advanced")),
+                "source_index": int(_safe_int(exp.get("_source_index")) or 0),
+                "execution_priority": int(_safe_int(exp.get("_execution_priority")) or 0),
+            }
+            for exp in prepared_experiments
+        ],
         watchdog={
             "idle_timeout_seconds": idle_timeout_seconds,
             "wall_timeout_seconds": wall_timeout_seconds,
@@ -1472,29 +1424,42 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
         f"wall_timeout={wall_timeout_seconds if wall_timeout_seconds is not None else 'off'}s "
         f"terminate_grace={terminate_grace_seconds:.1f}s poll_interval={poll_interval_seconds:.1f}s"
     )
+    print(
+        "[suite] run selection: "
+        f"configured_seeds={configured_seeds} effective_seeds={seeds} "
+        f"single_seed_override={single_seed_requested} continue_on_failure={continue_on_failure}"
+    )
 
     rows: list[dict[str, Any]] = []
     failures = 0
     preflight_cache: dict[tuple[str, bool], Any] = {}
+    stop_requested = False
+    run_counter = 0
 
-    for exp in experiments:
-        if not isinstance(exp, dict):
-            continue
+    for exp in prepared_experiments:
         model_name = str(exp.get("name", "")).strip() or "unnamed_model"
         train_config = str(exp.get("train_config", "")).strip()
         if not train_config:
             raise ValueError(f"experiment '{model_name}' missing train_config")
         train_overrides = _parse_overrides(exp.get("train_overrides"))
         eval_overrides = _parse_overrides(exp.get("eval_overrides"))
+        execution_family = str(exp.get("_execution_family", "advanced"))
+        execution_priority = int(_safe_int(exp.get("_execution_priority")) or 999)
+        source_index = int(_safe_int(exp.get("_source_index")) or 0)
         _emit_suite_event(
             "experiment_start",
             model=model_name,
             train_config=train_config,
             train_overrides=train_overrides,
             eval_overrides=eval_overrides,
+            execution_family=execution_family,
+            execution_priority=execution_priority,
+            source_index=source_index,
         )
 
         for seed in seeds:
+            run_counter += 1
+            run_index = int(run_counter)
             run_started_utc = _utc_now()
             run_started_monotonic = time.monotonic()
             run_tag = f"{model_name}_seed{seed}"
@@ -1512,6 +1477,8 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                     "run_tag": run_tag,
                     "model": model_name,
                     "seed": int(seed),
+                    "execution_run_index": run_index,
+                    "execution_family": execution_family,
                     **payload,
                 }
                 _append_jsonl(run_events_log, event_payload)
@@ -1533,6 +1500,13 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             preflight_duration_seconds = 0.0
             train_cmd_duration_seconds: float | None = None
             eval_cmd_duration_seconds: float | None = None
+            failure_recorded = False
+
+            def mark_failure() -> None:
+                nonlocal failures, failure_recorded
+                if not failure_recorded:
+                    failures += 1
+                    failure_recorded = True
             if not skip_train:
                 preflight_started = time.monotonic()
                 preflight_ok, preflight = preflight_pretrained_train_config(
@@ -1551,7 +1525,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 if not preflight_ok:
                     status = "pretrained_missing"
                     status_message = str(preflight.get("reason", "pretrained artifacts are unavailable"))
-                    failures += 1
+                    mark_failure()
                     _write_skip_log(
                         log_path=train_log,
                         run_tag=run_tag,
@@ -1604,7 +1578,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                             )
                         else:
                             status_message = f"training command failed with exit code {rc}"
-                        failures += 1
+                        mark_failure()
             if status == "ok" and not skip_eval:
                 try:
                     model_path = _resolve_model_path(train_dir)
@@ -1615,7 +1589,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                         status = "model_missing"
                         status_message = "training did not produce a model checkpoint"
                         _emit_run_event("model_missing", train_dir=str(train_dir))
-                        failures += 1
+                        mark_failure()
                 if status == "ok":
                     eval_cmd = [
                         python_exe,
@@ -1663,13 +1637,42 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                             )
                         else:
                             status_message = f"evaluation command failed with exit code {rc}"
-                        failures += 1
+                        mark_failure()
+
+            if status != "ok" and not skip_eval and not eval_log.exists():
+                _write_skip_log(
+                    log_path=eval_log,
+                    run_tag=run_tag,
+                    reason=f"evaluation skipped due to status={status}: {status_message or 'no details'}",
+                    actions=[],
+                    details={"status": status},
+                )
 
             eval_payload = _read_json(eval_report)
             metrics = eval_payload.get("metrics", {}) if isinstance(eval_payload, dict) else {}
             scientific_metrics = eval_payload.get("scientific_metrics", {}) if isinstance(eval_payload, dict) else {}
             train_resolved = _read_json(train_dir / "resolved_config.json")
-            train_meta = _read_training_metadata(train_dir, run_tag, output_root)
+            try:
+                train_meta = _read_training_metadata(train_dir, run_tag, output_root)
+            except Exception as exc:
+                mark_failure()
+                if status == "ok":
+                    status = "metadata_failed"
+                    status_message = f"failed to collect training metadata: {type(exc).__name__}: {exc}"
+                tb = traceback.format_exc()
+                _emit_run_event(
+                    "metadata_error",
+                    error=f"{type(exc).__name__}: {exc}",
+                    traceback=tb,
+                )
+                _write_skip_log(
+                    log_path=logs_dir / "metadata_error.log",
+                    run_tag=run_tag,
+                    reason=f"metadata extraction failed: {type(exc).__name__}: {exc}",
+                    actions=["inspect train/eval artifacts and rerun if needed"],
+                    details={"traceback": tb},
+                )
+                train_meta = {}
             checkpoint_stats = _checkpoint_state_stats(model_path) if isinstance(model_path, Path) else {}
             model_param_count = _safe_int(train_meta.get("model_parameter_count_report"))
             if model_param_count is None:
@@ -1697,6 +1700,10 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 )
 
             row = {
+                "execution_run_index": run_index,
+                "execution_family": execution_family,
+                "execution_priority": execution_priority,
+                "execution_source_index": source_index,
                 "model": model_name,
                 "seed": seed,
                 "status": status,
@@ -1820,6 +1827,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 "train_log": str(train_log),
                 "eval_log": str(eval_log),
                 "run_events_log": str(run_events_log),
+                "inside_html": str(train_dir / "inside.html"),
                 "train_overrides": "|".join(train_overrides),
                 "eval_overrides": "|".join(eval_overrides),
             }
@@ -1832,6 +1840,17 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
                 eval_report=str(eval_report),
                 run_duration_seconds=row.get("run_duration_seconds"),
             )
+            if status != "ok" and not continue_on_failure:
+                stop_requested = True
+                _emit_suite_event(
+                    "suite_stop_requested",
+                    reason="continue_on_failure_disabled",
+                    failed_run_tag=run_tag,
+                    failed_status=status,
+                )
+                break
+        if stop_requested:
+            break
 
     agg = _aggregate(rows)
     summary_json = output_root / "benchmark_summary.json"
@@ -1849,6 +1868,10 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
         "suite_event_log": str(suite_event_log),
         "eval_split": eval_split,
         "benchmark_mode": benchmark_mode,
+        "configured_seeds": list(configured_seeds),
+        "effective_seeds": list(seeds),
+        "single_seed_override": bool(single_seed_requested),
+        "continue_on_failure": bool(continue_on_failure),
         "expected_dataset_manifest_sha256": expected_manifest_sha,
         "run_count": len(rows),
         "failure_count": failures,
@@ -1862,6 +1885,10 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
         summary_csv,
         rows,
         [
+            "execution_run_index",
+            "execution_family",
+            "execution_priority",
+            "execution_source_index",
             "model",
             "seed",
             "status",
@@ -1943,6 +1970,7 @@ def run_suite(cfg_path: Path, *, dry_run: bool, strict: bool, skip_train: bool, 
             "train_log",
             "eval_log",
             "run_events_log",
+            "inside_html",
             "preflight_required",
             "preflight_mode",
             "preflight_model_id",
@@ -2081,6 +2109,11 @@ def main() -> None:
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when any run fails")
     parser.add_argument("--skip-train", action="store_true", help="Skip training stage")
     parser.add_argument("--skip-eval", action="store_true", help="Skip evaluation stage")
+    parser.add_argument(
+        "--single-seed",
+        action="store_true",
+        help="Override suite seeds and run only the first configured seed",
+    )
     args = parser.parse_args()
     rc = run_suite(
         Path(args.config),
@@ -2088,6 +2121,7 @@ def main() -> None:
         strict=bool(args.strict),
         skip_train=bool(args.skip_train),
         skip_eval=bool(args.skip_eval),
+        single_seed=bool(args.single_seed),
     )
     raise SystemExit(rc)
 
