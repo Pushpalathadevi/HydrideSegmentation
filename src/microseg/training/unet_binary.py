@@ -209,9 +209,23 @@ def _warn_binary_mask_remap_values(
     if mode not in {"two_value_zero_background", "nonzero_foreground"}:
         return
     remapped: set[int] = set()
-    for _img_path, mask_path in pairs:
+    total_pairs = len(pairs)
+    scan_start = time.perf_counter()
+    last_heartbeat = scan_start
+    for idx, (_img_path, mask_path) in enumerate(pairs, start=1):
         arr = np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8)
         remapped.update(binary_remapped_foreground_values(arr, mode=mode))
+        now = time.perf_counter()
+        if idx == 1 or idx == total_pairs or (now - last_heartbeat) >= 30.0:
+            logger.info(
+                "MASK_REMAP_SCAN_PROGRESS | mode=%s checked=%d/%d elapsed=%s remapped_values=%d",
+                mode,
+                idx,
+                total_pairs,
+                _format_seconds(now - scan_start),
+                len(remapped),
+            )
+            last_heartbeat = now
     if remapped:
         logger.warning(
             "binary_mask_normalization=%s remapped non-zero mask values %s to foreground class 1; "
@@ -1908,11 +1922,22 @@ class UNetBinaryTrainer:
         model_weight_stats: dict[str, Any] = {}
         runtime_hardware = _runtime_hardware_profile(str(device))
         first_img = np.asarray(Image.open(train_pairs[0][0]).convert("RGB"), dtype=np.uint8)
+        flops_start = time.perf_counter()
+        logger.info(
+            "FLOPS_ESTIMATE_START | sample_hw=%s device=%s",
+            (int(first_img.shape[0]), int(first_img.shape[1])),
+            device,
+        )
         flops_per_sample_forward = _estimate_forward_flops_per_sample(
             model,
             image_height=int(first_img.shape[0]),
             image_width=int(first_img.shape[1]),
             device=str(device),
+        )
+        logger.info(
+            "FLOPS_ESTIMATE_END | elapsed=%s flops_per_sample=%s",
+            _format_seconds(time.perf_counter() - flops_start),
+            str(flops_per_sample_forward) if flops_per_sample_forward is not None else "unavailable",
         )
         if bool(config.torch_compile) and hasattr(torch, "compile") and hasattr(model, "model"):
             try:
@@ -2176,7 +2201,46 @@ class UNetBinaryTrainer:
                     post_start = time.perf_counter()
                     pred = (torch.sigmoid(logits) > 0.5).to(torch.uint8).cpu().numpy()[0, 0].astype(np.uint8)
                     sample_metrics = _binary_sample_metrics(gt_bin, pred)
-                    scientific_metrics = scientific_distance_metrics(gt_bin, pred)
+                    science_start = time.perf_counter()
+                    logger.info(
+                        "TRACK_SAMPLE_SCIENTIFIC_START | epoch=%d sample=%d/%d name=%s",
+                        epoch,
+                        sample_idx,
+                        len(selected_pairs),
+                        img_path.name,
+                    )
+
+                    def _tracking_science_progress(event: str, payload: dict[str, Any]) -> None:
+                        done_components = int(payload.get("done_components", 0) or 0)
+                        total_components = int(payload.get("total_components", 0) or 0)
+                        heartbeat.beat(
+                            "HEARTBEAT | phase=tracking_scientific epoch=%d sample=%d/%d name=%s "
+                            "event=%s components=%d/%d elapsed=%s prefix=%s",
+                            epoch,
+                            sample_idx,
+                            len(selected_pairs),
+                            img_path.name,
+                            event,
+                            done_components,
+                            total_components,
+                            _format_seconds(time.perf_counter() - science_start),
+                            str(payload.get("prefix", "")),
+                        )
+
+                    scientific_metrics = scientific_distance_metrics(
+                        gt_bin,
+                        pred,
+                        progress_hook=_tracking_science_progress,
+                        progress_prefix=f"epoch{epoch}:{img_path.name}",
+                    )
+                    logger.info(
+                        "TRACK_SAMPLE_SCIENTIFIC_END | epoch=%d sample=%d/%d name=%s elapsed=%s",
+                        epoch,
+                        sample_idx,
+                        len(selected_pairs),
+                        img_path.name,
+                        _format_seconds(time.perf_counter() - science_start),
+                    )
                     panel = _tracking_panel(image_vis, gt_bin, pred)
                     panel = _downscale_for_visualization(
                         panel,

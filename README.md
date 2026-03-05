@@ -378,6 +378,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Per-suite and per-run structured event logs are written (`logs/suite_events.jsonl`, `logs/<run_tag>/run_events.jsonl`) along with continuous `train.log` / `eval.log`.
 - Metrics include `cohen_kappa` in evaluation, benchmark CSV, and dashboard summaries.
 - Optional suite YAML watchdog keys (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`) can auto-terminate stuck runs and continue the campaign.
+- Bundled hydride benchmark suite configs now default both watchdog thresholds to `10800` seconds (`3` hours).
 
 ## Beginner End-To-End Workflow
 

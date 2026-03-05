@@ -41,6 +41,19 @@ def _ensure_logger() -> logging.Logger:
     return logger
 
 
+class _Heartbeat:
+    def __init__(self, interval_seconds: float, logger: logging.Logger) -> None:
+        self.interval_seconds = max(1.0, float(interval_seconds))
+        self.logger = logger
+        self._last = time.perf_counter()
+
+    def beat(self, message: str, *args: Any) -> None:
+        now = time.perf_counter()
+        if (now - self._last) >= self.interval_seconds:
+            self.logger.info(message, *args)
+            self._last = now
+
+
 def _format_seconds(seconds: float) -> str:
     if seconds < 0:
         seconds = 0.0
@@ -97,9 +110,23 @@ def _warn_binary_mask_remap_values(
     if mode not in {"two_value_zero_background", "nonzero_foreground"}:
         return
     remapped: set[int] = set()
-    for _img_path, mask_path in pairs:
+    total_pairs = len(pairs)
+    scan_start = time.perf_counter()
+    last_heartbeat = scan_start
+    for idx, (_img_path, mask_path) in enumerate(pairs, start=1):
         arr = np.asarray(Image.open(mask_path).convert("L"), dtype=np.uint8)
         remapped.update(binary_remapped_foreground_values(arr, mode=mode))
+        now = time.perf_counter()
+        if idx == 1 or idx == total_pairs or (now - last_heartbeat) >= 30.0:
+            logger.info(
+                "EVAL_MASK_REMAP_SCAN_PROGRESS | mode=%s checked=%d/%d elapsed=%s remapped_values=%d",
+                mode,
+                idx,
+                total_pairs,
+                _format_seconds(now - scan_start),
+                len(remapped),
+            )
+            last_heartbeat = now
     if remapped:
         logger.warning(
             "binary_mask_normalization=%s remapped non-zero mask values %s to foreground class 1 during evaluation.",
@@ -531,6 +558,7 @@ class PixelModelEvaluator:
         y_pred_blocks: list[np.ndarray] = []
         sample_metrics: list[dict[str, Any]] = []
         scientific_rows: list[dict[str, float]] = []
+        scientific_heartbeat = _Heartbeat(30.0, logger)
         tracked_set: set[str] = set()
         if int(config.tracking_samples) > 0:
             rng = random.Random(int(config.tracking_seed))
@@ -572,7 +600,43 @@ class PixelModelEvaluator:
                 "mean_iou": iou_local,
                 **advanced_local,
             }
-            sci = scientific_distance_metrics((gt > 0).astype(np.uint8), (pred > 0).astype(np.uint8))
+            science_start = time.perf_counter()
+            logger.info(
+                "EVAL_SAMPLE_SCIENTIFIC_START | sample=%d/%d name=%s",
+                idx,
+                len(pairs),
+                img_path.name,
+            )
+
+            def _eval_science_progress(event: str, payload: dict[str, Any]) -> None:
+                done_components = int(payload.get("done_components", 0) or 0)
+                total_components = int(payload.get("total_components", 0) or 0)
+                scientific_heartbeat.beat(
+                    "EVAL_HEARTBEAT | phase=scientific_metrics sample=%d/%d name=%s event=%s "
+                    "components=%d/%d elapsed=%s prefix=%s",
+                    idx,
+                    len(pairs),
+                    img_path.name,
+                    event,
+                    done_components,
+                    total_components,
+                    _format_seconds(time.perf_counter() - science_start),
+                    str(payload.get("prefix", "")),
+                )
+
+            sci = scientific_distance_metrics(
+                (gt > 0).astype(np.uint8),
+                (pred > 0).astype(np.uint8),
+                progress_hook=_eval_science_progress,
+                progress_prefix=f"sample{idx}:{img_path.name}",
+            )
+            logger.info(
+                "EVAL_SAMPLE_SCIENTIFIC_END | sample=%d/%d name=%s elapsed=%s",
+                idx,
+                len(pairs),
+                img_path.name,
+                _format_seconds(time.perf_counter() - science_start),
+            )
             sample_item.update(sci)
             scientific_rows.append(sci)
             if img_path.name in tracked_set:

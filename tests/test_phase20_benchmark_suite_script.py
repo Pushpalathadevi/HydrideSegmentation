@@ -330,3 +330,21 @@ def test_phase20_single_seed_override_uses_first_seed_only(tmp_path: Path) -> No
     rows = payload.get("rows", [])
     assert len(rows) == 2
     assert {int(row.get("seed")) for row in rows} == {42}
+
+
+def test_phase20_suite_template_watchdog_defaults_three_hours() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config_paths = [
+        "configs/hydride/benchmark_suite.top5.yml",
+        "configs/hydride/benchmark_suite.top5_local_pretrained.yml",
+        "configs/hydride/benchmark_suite.top5_scratch.debug.yml",
+        "configs/hydride/benchmark_suite.top5_local_pretrained.debug.yml",
+        "configs/hydride/benchmark_suite.top5_scratch_vs_pretrained.debug.yml",
+        "configs/hydride/benchmark_suite.top5_scratch.realdata.template.yml",
+        "configs/hydride/benchmark_suite.top5_local_pretrained.realdata.template.yml",
+        "configs/hydride/benchmark_suite.top5_scratch_vs_pretrained.realdata.template.yml",
+    ]
+    for rel_path in config_paths:
+        cfg = yaml.safe_load((repo_root / rel_path).read_text(encoding="utf-8"))
+        assert int(cfg.get("command_idle_timeout_seconds", 0)) == 10800
+        assert int(cfg.get("command_wall_timeout_seconds", 0)) == 10800

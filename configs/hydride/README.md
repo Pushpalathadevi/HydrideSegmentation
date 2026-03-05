@@ -60,6 +60,7 @@ Suite execution hardening knobs (optional, in benchmark suite YAML):
 - `command_wall_timeout_seconds`: kill a run after this total runtime budget in seconds.
 - `command_terminate_grace_seconds`: grace period before force-kill after timeout (default `30`).
 - `command_poll_interval_seconds`: watchdog polling cadence in seconds (default `1`).
+- Bundled suite templates in this folder currently set both idle and wall timeouts to `10800` seconds (`3` hours).
 - Structured suite timeline is written to `output_root/logs/suite_events.jsonl`.
 - Per-run logs are written continuously to `output_root/logs/<run_tag>/{train,eval}.log`.
 - Per-run stage/timing events are written to `output_root/logs/<run_tag>/run_events.jsonl`.

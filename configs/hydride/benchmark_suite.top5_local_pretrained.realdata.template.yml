@@ -10,8 +10,8 @@ python_executable: python
 
 # Start with one seed for first HPC validation run; expand to [42, 43, 44] for full study.
 seeds: [42]
-command_idle_timeout_seconds: 1800
-command_wall_timeout_seconds: 3600
+command_idle_timeout_seconds: 10800
+command_wall_timeout_seconds: 10800
 
 # Recommended true for reproducibility checks.
 # If dataset_manifest.json is missing, it is auto-generated from train/val/test folders.
