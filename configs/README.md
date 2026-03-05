@@ -39,3 +39,8 @@ Additional workflow config:
   - enables `pretrained_init_mode=auto` with backend-to-model mapping from `pre_trained_weights/registry.json`
 - `hpc_ga.top5_scratch.default.yml` for the canonical top-5 scratch-only hydride sweep
 - `hpc_ga.top5_airgap_pretrained.default.yml` for the canonical top-5 air-gapped local-pretrained sweep
+- `feedback_capture.default.yml` for local per-inference feedback capture defaults
+- `feedback_bundle.default.yml` for deployment-side feedback bundle export
+- `feedback_ingest.default.yml` for central feedback bundle ingest + dedup + review queue
+- `feedback_build_dataset.default.yml` for weighted active-learning dataset build policy
+- `feedback_train_trigger.default.yml` for threshold-based retraining trigger orchestration

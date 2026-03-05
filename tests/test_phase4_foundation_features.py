@@ -104,6 +104,8 @@ def test_phase4_project_state_roundtrip(tmp_path: Path) -> None:
     _write_image(img_path, _synthetic_image())
 
     record = mgr.run_single(str(img_path), model_name=model_name, params={"image_path": str(img_path)}, include_analysis=False)
+    record.feedback_record_dir = str(tmp_path / "feedback_record")
+    record.feedback_record_id = "feedback_001"
     sess = CorrectionSession(to_index_mask(np.array(record.mask_image)))
     sess.apply_brush(x=8, y=8, radius=3, mode="add", class_index=1)
 
@@ -124,6 +126,8 @@ def test_phase4_project_state_roundtrip(tmp_path: Path) -> None:
     assert loaded.annotator == "qa"
     assert loaded.notes == "roundtrip"
     assert np.array_equal(loaded.corrected_mask, sess.current_mask)
+    assert loaded.record.feedback_record_dir == str(tmp_path / "feedback_record")
+    assert loaded.record.feedback_record_id == "feedback_001"
 
 
 def test_phase4_binary_mask_normalization_option() -> None:

@@ -51,6 +51,9 @@ Current status:
 - Phase 15 HPC automation foundation implemented:
   - `app/hpc_ga.py` GA-based candidate planner + Slurm/PBS/local bundle generator
   - `app/orchestration.py` command builder support for `hpc-ga-generate`
+- Phase 28 feedback active-learning foundation implemented:
+  - `feedback/writer.py` per-inference evidence capture (`microseg.feedback_record.v1`)
+  - `feedback/ops.py` bundle export, central ingest, weighted dataset build, and retrain trigger orchestration
 - Existing implementation still remains under `hydride_segmentation/` for backward compatibility.
 - Phase 22 architecture + benchmark hardening implemented:
   - `version.py`, `utils/encoding.py`, and `evaluation/hydride_metrics.py` now provide microseg-native version/image/analysis primitives.

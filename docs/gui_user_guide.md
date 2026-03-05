@@ -5,13 +5,14 @@
 1. Load image (or bundled sample) and select model.
 2. Run segmentation.
 3. Inspect prediction in split view and Results Dashboard.
-4. Correct annotations.
-5. Export corrected sample and/or full results package (`json` + `html` + `pdf` + `csv`).
-6. Package datasets for training.
-7. Save session and resume later.
-8. Run full train/infer/evaluate/package jobs from Workflow Hub.
-9. Review model-specific frozen-checkpoint tips before selecting ML models.
-10. Use Dataset Prep + QA to preview split plans, run data QA, and gate training launches.
+4. Rate segmentation quickly with `👍`/`👎` and optional comment (auto-saved).
+5. Correct annotations when needed.
+6. Export corrected sample and/or full results package (`json` + `html` + `pdf` + `csv`).
+7. Package datasets for training.
+8. Save session and resume later.
+9. Run full train/infer/evaluate/package jobs from Workflow Hub.
+10. Review model-specific frozen-checkpoint tips before selecting ML models.
+11. Use Dataset Prep + QA to preview split plans, run data QA, and gate training launches.
 
 ## Correction Workflow
 
@@ -30,6 +31,12 @@ Inspection controls:
 - synchronized split-view pan/zoom
 - transparency sliders for predicted, corrected, and diff layers
 
+Feedback controls:
+- always-visible `👍` / `👎` buttons for one-click model feedback
+- optional comment text in the notes field (auto-saved to feedback record)
+- no modal prompts; downvote does not require comment or correction
+- corrected masks are linked into the same feedback record when they differ from prediction
+
 Conventional controls (Hydride Conventional model):
 - CLAHE clip limit and tile grid
 - adaptive threshold block size and `C`
@@ -44,6 +51,7 @@ Conventional controls (Hydride Conventional model):
 - NumPy `.npy`
 
 Output includes correction metadata and provenance (`correction_record.json`).
+If available, correction export metadata also includes optional feedback linkage fields (`feedback_record_id`, `feedback_record_dir`).
 
 `Export Results Package` writes deployment-facing outputs:
 - `results_summary.json` with predicted/corrected statistics and analysis config
@@ -112,6 +120,11 @@ The `Workflow Hub` tab includes orchestration sub-tabs:
 - `Dataset Prep + QA`: preview/prepare dataset layouts and run dataset QA checks
 - `Run Review`: inspect and compare training/evaluation report JSON files
 - `HPC GA Planner`: generate scheduler-ready multi-candidate bundles for HPC training/evaluation runs
+- feedback loop commands are available from CLI and can be orchestrated from shell:
+  - `feedback-bundle`
+  - `feedback-ingest`
+  - `feedback-build-dataset`
+  - `feedback-train-trigger`
 
 Operational behavior:
 - one active orchestration job at a time

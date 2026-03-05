@@ -82,6 +82,8 @@ class ProjectStateStore:
                 "metrics": req.record.metrics,
                 "manifest": req.record.manifest,
                 "analysis_images_b64": req.record.analysis_images_b64,
+                "feedback_record_dir": req.record.feedback_record_dir,
+                "feedback_record_id": req.record.feedback_record_id,
             },
             "files": {
                 "input": input_path.name,
@@ -131,6 +133,8 @@ class ProjectStateStore:
             metrics=rec.get("metrics", {}),
             manifest=rec.get("manifest", {}),
             analysis_images_b64=rec.get("analysis_images_b64", {}),
+            feedback_record_dir=str(rec.get("feedback_record_dir", "")),
+            feedback_record_id=str(rec.get("feedback_record_id", "")),
         )
         if payload.get("class_map"):
             class_map = SegmentationClassMap.from_dict(payload.get("class_map"))

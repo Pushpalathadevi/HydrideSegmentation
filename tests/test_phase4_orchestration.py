@@ -57,6 +57,29 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
         feedback_sources="outputs/a,outputs/b",
         output_path="outputs/hpc_ga_feedback/report.json",
     )
+    feedback_bundle_cmd = builder.feedback_bundle(
+        config="configs/feedback_bundle.default.yml",
+        feedback_root="outputs/feedback_records",
+        output_dir="outputs/feedback_bundles",
+        deployment_id="site_a",
+    )
+    feedback_ingest_cmd = builder.feedback_ingest(
+        config="configs/feedback_ingest.default.yml",
+        bundle_paths=["outputs/feedback_bundles/a.zip"],
+        ingest_root="outputs/feedback_lake",
+        output_path="outputs/feedback_ingest/report.json",
+    )
+    feedback_dataset_cmd = builder.feedback_build_dataset(
+        config="configs/feedback_build_dataset.default.yml",
+        feedback_root="outputs/feedback_lake",
+        output_dir="outputs/feedback_training_dataset",
+    )
+    feedback_trigger_cmd = builder.feedback_train_trigger(
+        config="configs/feedback_train_trigger.default.yml",
+        feedback_root="outputs/feedback_lake",
+        output_path="outputs/feedback_trigger/report.json",
+        execute=True,
+    )
     preflight_cmd = builder.preflight(config="configs/preflight.default.yml", mode="train", dataset_dir="d")
     deploy_package_cmd = builder.deploy_package(config="configs/deployment_package.default.yml", model_path="m.pth")
     deploy_validate_cmd = builder.deploy_validate(package_dir="outputs/deployments/p1", strict=True)
@@ -85,6 +108,10 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     assert qa_cmd[2] == "dataset-qa"
     assert hpc_cmd[2] == "hpc-ga-generate"
     assert hpc_feedback_cmd[2] == "hpc-ga-feedback-report"
+    assert feedback_bundle_cmd[2] == "feedback-bundle"
+    assert feedback_ingest_cmd[2] == "feedback-ingest"
+    assert feedback_dataset_cmd[2] == "feedback-build-dataset"
+    assert feedback_trigger_cmd[2] == "feedback-train-trigger"
     assert preflight_cmd[2] == "preflight"
     assert deploy_package_cmd[2] == "deploy-package"
     assert deploy_validate_cmd[2] == "deploy-validate"
@@ -99,6 +126,8 @@ def test_phase4_command_builder_constructs_expected_commands() -> None:
     assert qa_cmd[-1] == "--strict"
     assert deploy_validate_cmd[-1] == "--strict"
     assert "--feedback-sources" in hpc_feedback_cmd
+    assert "--bundle-path" in feedback_ingest_cmd
+    assert "--execute" in feedback_trigger_cmd
 
 
 def test_phase4_train_and_evaluate_pixel_model(tmp_path: Path) -> None:

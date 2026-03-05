@@ -11,5 +11,9 @@ timeout_seconds: 0.0
 await_completion: true
 enable_gpu: false
 device_policy: cpu
+capture_feedback: true
+feedback_root: outputs/feedback_records
+deployment_id: deployment_service
+operator_id: unknown_operator
 report_path: outputs/deployments/service/service_batch_report.json
 strict: false

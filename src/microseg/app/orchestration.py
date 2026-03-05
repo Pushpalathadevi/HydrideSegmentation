@@ -195,6 +195,87 @@ class OrchestrationCommandBuilder:
             args.extend(["--output-path", output_path])
         return args
 
+    def feedback_bundle(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        feedback_root: str | None = None,
+        output_dir: str | None = None,
+        deployment_id: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["feedback-bundle"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if feedback_root:
+            args.extend(["--feedback-root", feedback_root])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        if deployment_id:
+            args.extend(["--deployment-id", deployment_id])
+        return args
+
+    def feedback_ingest(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        bundle_paths: list[str] | None = None,
+        ingest_root: str | None = None,
+        output_path: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["feedback-ingest"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        for bundle_path in bundle_paths or []:
+            args.extend(["--bundle-path", bundle_path])
+        if ingest_root:
+            args.extend(["--ingest-root", ingest_root])
+        if output_path:
+            args.extend(["--output-path", output_path])
+        return args
+
+    def feedback_build_dataset(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        feedback_root: str | None = None,
+        output_dir: str | None = None,
+    ) -> list[str]:
+        args = self._base() + ["feedback-build-dataset"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if feedback_root:
+            args.extend(["--feedback-root", feedback_root])
+        if output_dir:
+            args.extend(["--output-dir", output_dir])
+        return args
+
+    def feedback_train_trigger(
+        self,
+        *,
+        config: str | None = None,
+        overrides: list[str] | None = None,
+        feedback_root: str | None = None,
+        output_path: str | None = None,
+        execute: bool = False,
+    ) -> list[str]:
+        args = self._base() + ["feedback-train-trigger"]
+        if config:
+            args.extend(["--config", config])
+        self._append_set(args, overrides)
+        if feedback_root:
+            args.extend(["--feedback-root", feedback_root])
+        if output_path:
+            args.extend(["--output-path", output_path])
+        if execute:
+            args.append("--execute")
+        return args
+
     def preflight(
         self,
         *,

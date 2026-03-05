@@ -71,6 +71,8 @@ microseg-cli deploy-worker-run \
 ```
 
 This command exercises bounded queue behavior and produces `service_batch_report.json`.
+When `capture_feedback=true` (default), each completed inference also writes a per-inference
+feedback evidence folder under `feedback_root` (`microseg.feedback_record.v1`).
 
 ## 4d. Canary/Shadow Comparison
 
@@ -100,6 +102,28 @@ microseg-cli deploy-perf \
 ```
 
 Reports include throughput and latency (`mean`, `p50`, `p90`, `p95`, `p99`) plus per-request CSV rows.
+
+## 4f. Feedback Bundle Export + Central Ingest
+
+Deployment-side bundle export (recommended cadence: weekly or 200 records):
+
+```bash
+microseg-cli feedback-bundle --config configs/feedback_bundle.default.yml
+```
+
+Central ingest with checksum validation + dedup:
+
+```bash
+microseg-cli feedback-ingest \
+  --config configs/feedback_ingest.default.yml \
+  --bundle-path outputs/feedback_bundles/<bundle>.zip \
+  --strict
+```
+
+Ingest writes:
+- centralized record copy under `ingest_root`
+- ingest report JSON (`accepted`, `duplicates`, `rejected`)
+- review queue JSONL for thumbs-down records without corrected masks
 
 ## 5. Promotion Gate (Benchmark Evidence)
 

@@ -51,6 +51,9 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     assert win.chk_report_csv.isChecked() is True
     assert win.chk_report_pdf.isChecked() is False
     assert win.report_profile_combo.currentText().lower() == "audit"
+    assert win.btn_thumb_up.text() == "👍"
+    assert win.btn_thumb_down.text() == "👎"
+    assert "Feedback:" in win.feedback_rating_label.text()
     export_cfg = win._results_export_config_from_ui()  # noqa: SLF001
     assert export_cfg.report_profile == "audit"
     assert export_cfg.write_csv_report is True

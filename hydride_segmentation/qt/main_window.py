@@ -93,6 +93,7 @@ from src.microseg.evaluation import (
     compute_hydride_statistics,
     render_hydride_visualizations,
 )
+from src.microseg.feedback import FeedbackArtifactWriter, FeedbackCaptureConfig, load_feedback_record
 from src.microseg.io import resolve_config
 from src.microseg.quality import PreflightConfig, run_preflight
 from src.microseg.ui import AnnotationLayerSettings, compose_annotation_view
@@ -112,6 +113,8 @@ class _UiState:
     class_map: SegmentationClassMap = field(default_factory=lambda: DEFAULT_CLASS_MAP)
     spatial_calibration: SpatialCalibration | None = None
     calibration_image_path: str | None = None
+    current_feedback_record_dir: str = ""
+    current_feedback_rating: str = "unrated"
 
 
 def _discover_sample_images(repo_root: Path) -> list[Path]:
@@ -701,6 +704,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._ui_config_source: str = ""
         self._ui_config_warnings: list[str] = []
         self._ui_config: DesktopUIConfig = default_desktop_ui_config()
+        self._suppress_feedback_note_events = False
 
         self.logger = logging.getLogger("MicroSegQtGUI")
         self.logger.setLevel(logging.INFO)
@@ -722,9 +726,24 @@ class QtSegmentationMainWindow(QMainWindow):
         self.logger.info("Desktop log file: %s", log_path)
         self._load_ui_config(self._ui_config_path or None)
 
+        self.feedback_writer = FeedbackArtifactWriter(
+            FeedbackCaptureConfig(
+                feedback_root=str(self.orchestrator.repo_root / "outputs" / "feedback_records"),
+                deployment_id=str(os.environ.get("MICROSEG_DEPLOYMENT_ID", "desktop_local")),
+                operator_id=str(os.environ.get("MICROSEG_OPERATOR_ID", "unknown_operator")),
+                source="desktop_gui",
+            )
+        )
+
         self._results_refresh_timer = QTimer(self)
         self._results_refresh_timer.setSingleShot(True)
         self._results_refresh_timer.timeout.connect(self._update_results_dashboard)
+        self._feedback_comment_timer = QTimer(self)
+        self._feedback_comment_timer.setSingleShot(True)
+        self._feedback_comment_timer.timeout.connect(self._flush_feedback_comment)
+        self._feedback_correction_timer = QTimer(self)
+        self._feedback_correction_timer.setSingleShot(True)
+        self._feedback_correction_timer.timeout.connect(self._flush_feedback_correction)
 
         try:
             resolved_class_map, class_map_source = resolve_class_map()
@@ -1089,7 +1108,21 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.notes_edit = QLineEdit()
         self.notes_edit.setPlaceholderText("Correction notes")
+        self.notes_edit.textChanged.connect(self._on_feedback_comment_changed)
         layer_row.addWidget(self.notes_edit, stretch=2)
+
+        self.btn_thumb_up = QPushButton("👍")
+        self.btn_thumb_up.setToolTip("Rate segmentation as acceptable")
+        self.btn_thumb_up.clicked.connect(lambda: self._on_feedback_rating_clicked("thumbs_up"))
+        layer_row.addWidget(self.btn_thumb_up)
+
+        self.btn_thumb_down = QPushButton("👎")
+        self.btn_thumb_down.setToolTip("Rate segmentation as poor")
+        self.btn_thumb_down.clicked.connect(lambda: self._on_feedback_rating_clicked("thumbs_down"))
+        layer_row.addWidget(self.btn_thumb_down)
+
+        self.feedback_rating_label = QLabel("Feedback: unrated")
+        layer_row.addWidget(self.feedback_rating_label)
 
         self.chk_fmt_indexed = QCheckBox("indexed")
         self.chk_fmt_indexed.setChecked(True)
@@ -3379,6 +3412,7 @@ class QtSegmentationMainWindow(QMainWindow):
     def _on_correction_changed(self) -> None:
         self._update_action_label()
         self._queue_results_refresh()
+        self._feedback_correction_timer.start(700)
 
     def _on_tool_changed(self, tool: str) -> None:
         self.corrected_canvas.set_tool(tool)
@@ -3649,6 +3683,7 @@ class QtSegmentationMainWindow(QMainWindow):
                 params=params,
                 include_analysis=include_analysis,
             )
+            self._capture_feedback_for_record(record, resolved_config=cfg, params=params, source="desktop_gui")
             self._add_record(record)
             self._show_record(record)
         except Exception as exc:
@@ -3683,6 +3718,9 @@ class QtSegmentationMainWindow(QMainWindow):
                 include_analysis=include_analysis,
             )
             for rec in records:
+                params_row = dict(params)
+                params_row["image_path"] = rec.image_path
+                self._capture_feedback_for_record(rec, resolved_config=cfg, params=params_row, source="desktop_gui")
                 self._add_record(rec)
             if records:
                 self._show_record(records[-1])
@@ -3694,8 +3732,139 @@ class QtSegmentationMainWindow(QMainWindow):
     def _add_record(self, record: DesktopRunRecord) -> None:
         self.history_list.addItem(record.history_label)
 
+    def _active_operator_id(self) -> str:
+        text = self.annotator_edit.text().strip()
+        if text:
+            return text
+        return str(self.feedback_writer.config.operator_id)
+
+    def _capture_feedback_for_record(
+        self,
+        record: DesktopRunRecord,
+        *,
+        resolved_config: dict[str, object] | None,
+        params: dict[str, object] | None,
+        source: str,
+    ) -> None:
+        if str(record.feedback_record_dir).strip():
+            return
+        try:
+            capture = self.feedback_writer.create_from_desktop_run(
+                record,
+                source=source,
+                resolved_config=dict(resolved_config or {}),
+                params=dict(params or {}),
+                runtime={
+                    "enable_gpu": bool((params or {}).get("enable_gpu", False)),
+                    "device_policy": str((params or {}).get("device_policy", "cpu")),
+                },
+                operator_id=self._active_operator_id(),
+            )
+            record.feedback_record_dir = str(capture.record_dir)
+            record.feedback_record_id = str(capture.record_id)
+            self.logger.info("Feedback record captured: %s", record.feedback_record_dir)
+        except Exception:
+            self.logger.exception("Failed to capture feedback record for run_id=%s", record.run_id)
+
+    def _apply_feedback_rating_ui(self) -> None:
+        rating = str(self.state.current_feedback_rating or "unrated")
+        self.feedback_rating_label.setText(f"Feedback: {rating}")
+        up_active = rating == "thumbs_up"
+        down_active = rating == "thumbs_down"
+        self.btn_thumb_up.setStyleSheet("background-color: #dff0d8;" if up_active else "")
+        self.btn_thumb_down.setStyleSheet("background-color: #f2dede;" if down_active else "")
+
+    def _load_feedback_for_record(self, record: DesktopRunRecord) -> None:
+        self.state.current_feedback_record_dir = str(record.feedback_record_dir or "")
+        self.state.current_feedback_rating = "unrated"
+        comment = ""
+        if self.state.current_feedback_record_dir:
+            try:
+                payload = load_feedback_record(self.state.current_feedback_record_dir)
+                self.state.current_feedback_rating = str(payload.get("feedback", {}).get("rating", "unrated"))
+                comment = str(payload.get("feedback", {}).get("comment", ""))
+                record.feedback_record_id = str(payload.get("record_id", record.feedback_record_id))
+            except Exception:
+                self.logger.exception("Failed to load feedback record: %s", self.state.current_feedback_record_dir)
+        self._suppress_feedback_note_events = True
+        self.notes_edit.setText(comment)
+        self._suppress_feedback_note_events = False
+        self._apply_feedback_rating_ui()
+
+    def _persist_feedback(self, *, rating: str | None = None, comment: str | None = None) -> None:
+        record_dir = str(self.state.current_feedback_record_dir or "").strip()
+        if not record_dir:
+            return
+        try:
+            payload = self.feedback_writer.update_feedback(
+                record_dir,
+                rating=rating if rating in {"unrated", "thumbs_up", "thumbs_down"} else None,
+                comment=comment,
+                operator_id=self._active_operator_id(),
+            )
+            self.state.current_feedback_rating = str(payload.get("feedback", {}).get("rating", "unrated"))
+            self._apply_feedback_rating_ui()
+        except Exception:
+            self.logger.exception("Failed to persist feedback: %s", record_dir)
+
+    def _on_feedback_rating_clicked(self, rating: str) -> None:
+        if rating not in {"thumbs_up", "thumbs_down"}:
+            return
+        self._persist_feedback(rating=rating, comment=self.notes_edit.text().strip())
+        self._maybe_attach_current_correction()
+
+    def _on_feedback_comment_changed(self) -> None:
+        if self._suppress_feedback_note_events:
+            return
+        self._feedback_comment_timer.start(350)
+
+    def _flush_feedback_comment(self) -> None:
+        self._persist_feedback(comment=self.notes_edit.text().strip())
+
+    def _flush_feedback_correction(self) -> None:
+        self._maybe_attach_current_correction()
+
+    def _maybe_attach_current_correction(self) -> None:
+        record_dir = str(self.state.current_feedback_record_dir or "").strip()
+        sess = self.state.correction_session
+        run = self.state.current_run
+        if not record_dir or sess is None or run is None:
+            return
+        try:
+            pred = to_index_mask(np.array(run.mask_image))
+            corr = to_index_mask(np.array(sess.current_mask))
+            if np.array_equal(pred, corr):
+                return
+            self.feedback_writer.attach_corrected_mask(record_dir, corr)
+        except Exception:
+            self.logger.exception("Failed to attach corrected mask to feedback record: %s", record_dir)
+
+    def _link_feedback_correction_export(self, correction_record_path: str) -> None:
+        record_dir = str(self.state.current_feedback_record_dir or "").strip()
+        if not record_dir:
+            return
+        try:
+            self.feedback_writer.link_correction_export(
+                record_dir,
+                correction_record_path=str(correction_record_path),
+            )
+        except Exception:
+            self.logger.exception("Failed to link correction export to feedback record: %s", record_dir)
+
     def _show_record(self, record: DesktopRunRecord, corrected_mask: np.ndarray | None = None) -> None:
         self.state.current_run = record
+        if not str(record.feedback_record_dir).strip():
+            params = {}
+            if isinstance(record.manifest, dict):
+                raw = record.manifest.get("params", {})
+                if isinstance(raw, dict):
+                    params = dict(raw)
+            self._capture_feedback_for_record(
+                record,
+                resolved_config={"from_history": True, "manifest": record.manifest},
+                params=params,
+                source="desktop_gui",
+            )
         self.path_edit.setText(record.image_path)
         self.state.image_path = record.image_path
         self.orch_infer_image_edit.setText(record.image_path)
@@ -3717,6 +3886,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._update_split_input_view()
         self._update_action_label()
         self._update_results_dashboard()
+        self._load_feedback_for_record(record)
 
         self.logger.info("Active run: %s", record.history_label)
         if record.metrics:
@@ -3775,6 +3945,7 @@ class QtSegmentationMainWindow(QMainWindow):
             return
 
         try:
+            self._maybe_attach_current_correction()
             sample_dir = self.exporter.export_sample(
                 run,
                 sess.current_mask,
@@ -3783,7 +3954,10 @@ class QtSegmentationMainWindow(QMainWindow):
                 notes=self.notes_edit.text().strip(),
                 class_map=self.state.class_map,
                 formats=self._selected_export_formats(),
+                feedback_record_id=str(run.feedback_record_id or ""),
+                feedback_record_dir=str(run.feedback_record_dir or ""),
             )
+            self._link_feedback_correction_export(str(Path(sample_dir) / "correction_record.json"))
             self.logger.info("Exported corrected sample: %s", sample_dir)
             QMessageBox.information(self, "Export complete", f"Saved to:\n{sample_dir}")
         except Exception as exc:
@@ -3800,6 +3974,7 @@ class QtSegmentationMainWindow(QMainWindow):
             return
         sess = self.state.correction_session
         corrected_mask = sess.current_mask if sess is not None else None
+        self._maybe_attach_current_correction()
         try:
             export_cfg = self._results_export_config_from_ui()
             export_dir = self.result_exporter.export(
@@ -3850,6 +4025,7 @@ class QtSegmentationMainWindow(QMainWindow):
         corrected_map: dict[str, np.ndarray] = {}
         if self.state.current_run is not None and self.state.correction_session is not None:
             corrected_map[str(self.state.current_run.run_id)] = np.asarray(self.state.correction_session.current_mask)
+            self._maybe_attach_current_correction()
         try:
             export_dir = self.result_exporter.export_batch(
                 records,
@@ -3910,6 +4086,7 @@ class QtSegmentationMainWindow(QMainWindow):
         out_dir = QFileDialog.getExistingDirectory(self, "Select project save directory")
         if not out_dir:
             return
+        self._maybe_attach_current_correction()
         try:
             req = ProjectSaveRequest(
                 record=run,

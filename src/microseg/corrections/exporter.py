@@ -43,6 +43,8 @@ class CorrectionExporter:
         notes: str = "",
         class_map: SegmentationClassMap | None = None,
         formats: set[str] | None = None,
+        feedback_record_id: str = "",
+        feedback_record_dir: str = "",
     ) -> Path:
         """Export corrected sample artifacts and metadata.
 
@@ -116,6 +118,10 @@ class CorrectionExporter:
         metadata["export_formats"] = sorted(list(formats))
         metadata["correction_foreground_pixels"] = int(np.count_nonzero(corr_idx > 0))
         metadata["predicted_foreground_pixels"] = int(np.count_nonzero(pred_idx > 0))
+        if str(feedback_record_id).strip():
+            metadata["feedback_record_id"] = str(feedback_record_id)
+        if str(feedback_record_dir).strip():
+            metadata["feedback_record_dir"] = str(feedback_record_dir)
 
         (sample_dir / "correction_record.json").write_text(
             json.dumps(metadata, indent=2),

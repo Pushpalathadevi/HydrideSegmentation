@@ -15,6 +15,7 @@ from typing import Any, Literal
 import numpy as np
 from PIL import Image
 
+from src.microseg.feedback import FeedbackArtifactWriter, FeedbackCaptureConfig
 from src.microseg.quality import (
     DEPLOY_INFERENCE_FAILED,
     DEPLOY_MODEL_LOAD_FAILED,
@@ -63,6 +64,8 @@ class ServiceJobResult:
     message: str = ""
     output_mask_path: str = ""
     output_overlay_path: str = ""
+    feedback_record_dir: str = ""
+    feedback_record_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,10 @@ class ServiceWorkerConfig:
     max_queue_size: int = 32
     enable_gpu: bool = False
     device_policy: str = "cpu"
+    capture_feedback: bool = True
+    feedback_root: str = "outputs/feedback_records"
+    deployment_id: str = "deployment_service"
+    operator_id: str = "unknown_operator"
 
 
 @dataclass
@@ -103,11 +110,23 @@ class DeploymentServiceWorker:
         self._jobs: dict[str, ServiceJobResult] = {}
         self._futures: dict[str, Future[ServiceJobResult]] = {}
 
+        self._feedback_writer: FeedbackArtifactWriter | None = None
+        if bool(config.capture_feedback):
+            self._feedback_writer = FeedbackArtifactWriter(
+                FeedbackCaptureConfig(
+                    feedback_root=str(config.feedback_root),
+                    deployment_id=str(config.deployment_id),
+                    operator_id=str(config.operator_id),
+                    source="service_worker",
+                )
+            )
+
         try:
-            _manifest, model_artifact = resolve_model_artifact_from_package(
+            manifest, model_artifact = resolve_model_artifact_from_package(
                 config.package_dir,
                 verify_sha256=True,
             )
+            self._deployment_manifest = dict(manifest)
             self._predictor = build_predictor_from_artifact(
                 model_artifact,
                 enable_gpu=bool(config.enable_gpu),
@@ -115,6 +134,7 @@ class DeploymentServiceWorker:
             )
             self._model_ready_error: tuple[str, str] | None = None
         except Exception as exc:
+            self._deployment_manifest = {}
             self._predictor = None
             self._model_ready_error = (DEPLOY_MODEL_LOAD_FAILED, str(exc))
 
@@ -311,9 +331,10 @@ class DeploymentServiceWorker:
         stem = _safe_name(Path(image_path).stem, fallback=job_id)
         out_mask = self.output_dir / f"{stem}_{job_id[:8]}_mask.png"
         out_overlay = self.output_dir / f"{stem}_{job_id[:8]}_overlay.png"
+        overlay_rgb = _overlay(image_rgb, pred_u8)
         try:
             Image.fromarray(pred_u8).save(out_mask)
-            Image.fromarray(_overlay(image_rgb, pred_u8)).save(out_overlay)
+            Image.fromarray(overlay_rgb).save(out_overlay)
         except Exception as exc:
             return ServiceJobResult(
                 schema_version="microseg.service_job_result.v1",
@@ -328,6 +349,58 @@ class DeploymentServiceWorker:
                 message=str(exc),
             )
 
+        feedback_record_dir = ""
+        feedback_record_id = ""
+        if self._feedback_writer is not None:
+            try:
+                model_info = self._deployment_manifest.get("model", {})
+                runtime_hints = self._deployment_manifest.get("runtime_hints", {})
+                capture = self._feedback_writer.create_from_inference_arrays(
+                    run_id=job_id,
+                    image_path=str(image_path),
+                    input_image_rgb=image_rgb,
+                    predicted_mask_indexed=pred_u8,
+                    predicted_overlay_rgb=overlay_rgb,
+                    model_id=str(model_info.get("registry_model_id", model_info.get("artifact_rel_path", "deployment_model"))),
+                    model_name=str(model_info.get("display_name", model_info.get("artifact_rel_path", "deployment_model"))),
+                    model_artifact_hint=str(model_info.get("artifact_rel_path", "")),
+                    started_utc=started_utc,
+                    finished_utc=_utc_now(),
+                    inference_manifest={
+                        "pipeline": "microseg.deployment_service_worker",
+                        "version": "v1",
+                        "deployment_manifest_schema": str(self._deployment_manifest.get("schema_version", "")),
+                        "runtime_hints": runtime_hints,
+                    },
+                    resolved_config={
+                        "package_dir": str(self.config.package_dir),
+                        "output_dir": str(self.config.output_dir),
+                        "max_workers": int(self.config.max_workers),
+                        "max_queue_size": int(self.config.max_queue_size),
+                        "enable_gpu": bool(self.config.enable_gpu),
+                        "device_policy": str(self.config.device_policy),
+                        "runtime_hints": runtime_hints,
+                        "preprocess_contract": self._deployment_manifest.get("preprocess_contract", {}),
+                        "postprocess_contract": self._deployment_manifest.get("postprocess_contract", {}),
+                    },
+                    params={},
+                    runtime={
+                        "mode": "service_worker",
+                        "enable_gpu": bool(self.config.enable_gpu),
+                        "device_policy": str(self.config.device_policy),
+                        "max_workers": int(self.config.max_workers),
+                        "max_queue_size": int(self.config.max_queue_size),
+                    },
+                    source="service_worker",
+                    operator_id=str(self.config.operator_id),
+                )
+                feedback_record_dir = str(capture.record_dir)
+                feedback_record_id = str(capture.record_id)
+            except Exception:
+                # Feedback capture must not fail deployment inference path.
+                feedback_record_dir = ""
+                feedback_record_id = ""
+
         return ServiceJobResult(
             schema_version="microseg.service_job_result.v1",
             job_id=job_id,
@@ -339,6 +412,8 @@ class DeploymentServiceWorker:
             runtime_seconds=float(perf_counter() - start),
             output_mask_path=str(out_mask),
             output_overlay_path=str(out_overlay),
+            feedback_record_dir=feedback_record_dir,
+            feedback_record_id=feedback_record_id,
         )
 
 

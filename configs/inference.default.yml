@@ -4,6 +4,10 @@ output_dir: outputs/inference
 include_analysis: true
 enable_gpu: false
 device_policy: cpu
+capture_feedback: true
+feedback_root: outputs/feedback_records
+deployment_id: cli_infer_local
+operator_id: unknown_operator
 params:
   clahe:
     clip_limit: 2.0

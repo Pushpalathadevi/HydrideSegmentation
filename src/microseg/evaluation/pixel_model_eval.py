@@ -433,7 +433,8 @@ def _write_eval_html(payload: dict[str, Any], output_path: Path) -> None:
         + "".join(rows)
         + "</table>"
         "<h2>Tracked Samples (Input | GT | Pred | Diff)</h2>"
-        "<p>Each sample panel is collapsed by default and includes per-image values in a compact two-column layout.</p>"
+        "<p>Each sample panel is collapsed by default and includes per-image values in a compact two-column layout. "
+        "Each sample panel includes per-image values for all available run metrics.</p>"
         + "".join(gallery)
         + "</body></html>"
     )

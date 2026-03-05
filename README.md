@@ -35,11 +35,13 @@ See `docs/mission_statement.md`.
   - multi-image batch summary export (`batch_results_summary.json`, `batch_results_report.html`, `batch_results_report.pdf`, `batch_metrics.csv`)
   - YAML-driven desktop appearance settings (font sizes, contrast, spacing) with in-app settings dialog
   - project/session save-load
+  - always-visible thumbs-up/thumbs-down result feedback with optional comment (auto-saved, non-blocking)
   - Dataset Prep + QA workspace (preview, prepare, QA, training gate)
   - Run Review workspace for report summary + metric-delta comparison
   - HPC GA Planner for scheduler-ready multi-candidate bundle generation and feedback analysis
   - persistent desktop logs under `outputs/logs/desktop/`
 - Correction export schema `microseg.correction.v1`
+- Per-inference feedback evidence schema `microseg.feedback_record.v1` (GUI + CLI + deployment worker)
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
 - Deployment operations tooling (`preflight`, `deploy-package`, `deploy-validate`, `deploy-smoke`, `promote-model`, `support-bundle`)
@@ -252,6 +254,29 @@ microseg-cli deploy-worker-run \
   --max-workers 4 --max-queue-size 64 --strict
 ```
 
+Feedback bundle export from deployment (weekly or 200 records):
+```bash
+microseg-cli feedback-bundle --config configs/feedback_bundle.default.yml
+```
+
+Central feedback ingest + dedup + review queue:
+```bash
+microseg-cli feedback-ingest \
+  --config configs/feedback_ingest.default.yml \
+  --bundle-path outputs/feedback_bundles/<bundle>.zip \
+  --strict
+```
+
+Build active-learning dataset from ingested feedback:
+```bash
+microseg-cli feedback-build-dataset --config configs/feedback_build_dataset.default.yml
+```
+
+Threshold-based retrain trigger (>=500 corrected or 14 days):
+```bash
+microseg-cli feedback-train-trigger --config configs/feedback_train_trigger.default.yml
+```
+
 Canary-shadow package comparison:
 ```bash
 microseg-cli deploy-canary-shadow \
@@ -354,7 +379,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 2. Run baseline inference:
 - GUI `Input` + `Run Segmentation` or CLI `microseg-cli infer`.
 3. Correct masks:
-- Use GUI correction tools and export corrected samples.
+- Use GUI correction tools and thumbs feedback (optional comment), then export corrected samples as needed.
 4. Train and evaluate:
 - Use GUI `Training` + `Evaluation` tabs or CLI `train` + `evaluate`.
 5. Compare runs:
@@ -363,6 +388,10 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Use GUI `HPC GA Planner` or CLI `hpc-ga-generate`.
 - Optionally run `Analyze Feedback` in GUI or `hpc-ga-feedback-report` in CLI before the next sweep.
 - Upload bundle and run `submit_all.sh` on scheduler environment.
+7. Continuous feedback retraining loop:
+- Export deployment feedback bundles (`feedback-bundle`) and ingest centrally (`feedback-ingest`).
+- Build weighted dataset (`feedback-build-dataset`) and evaluate trigger (`feedback-train-trigger`).
+- Keep promotion human-gated through run review/policy checks.
 
 ## Frozen Checkpoints
 
@@ -400,6 +429,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Pretrained citation BibTeX: `docs/pretrained_model_citations.bib`
 - Configuration workflow: `docs/configuration_workflow.md`
 - Deployment operations workflow: `docs/deployment_ops_workflow.md`
+- Feedback active-learning pipeline: `docs/feedback_active_learning_pipeline.md`
 - Failure taxonomy and error codes: `docs/failure_taxonomy.md`
 - Development workflow + phase closeout gate: `docs/development_workflow.md`
 - Developer guide: `developer_guide.md`

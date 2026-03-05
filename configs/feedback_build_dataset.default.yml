@@ -1,0 +1,8 @@
+feedback_root: outputs/feedback_lake
+output_dir: outputs/feedback_training_dataset
+train_ratio: 0.8
+val_ratio: 0.1
+seed: 42
+thumbs_up_weight: 0.2
+corrected_weight: 1.0
+leakage_group: source_stem

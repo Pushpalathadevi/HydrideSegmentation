@@ -41,6 +41,8 @@ class DesktopRunRecord:
     metrics: dict[str, float | int] = field(default_factory=dict)
     manifest: dict[str, Any] = field(default_factory=dict)
     analysis_images_b64: dict[str, str] = field(default_factory=dict)
+    feedback_record_dir: str = ""
+    feedback_record_id: str = ""
 
     @property
     def history_label(self) -> str:
@@ -109,6 +111,19 @@ class DesktopWorkflowManager:
             if k not in {"input_png_b64", "mask_png_b64", "overlay_png_b64"}
         }
 
+        run_manifest = dict(result.manifest)
+        run_manifest.setdefault("model_name", str(model_name))
+        run_manifest.setdefault("image_path", str(image_path))
+        run_manifest.setdefault("params", dict(params or {}))
+        run_manifest.setdefault("runtime", {})
+        if params:
+            run_manifest["runtime"].update(
+                {
+                    "enable_gpu": bool(params.get("enable_gpu", False)),
+                    "device_policy": str(params.get("device_policy", "cpu")),
+                }
+            )
+
         record = DesktopRunRecord(
             run_id=run_id,
             image_path=image_path,
@@ -121,7 +136,7 @@ class DesktopWorkflowManager:
             mask_image=mask_img,
             overlay_image=overlay_img,
             metrics=result.metrics,
-            manifest=result.manifest,
+            manifest=run_manifest,
             analysis_images_b64=analysis_images,
         )
         self._history.append(record)
@@ -176,6 +191,8 @@ class DesktopWorkflowManager:
             "finished_utc": record.finished_utc,
             "metrics": record.metrics,
             "manifest": record.manifest,
+            "feedback_record_dir": record.feedback_record_dir,
+            "feedback_record_id": record.feedback_record_id,
         }
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest_payload, indent=2),

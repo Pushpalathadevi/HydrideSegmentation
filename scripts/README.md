@@ -25,8 +25,13 @@ Current scripts:
   - `deploy-smoke` runs one-image smoke inference from a deployment package.
   - `deploy-health` runs runtime health checks (`package_validation`, `model_load`, `preprocess`, `inference`, `output_write`) and supports queue-style concurrent batch validation (`--image-dir`, `--max-workers`).
   - `deploy-worker-run` runs queue-safe service-mode worker batches with bounded queue controls (`--max-workers`, `--max-queue-size`).
+    - service-mode runs can also write per-inference feedback evidence records (`microseg.feedback_record.v1`).
   - `deploy-canary-shadow` compares candidate and baseline packages on the same images (with optional GT-mask quality gain reporting).
   - `deploy-perf` runs deployment latency/throughput harness (`warmup`, `repeat`, `p95`, `throughput`).
+  - `feedback-bundle` exports unsent deployment feedback records into transfer bundles.
+  - `feedback-ingest` validates + ingests bundles centrally with record dedup and review-queue generation.
+  - `feedback-build-dataset` builds weighted train/val/test datasets from ingested feedback records.
+  - `feedback-train-trigger` evaluates/executes threshold-based retraining cycles without auto-promotion.
   - `promote-model` applies threshold policy to benchmark aggregate rows and can update registry stage metadata.
   - `support-bundle` collects run diagnostics/log artifacts into a zipped support bundle.
   - `compatibility-matrix` writes environment/runtime fingerprint JSON for reproducibility audits.
