@@ -64,6 +64,9 @@ Suite execution hardening knobs (optional, in benchmark suite YAML):
 - Structured suite timeline is written to `output_root/logs/suite_events.jsonl`.
 - Per-run logs are written continuously to `output_root/logs/<run_tag>/{train,eval}.log`.
 - Per-run stage/timing events are written to `output_root/logs/<run_tag>/run_events.jsonl`.
+- Scheduler auto-switches between serial and parallel based on detected visible GPUs; each worker process is pinned to one GPU via child `CUDA_VISIBLE_DEVICES`.
+- Optional suite scheduler knobs: `max_parallel_gpus` (`auto|N`), `parallel_jobs` (`auto|N`), and `failure_policy` (`continue|fail-fast`).
+- Per-subjob debugging artifacts are emitted in `output_root/subjobs/<run_tag>/{stdout.log,stderr.log,metadata.json,command.sh}`.
 
 Operational runbook:
 - `docs/hpc_airgap_top5_realdata_runbook.md`

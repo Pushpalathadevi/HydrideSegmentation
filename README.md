@@ -376,6 +376,9 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Failed train/eval runs write explicit skip/failure logs and do not stop remaining runs unless `continue_on_failure` is disabled in suite YAML.
 - `run_training_jobs.sh` now defaults to non-strict completion (`--strict false`) so partial-success campaigns still finish and archive successful runs.
 - Per-suite and per-run structured event logs are written (`logs/suite_events.jsonl`, `logs/<run_tag>/run_events.jsonl`) along with continuous `train.log` / `eval.log`.
+- Suite scheduler auto-detects visible GPUs and runs serially on 0/1 GPU, or in parallel on multi-GPU allocations with one benchmark unit pinned per GPU (`CUDA_VISIBLE_DEVICES` scoped per subjob).
+- New optional CLI controls: `--max-parallel-gpus auto|N`, `--parallel-jobs auto|N`, `--failure-policy continue|fail-fast`.
+- Subjob diagnostics are written under `output_root/subjobs/<run_tag>/` (`stdout.log`, `stderr.log`, `metadata.json`, `command.sh`) for HPC debugging and failure triage.
 - Metrics include `cohen_kappa` in evaluation, benchmark CSV, and dashboard summaries.
 - Optional suite YAML watchdog keys (`command_idle_timeout_seconds`, `command_wall_timeout_seconds`) can auto-terminate stuck runs and continue the campaign.
 - Bundled hydride benchmark suite configs now default both watchdog thresholds to `10800` seconds (`3` hours).
