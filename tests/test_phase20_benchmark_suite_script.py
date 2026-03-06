@@ -205,7 +205,7 @@ def test_phase20_run_cmd_streams_log_file(tmp_path: Path) -> None:
             "print('second-line', flush=True)"
         ),
     ]
-    rc = suite._run_cmd(
+    rc, pid = suite._run_cmd(
         cmd,
         log_path,
         dry_run=False,
@@ -216,6 +216,7 @@ def test_phase20_run_cmd_streams_log_file(tmp_path: Path) -> None:
         poll_interval_seconds=0.1,
     )
     assert rc == 0
+    assert pid is not None
     text = log_path.read_text(encoding="utf-8")
     assert "first-line" in text
     assert "second-line" in text
@@ -232,7 +233,7 @@ def test_phase20_run_cmd_idle_watchdog_timeout(tmp_path: Path) -> None:
             "time.sleep(2.0)"
         ),
     ]
-    rc = suite._run_cmd(
+    rc, pid = suite._run_cmd(
         cmd,
         log_path,
         dry_run=False,
@@ -243,6 +244,7 @@ def test_phase20_run_cmd_idle_watchdog_timeout(tmp_path: Path) -> None:
         poll_interval_seconds=0.1,
     )
     assert rc == 124
+    assert pid is not None
     text = log_path.read_text(encoding="utf-8")
     assert "start" in text
     assert "[watchdog] idle_timeout triggered" in text
@@ -348,3 +350,61 @@ def test_phase20_suite_template_watchdog_defaults_three_hours() -> None:
         cfg = yaml.safe_load((repo_root / rel_path).read_text(encoding="utf-8"))
         assert int(cfg.get("command_idle_timeout_seconds", 0)) == 10800
         assert int(cfg.get("command_wall_timeout_seconds", 0)) == 10800
+
+
+def test_phase20_gpu_discovery_prefers_cuda_visible_devices(monkeypatch) -> None:
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,5,7")
+    info = suite._discover_visible_gpus()
+    assert info.count == 3
+    assert info.worker_gpu_ids == ["2", "5", "7"]
+    assert info.source == "cuda_visible_devices"
+
+
+def test_phase20_scheduler_parallel_summary_fields(tmp_path: Path, monkeypatch) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "hydride_benchmark_suite.py"
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+    cfg = {
+        "dataset_dir": "outputs/prepared_dataset_hydride_v1",
+        "output_root": str(tmp_path / "suite"),
+        "eval_config": "configs/hydride/evaluate.hydride.yml",
+        "eval_split": "test",
+        "python_executable": sys.executable,
+        "seeds": [42, 43],
+        "benchmark_mode": False,
+        "experiments": [
+            {"name": "unet_binary", "train_config": "configs/hydride/train.unet_binary.baseline.yml"},
+        ],
+    }
+    cfg_path = tmp_path / "suite_parallel.yml"
+    cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--config",
+            str(cfg_path),
+            "--dry-run",
+            "--max-parallel-gpus",
+            "auto",
+            "--parallel-jobs",
+            "auto",
+            "--failure-policy",
+            "continue",
+        ],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    payload = json.loads((tmp_path / "suite" / "benchmark_summary.json").read_text(encoding="utf-8"))
+    assert payload.get("scheduler_mode") == "parallel"
+    assert int(payload.get("worker_count", 0)) == 2
+    assert payload.get("visible_gpus") == ["0", "1"]
+    assert payload.get("failure_policy") == "continue"
+    assert (tmp_path / "suite" / "subjobs" / "unet_binary_seed42" / "metadata.json").exists()
+    assert (tmp_path / "suite" / "subjobs" / "unet_binary_seed42" / "stdout.log").exists()

@@ -29,6 +29,9 @@ SKIP_REGISTRY_VALIDATION="false"
 SKIP_TRAIN="false"
 SKIP_EVAL="false"
 SINGLE_SEED="false"
+MAX_PARALLEL_GPUS=""
+PARALLEL_JOBS=""
+FAILURE_POLICY=""
 HF_OFFLINE="true"
 HF_CACHE_ROOT=""
 PYTHON_OVERRIDE=""
@@ -72,6 +75,9 @@ Workflow toggles:
   --skip_train true|false               Skip training stage (default: false)
   --skip_eval true|false                Skip evaluation stage (default: false)
   --single_seed true|false              Override to first configured seed only (default: false)
+  --max_parallel_gpus auto|N            Limit suite GPU workers (default: auto)
+  --parallel_jobs auto|N                Limit suite concurrency (default: auto)
+  --failure_policy continue|fail-fast   Failure behavior (default: suite config)
 
 HF/Transformers offline policy:
   --hf_offline true|false               Set HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE (default: true)
@@ -405,6 +411,9 @@ while [[ $# -gt 0 ]]; do
     --skip_train) require_arg_value "$1" "${2-}"; SKIP_TRAIN="$(parse_bool "$2")"; shift 2;;
     --skip_eval) require_arg_value "$1" "${2-}"; SKIP_EVAL="$(parse_bool "$2")"; shift 2;;
     --single_seed|--single-seed) require_arg_value "$1" "${2-}"; SINGLE_SEED="$(parse_bool "$2")"; shift 2;;
+    --max_parallel_gpus|--max-parallel-gpus) require_arg_value "$1" "${2-}"; MAX_PARALLEL_GPUS="$2"; shift 2;;
+    --parallel_jobs|--parallel-jobs) require_arg_value "$1" "${2-}"; PARALLEL_JOBS="$2"; shift 2;;
+    --failure_policy|--failure-policy) require_arg_value "$1" "${2-}"; FAILURE_POLICY="$2"; shift 2;;
     --hf_offline) require_arg_value "$1" "${2-}"; HF_OFFLINE="$(parse_bool "$2")"; shift 2;;
     --hf_cache_root) require_arg_value "$1" "${2-}"; HF_CACHE_ROOT="$2"; shift 2;;
     --help|-h) usage; exit 0;;
@@ -680,6 +689,9 @@ export RUNNER_MANIFEST_SKIP_REGISTRY_VALIDATION="$SKIP_REGISTRY_VALIDATION"
 export RUNNER_MANIFEST_SKIP_TRAIN="$SKIP_TRAIN"
 export RUNNER_MANIFEST_SKIP_EVAL="$SKIP_EVAL"
 export RUNNER_MANIFEST_SINGLE_SEED="$SINGLE_SEED"
+export RUNNER_MANIFEST_MAX_PARALLEL_GPUS="$MAX_PARALLEL_GPUS"
+export RUNNER_MANIFEST_PARALLEL_JOBS="$PARALLEL_JOBS"
+export RUNNER_MANIFEST_FAILURE_POLICY="$FAILURE_POLICY"
 export RUNNER_MANIFEST_CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-}"
 export RUNNER_MANIFEST_HF_OFFLINE="$HF_OFFLINE"
 export RUNNER_MANIFEST_HF_HOME="${HF_HOME:-}"
@@ -708,6 +720,9 @@ manifest = {
     "skip_train": os.environ["RUNNER_MANIFEST_SKIP_TRAIN"],
     "skip_eval": os.environ["RUNNER_MANIFEST_SKIP_EVAL"],
     "single_seed": os.environ["RUNNER_MANIFEST_SINGLE_SEED"],
+    "max_parallel_gpus": os.environ["RUNNER_MANIFEST_MAX_PARALLEL_GPUS"],
+    "parallel_jobs": os.environ["RUNNER_MANIFEST_PARALLEL_JOBS"],
+    "failure_policy": os.environ["RUNNER_MANIFEST_FAILURE_POLICY"],
     "cuda_visible_devices": os.environ["RUNNER_MANIFEST_CUDA_VISIBLE_DEVICES"],
     "hf_offline": os.environ["RUNNER_MANIFEST_HF_OFFLINE"],
     "hf_home": os.environ["RUNNER_MANIFEST_HF_HOME"],
@@ -728,6 +743,7 @@ unset RUNNER_MANIFEST_LOG_ROOT RUNNER_MANIFEST_JOB_DIR RUNNER_MANIFEST_PROFILE R
 unset RUNNER_MANIFEST_SEEDS RUNNER_MANIFEST_DRYRUN RUNNER_MANIFEST_STRICT
 unset RUNNER_MANIFEST_SKIP_DATASET_QA RUNNER_MANIFEST_SKIP_REGISTRY_VALIDATION
 unset RUNNER_MANIFEST_SKIP_TRAIN RUNNER_MANIFEST_SKIP_EVAL RUNNER_MANIFEST_SINGLE_SEED RUNNER_MANIFEST_CUDA_VISIBLE_DEVICES
+unset RUNNER_MANIFEST_MAX_PARALLEL_GPUS RUNNER_MANIFEST_PARALLEL_JOBS RUNNER_MANIFEST_FAILURE_POLICY
 unset RUNNER_MANIFEST_HF_OFFLINE RUNNER_MANIFEST_HF_HOME
 
 emit_log "INFO" "Resolved suite YAML: $RESOLVED_SUITE_YML"
@@ -739,7 +755,11 @@ CMD=("$PYTHON_EXE" "$REPO_ROOT/scripts/hydride_benchmark_suite.py" "--config" "$
 [[ "$SKIP_TRAIN" == "true" ]] && CMD+=("--skip-train")
 [[ "$SKIP_EVAL" == "true" ]] && CMD+=("--skip-eval")
 [[ "$SINGLE_SEED" == "true" ]] && CMD+=("--single-seed")
+[[ -n "$MAX_PARALLEL_GPUS" ]] && CMD+=("--max-parallel-gpus" "$MAX_PARALLEL_GPUS")
+[[ -n "$PARALLEL_JOBS" ]] && CMD+=("--parallel-jobs" "$PARALLEL_JOBS")
+[[ -n "$FAILURE_POLICY" ]] && CMD+=("--failure-policy" "$FAILURE_POLICY")
 
+emit_log "INFO" "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
 emit_log "INFO" "Command: ${CMD[*]}"
 
 if [[ "$DRYRUN" == "true" ]]; then

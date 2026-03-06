@@ -11,12 +11,15 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
 import statistics
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
+from queue import Empty, Queue
 from typing import Any
 
 import yaml
@@ -141,84 +144,104 @@ def _terminate_process(proc: subprocess.Popen[str], *, grace_seconds: float) -> 
 
 def _run_cmd(
     cmd: list[str],
-    log_path: Path,
+    stdout_log_path: Path,
     *,
+    stderr_log_path: Path | None = None,
     dry_run: bool,
     run_label: str,
     idle_timeout_seconds: float | None,
     wall_timeout_seconds: float | None,
     terminate_grace_seconds: float,
     poll_interval_seconds: float,
-) -> int:
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> tuple[int, int | None]:
+    stdout_log_path.parent.mkdir(parents=True, exist_ok=True)
+    if stderr_log_path is not None:
+        stderr_log_path.parent.mkdir(parents=True, exist_ok=True)
     cmd_text = " ".join(cmd)
     if dry_run:
-        log_path.write_text("$ " + cmd_text + "\n[dry-run]\n", encoding="utf-8")
-        print(f"[suite] {run_label} dry-run planned | log={log_path}")
-        return 0
+        stdout_log_path.write_text("$ " + cmd_text + "\n[dry-run]\n", encoding="utf-8")
+        if stderr_log_path is not None:
+            stderr_log_path.write_text("[dry-run]\n", encoding="utf-8")
+        print(f"[suite] {run_label} dry-run planned | log={stdout_log_path}")
+        return 0, None
 
-    print(f"[suite] {run_label} starting | log={log_path}")
-    with log_path.open("w", encoding="utf-8") as log_file:
-        log_file.write("$ " + cmd_text + "\n\n")
-        log_file.flush()
-
-        popen_kwargs: dict[str, Any] = {
-            "stdout": log_file,
-            "stderr": subprocess.STDOUT,
-            "text": True,
-        }
-        if os.name != "nt":
-            popen_kwargs["start_new_session"] = True
-        proc = subprocess.Popen(cmd, **popen_kwargs)
-
-        started = time.monotonic()
-        last_activity = started
+    print(f"[suite] {run_label} starting | log={stdout_log_path}")
+    with stdout_log_path.open("w", encoding="utf-8") as stdout_file:
+        stderr_target = subprocess.STDOUT
+        stderr_handle = None
+        if stderr_log_path is not None:
+            stderr_handle = stderr_log_path.open("w", encoding="utf-8")
+            stderr_target = stderr_handle
         try:
-            last_size = log_path.stat().st_size
-        except Exception:
-            last_size = 0
+            stdout_file.write("$ " + cmd_text + "\n\n")
+            stdout_file.flush()
 
-        poll_seconds = max(0.1, float(poll_interval_seconds))
-        grace_seconds = max(1.0, float(terminate_grace_seconds))
+            popen_kwargs: dict[str, Any] = {
+                "stdout": stdout_file,
+                "stderr": stderr_target,
+                "text": True,
+                "env": env,
+            }
+            if cwd is not None:
+                popen_kwargs["cwd"] = str(cwd)
+            if os.name != "nt":
+                popen_kwargs["start_new_session"] = True
+            proc = subprocess.Popen(cmd, **popen_kwargs)
+            pid = int(proc.pid)
 
-        timeout_reason = ""
-        timeout_seconds = 0.0
-        while True:
-            rc = proc.poll()
-            if rc is not None:
-                print(f"[suite] {run_label} finished | rc={int(rc)} | log={log_path}")
-                return int(rc)
-
-            now = time.monotonic()
+            started = time.monotonic()
+            last_activity = started
             try:
-                size_now = log_path.stat().st_size
+                last_size = stdout_log_path.stat().st_size
             except Exception:
-                size_now = last_size
-            if size_now > last_size:
-                last_size = size_now
-                last_activity = now
+                last_size = 0
 
-            if wall_timeout_seconds is not None and (now - started) > float(wall_timeout_seconds):
-                timeout_reason = "wall_timeout"
-                timeout_seconds = float(wall_timeout_seconds)
-                break
-            if idle_timeout_seconds is not None and (now - last_activity) > float(idle_timeout_seconds):
-                timeout_reason = "idle_timeout"
-                timeout_seconds = float(idle_timeout_seconds)
-                break
-            time.sleep(poll_seconds)
+            poll_seconds = max(0.1, float(poll_interval_seconds))
+            grace_seconds = max(1.0, float(terminate_grace_seconds))
 
-        log_file.write(
-            f"\n[watchdog] {timeout_reason} triggered after {timeout_seconds:.1f}s; "
-            "terminating subprocess and continuing suite.\n"
-        )
-        log_file.flush()
-        _terminate_process(proc, grace_seconds=grace_seconds)
-        print(
-            f"[suite] {run_label} watchdog {timeout_reason} after {timeout_seconds:.1f}s | "
-            f"returning rc=124 | log={log_path}"
-        )
-        return 124
+            timeout_reason = ""
+            timeout_seconds = 0.0
+            while True:
+                rc = proc.poll()
+                if rc is not None:
+                    print(f"[suite] {run_label} finished | rc={int(rc)} | log={stdout_log_path}")
+                    return int(rc), pid
+
+                now = time.monotonic()
+                try:
+                    size_now = stdout_log_path.stat().st_size
+                except Exception:
+                    size_now = last_size
+                if size_now > last_size:
+                    last_size = size_now
+                    last_activity = now
+
+                if wall_timeout_seconds is not None and (now - started) > float(wall_timeout_seconds):
+                    timeout_reason = "wall_timeout"
+                    timeout_seconds = float(wall_timeout_seconds)
+                    break
+                if idle_timeout_seconds is not None and (now - last_activity) > float(idle_timeout_seconds):
+                    timeout_reason = "idle_timeout"
+                    timeout_seconds = float(idle_timeout_seconds)
+                    break
+                time.sleep(poll_seconds)
+
+            stdout_file.write(
+                f"\n[watchdog] {timeout_reason} triggered after {timeout_seconds:.1f}s; "
+                "terminating subprocess and continuing suite.\n"
+            )
+            stdout_file.flush()
+            _terminate_process(proc, grace_seconds=grace_seconds)
+            print(
+                f"[suite] {run_label} watchdog {timeout_reason} after {timeout_seconds:.1f}s | "
+                f"returning rc=124 | log={stdout_log_path}"
+            )
+            return 124, pid
+        finally:
+            if stderr_handle is not None:
+                stderr_handle.close()
 
 
 def _resolve_model_path(train_dir: Path) -> Path:
@@ -270,11 +293,112 @@ def _runtime_environment_snapshot() -> dict[str, Any]:
         "python_executable": sys.executable,
         "python_version": sys.version.split()[0],
         "platform": sys.platform,
-        "hostname": os.environ.get("HOSTNAME", ""),
+        "hostname": os.environ.get("HOSTNAME", "") or socket.gethostname(),
         "pid": os.getpid(),
     }
 
 
+class VisibleGpuInfo:
+    """Resolved visible GPU mapping for suite-level scheduling."""
+
+    def __init__(self, worker_gpu_ids: list[str], source: str, cuda_visible_devices: str) -> None:
+        self.worker_gpu_ids = list(worker_gpu_ids)
+        self.source = str(source)
+        self.cuda_visible_devices = str(cuda_visible_devices)
+
+    @property
+    def count(self) -> int:
+        return len(self.worker_gpu_ids)
+
+
+def _parse_cuda_visible_devices(raw: str) -> list[str]:
+    parts = [p.strip() for p in str(raw).split(",")]
+    return [p for p in parts if p]
+
+
+def _discover_visible_gpus() -> VisibleGpuInfo:
+    env_raw = str(os.environ.get("CUDA_VISIBLE_DEVICES", "")).strip()
+    if env_raw:
+        parsed = _parse_cuda_visible_devices(env_raw)
+        if parsed:
+            return VisibleGpuInfo(worker_gpu_ids=parsed, source="cuda_visible_devices", cuda_visible_devices=env_raw)
+
+    torch_count = 0
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch_count = int(torch.cuda.device_count())
+    except Exception:
+        torch_count = 0
+
+    if torch_count > 0:
+        ids = [str(i) for i in range(torch_count)]
+        return VisibleGpuInfo(worker_gpu_ids=ids, source="torch.cuda.device_count", cuda_visible_devices=env_raw)
+
+    return VisibleGpuInfo(worker_gpu_ids=[], source="none", cuda_visible_devices=env_raw)
+
+
+def _resolve_parallel_workers(
+    gpu_info: VisibleGpuInfo,
+    *,
+    max_parallel_gpus: str,
+    parallel_jobs: str,
+) -> tuple[int, str]:
+    detected = max(1, gpu_info.count)
+
+    def _resolve_limit(raw: str, *, default: int, label: str) -> int:
+        txt = str(raw).strip().lower()
+        if txt in {"", "auto"}:
+            return int(default)
+        parsed = _safe_int(txt)
+        if parsed is None or int(parsed) <= 0:
+            raise ValueError(f"{label} must be 'auto' or a positive integer")
+        return int(parsed)
+
+    gpu_limit = _resolve_limit(max_parallel_gpus, default=detected, label="max_parallel_gpus")
+    job_limit = _resolve_limit(parallel_jobs, default=gpu_limit, label="parallel_jobs")
+    workers = max(1, min(detected, gpu_limit, job_limit))
+    mode = "parallel" if workers > 1 else "serial"
+    return workers, mode
+
+
+class BenchmarkUnit:
+    """Single benchmark unit for one (experiment, seed) train/eval flow."""
+
+    def __init__(
+        self,
+        *,
+        run_index: int,
+        model_name: str,
+        seed: int,
+        train_config: str,
+        train_overrides: list[str],
+        eval_overrides: list[str],
+        execution_family: str,
+        execution_priority: int,
+        source_index: int,
+    ) -> None:
+        self.run_index = int(run_index)
+        self.model_name = str(model_name)
+        self.seed = int(seed)
+        self.train_config = str(train_config)
+        self.train_overrides = list(train_overrides)
+        self.eval_overrides = list(eval_overrides)
+        self.execution_family = str(execution_family)
+        self.execution_priority = int(execution_priority)
+        self.source_index = int(source_index)
+
+    @property
+    def run_tag(self) -> str:
+        return f"{self.model_name}_seed{self.seed}"
+
+
+def _resolve_failure_policy(raw_policy: str | None, *, continue_on_failure: bool) -> str:
+    policy = str(raw_policy or "").strip().lower()
+    if policy in {"continue", "fail-fast"}:
+        return policy
+    return "continue" if continue_on_failure else "fail-fast"
 
 
 def _sha256_file(path: Path) -> str:
@@ -315,6 +439,16 @@ def _safe_name(text: str) -> str:
     return cleaned or "sample"
 
 
+
+
+def _tail_text(path: Path, *, max_chars: int = 1200) -> str:
+    if not path.exists():
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    return text[-max_chars:]
 def _as_bool(value: object, *, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -1293,6 +1427,9 @@ def run_suite(
     skip_train: bool,
     skip_eval: bool,
     single_seed: bool,
+    max_parallel_gpus: str,
+    parallel_jobs: str,
+    failure_policy: str,
 ) -> int:
     cfg = _load_yaml(cfg_path)
     dataset_dir = str(cfg.get("dataset_dir", "")).strip()
@@ -1415,6 +1552,11 @@ def run_suite(
             "terminate_grace_seconds": terminate_grace_seconds,
             "poll_interval_seconds": poll_interval_seconds,
         },
+        scheduler_controls={
+            "max_parallel_gpus": max_parallel_gpus,
+            "parallel_jobs": parallel_jobs,
+            "failure_policy": failure_policy,
+        },
         runtime_environment=_runtime_environment_snapshot(),
     )
 
@@ -1433,9 +1575,24 @@ def run_suite(
     rows: list[dict[str, Any]] = []
     failures = 0
     preflight_cache: dict[tuple[str, bool], Any] = {}
-    stop_requested = False
-    run_counter = 0
 
+    max_parallel_gpus = str(max_parallel_gpus).strip() or str(cfg.get("max_parallel_gpus", "auto"))
+    parallel_jobs = str(parallel_jobs).strip() or str(cfg.get("parallel_jobs", "auto"))
+    failure_policy = _resolve_failure_policy(
+        failure_policy if str(failure_policy).strip() else cfg.get("failure_policy"),
+        continue_on_failure=bool(continue_on_failure),
+    )
+    gpu_info = _discover_visible_gpus()
+    worker_count, scheduler_mode = _resolve_parallel_workers(
+        gpu_info,
+        max_parallel_gpus=max_parallel_gpus,
+        parallel_jobs=parallel_jobs,
+    )
+    if failure_policy == "fail-fast":
+        continue_on_failure = False
+
+    units: list[BenchmarkUnit] = []
+    run_counter = 0
     for exp in prepared_experiments:
         model_name = str(exp.get("name", "")).strip() or "unnamed_model"
         train_config = str(exp.get("train_config", "")).strip()
@@ -1456,57 +1613,122 @@ def run_suite(
             execution_priority=execution_priority,
             source_index=source_index,
         )
-
         for seed in seeds:
             run_counter += 1
-            run_index = int(run_counter)
-            run_started_utc = _utc_now()
-            run_started_monotonic = time.monotonic()
-            run_tag = f"{model_name}_seed{seed}"
-            train_dir = output_root / "runs" / run_tag
-            eval_report = output_root / "eval" / f"{run_tag}_{eval_split}.json"
-            logs_dir = output_root / "logs" / run_tag
-            train_log = logs_dir / "train.log"
-            eval_log = logs_dir / "eval.log"
-            run_events_log = logs_dir / "run_events.jsonl"
-
-            def _emit_run_event(event: str, **payload: Any) -> None:
-                event_payload = {
-                    "ts_utc": _utc_now(),
-                    "event": str(event),
-                    "run_tag": run_tag,
-                    "model": model_name,
-                    "seed": int(seed),
-                    "execution_run_index": run_index,
-                    "execution_family": execution_family,
-                    **payload,
-                }
-                _append_jsonl(run_events_log, event_payload)
-                _emit_suite_event("run_event", run_event=event_payload)
-
-            _emit_run_event(
-                "run_start",
-                train_config=train_config,
-                eval_config=eval_config,
-                eval_split=eval_split,
-                train_log=str(train_log),
-                eval_log=str(eval_log),
+            units.append(
+                BenchmarkUnit(
+                    run_index=run_counter,
+                    model_name=model_name,
+                    seed=int(seed),
+                    train_config=train_config,
+                    train_overrides=list(train_overrides),
+                    eval_overrides=list(eval_overrides),
+                    execution_family=execution_family,
+                    execution_priority=execution_priority,
+                    source_index=source_index,
+                )
             )
 
-            status = "ok"
-            status_message = ""
-            model_path = None
-            preflight: dict[str, Any] = {}
-            preflight_duration_seconds = 0.0
-            train_cmd_duration_seconds: float | None = None
-            eval_cmd_duration_seconds: float | None = None
-            failure_recorded = False
+    gpu_assignment_count = {gpu_id: 0 for gpu_id in gpu_info.worker_gpu_ids}
+    failed_unit_ids: list[str] = []
+    rows_lock = threading.Lock()
 
-            def mark_failure() -> None:
-                nonlocal failures, failure_recorded
-                if not failure_recorded:
-                    failures += 1
-                    failure_recorded = True
+    _emit_suite_event(
+        "scheduler_configuration",
+        failure_policy=failure_policy,
+        continue_on_failure=bool(continue_on_failure),
+        scheduler_mode=scheduler_mode,
+        worker_count=int(worker_count),
+        visible_gpus=gpu_info.worker_gpu_ids,
+        gpu_discovery_source=gpu_info.source,
+        cuda_visible_devices=gpu_info.cuda_visible_devices,
+        queue=[{"run_index": u.run_index, "run_tag": u.run_tag, "model": u.model_name, "seed": u.seed} for u in units],
+    )
+    print(
+        "[suite] scheduler: "
+        f"mode={scheduler_mode} workers={worker_count} visible_gpus={gpu_info.worker_gpu_ids or ['cpu']} "
+        f"failure_policy={failure_policy}"
+    )
+
+    def _execute_unit(unit: BenchmarkUnit, *, worker_id: int, gpu_id: str | None) -> dict[str, Any]:
+        nonlocal failures
+        run_started_utc = _utc_now()
+        run_started_monotonic = time.monotonic()
+        run_tag = unit.run_tag
+        model_name = unit.model_name
+        seed = unit.seed
+        train_config = unit.train_config
+        train_overrides = unit.train_overrides
+        eval_overrides = unit.eval_overrides
+        execution_family = unit.execution_family
+        execution_priority = unit.execution_priority
+        source_index = unit.source_index
+
+        train_dir = output_root / "runs" / run_tag
+        eval_report = output_root / "eval" / f"{run_tag}_{eval_split}.json"
+        logs_dir = output_root / "logs" / run_tag
+        train_log = logs_dir / "train.log"
+        eval_log = logs_dir / "eval.log"
+        run_events_log = logs_dir / "run_events.jsonl"
+        subjob_dir = output_root / "subjobs" / run_tag
+        subjob_stdout = subjob_dir / "stdout.log"
+        subjob_stderr = subjob_dir / "stderr.log"
+        subjob_metadata = subjob_dir / "metadata.json"
+        subjob_command = subjob_dir / "command.sh"
+        subjob_dir.mkdir(parents=True, exist_ok=True)
+
+        base_env = os.environ.copy()
+        env_overrides: dict[str, str] = {
+            "HYDRIDE_WORKER_ID": str(worker_id),
+            "HYDRIDE_BENCHMARK_UNIT_ID": run_tag,
+        }
+        if gpu_id is not None:
+            env_overrides["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+            env_overrides["HYDRIDE_ASSIGNED_GPU"] = str(gpu_id)
+        base_env.update(env_overrides)
+
+        def _emit_run_event(event: str, **payload: Any) -> None:
+            event_payload = {
+                "ts_utc": _utc_now(),
+                "event": str(event),
+                "run_tag": run_tag,
+                "model": model_name,
+                "seed": int(seed),
+                "execution_run_index": unit.run_index,
+                "execution_family": execution_family,
+                "worker_id": int(worker_id),
+                "assigned_gpu": gpu_id,
+                **payload,
+            }
+            _append_jsonl(run_events_log, event_payload)
+            _emit_suite_event("run_event", run_event=event_payload)
+
+        _emit_run_event(
+            "run_start",
+            train_config=train_config,
+            eval_config=eval_config,
+            eval_split=eval_split,
+            train_log=str(train_log),
+            eval_log=str(eval_log),
+        )
+
+        status = "ok"
+        status_message = ""
+        model_path = None
+        preflight: dict[str, Any] = {}
+        preflight_duration_seconds = 0.0
+        train_cmd_duration_seconds: float | None = None
+        eval_cmd_duration_seconds: float | None = None
+        failure_recorded = False
+        launched_pid: int | None = None
+
+        def mark_failure() -> None:
+            nonlocal failures, failure_recorded
+            if not failure_recorded:
+                failures += 1
+                failure_recorded = True
+
+        try:
             if not skip_train:
                 preflight_started = time.monotonic()
                 preflight_ok, preflight = preflight_pretrained_train_config(
@@ -1550,22 +1772,41 @@ def run_suite(
                 for item in train_overrides:
                     train_cmd.extend(["--set", item])
                 if status == "ok":
-                    _emit_run_event("train_start", command=train_cmd)
+                    command_text = " ".join(train_cmd)
+                    subjob_command.write_text(command_text + "\n", encoding="utf-8")
+                    _emit_run_event("train_start", command=train_cmd, env_overrides=env_overrides, cwd=str(repo_root))
+                    _emit_suite_event(
+                        "subjob_started",
+                        unit_id=run_tag,
+                        model=model_name,
+                        seed=int(seed),
+                        worker_id=int(worker_id),
+                        assigned_gpu=gpu_id,
+                        command=train_cmd,
+                        cwd=str(repo_root),
+                        stdout_log=str(subjob_stdout),
+                        stderr_log=str(subjob_stderr),
+                        env_overrides=env_overrides,
+                    )
                     train_cmd_started = time.monotonic()
-                    rc = _run_cmd(
+                    rc, launched_pid = _run_cmd(
                         train_cmd,
-                        train_log,
+                        subjob_stdout,
+                        stderr_log_path=subjob_stderr,
                         dry_run=dry_run,
                         run_label=f"{run_tag}:train",
                         idle_timeout_seconds=idle_timeout_seconds,
                         wall_timeout_seconds=wall_timeout_seconds,
                         terminate_grace_seconds=terminate_grace_seconds,
                         poll_interval_seconds=poll_interval_seconds,
+                        env=base_env,
+                        cwd=repo_root,
                     )
                     train_cmd_duration_seconds = time.monotonic() - train_cmd_started
                     _emit_run_event(
                         "train_end",
                         rc=int(rc),
+                        pid=launched_pid,
                         duration_seconds=float(train_cmd_duration_seconds),
                         dry_run=bool(dry_run),
                     )
@@ -1611,7 +1852,7 @@ def run_suite(
                         eval_cmd.extend(["--set", item])
                     _emit_run_event("eval_start", command=eval_cmd, model_artifact=str(model_path))
                     eval_cmd_started = time.monotonic()
-                    rc = _run_cmd(
+                    rc, _ = _run_cmd(
                         eval_cmd,
                         eval_log,
                         dry_run=dry_run,
@@ -1620,6 +1861,8 @@ def run_suite(
                         wall_timeout_seconds=wall_timeout_seconds,
                         terminate_grace_seconds=terminate_grace_seconds,
                         poll_interval_seconds=poll_interval_seconds,
+                        env=base_env,
+                        cwd=repo_root,
                     )
                     eval_cmd_duration_seconds = time.monotonic() - eval_cmd_started
                     _emit_run_event(
@@ -1700,7 +1943,7 @@ def run_suite(
                 )
 
             row = {
-                "execution_run_index": run_index,
+                "execution_run_index": unit.run_index,
                 "execution_family": execution_family,
                 "execution_priority": execution_priority,
                 "execution_source_index": source_index,
@@ -1733,55 +1976,8 @@ def run_suite(
                 "runtime_seconds": eval_runtime_seconds,
                 "training_runtime_seconds": train_runtime_seconds,
                 "total_runtime_seconds": total_runtime_seconds,
-                "mask_area_fraction_abs_error": scientific_metrics.get("mask_area_fraction_abs_error"),
-                "hydride_count_abs_error": scientific_metrics.get("hydride_count_abs_error"),
-                "hydride_size_wasserstein": scientific_metrics.get("hydride_size_wasserstein"),
-                "hydride_orientation_wasserstein": scientific_metrics.get("hydride_orientation_wasserstein"),
-                "backend": eval_payload.get("backend") if isinstance(eval_payload, dict) else "",
-                "model_initialization": eval_payload.get("model_initialization") if isinstance(eval_payload, dict) else "",
-                "model_artifact_path": str(model_path) if isinstance(model_path, Path) else "",
-                "model_artifact_size_bytes": model_artifact_bytes,
-                "model_artifact_size_mb": _bytes_to_mb(model_artifact_bytes),
-                "model_parameter_count": model_param_count,
-                "model_trainable_parameter_count": model_trainable_param_count,
-                "model_weight_mean": model_weight_mean,
-                "model_weight_std": model_weight_std,
-                "model_weight_min": model_weight_min,
-                "model_weight_max": model_weight_max,
-                "resolved_backend": train_resolved.get("backend") if isinstance(train_resolved, dict) else "",
-                "resolved_model_architecture": train_resolved.get("model_architecture")
-                if isinstance(train_resolved, dict)
-                else "",
-                "resolved_epochs": train_resolved.get("epochs") if isinstance(train_resolved, dict) else "",
-                "resolved_batch_size": train_resolved.get("batch_size") if isinstance(train_resolved, dict) else "",
-                "resolved_learning_rate": train_resolved.get("learning_rate") if isinstance(train_resolved, dict) else "",
-                "resolved_weight_decay": train_resolved.get("weight_decay") if isinstance(train_resolved, dict) else "",
-                "resolved_model_base_channels": train_resolved.get("model_base_channels")
-                if isinstance(train_resolved, dict)
-                else "",
-                "resolved_transformer_depth": train_resolved.get("transformer_depth")
-                if isinstance(train_resolved, dict)
-                else "",
-                "resolved_transformer_num_heads": train_resolved.get("transformer_num_heads")
-                if isinstance(train_resolved, dict)
-                else "",
-                "resolved_transformer_mlp_ratio": train_resolved.get("transformer_mlp_ratio")
-                if isinstance(train_resolved, dict)
-                else "",
-                "resolved_transformer_dropout": train_resolved.get("transformer_dropout")
-                if isinstance(train_resolved, dict)
-                else "",
-                "resolved_segformer_patch_size": train_resolved.get("segformer_patch_size")
-                if isinstance(train_resolved, dict)
-                else "",
-                "training_status": train_meta.get("training_status"),
-                "training_runtime_human": train_meta.get("training_runtime_human"),
-                "runtime_device": train_meta.get("runtime_device"),
-                "runtime_device_reason": train_meta.get("runtime_device_reason"),
-                "runtime_gpu_name": train_meta.get("runtime_gpu_name"),
-                "runtime_gpu_peak_memory_allocated_mb": train_meta.get("runtime_gpu_peak_memory_allocated_mb"),
-                "runtime_gpu_total_memory_mb": train_meta.get("runtime_gpu_total_memory_mb"),
-                "runtime_gpu_utilization_pct": train_meta.get("runtime_gpu_utilization_pct"),
+                "training_status": train_meta.get("training_status", ""),
+                "training_runtime_human": train_meta.get("training_runtime_human", ""),
                 "training_epochs_total": train_meta.get("training_epochs_total"),
                 "training_epochs_completed": train_meta.get("training_epochs_completed"),
                 "training_history_points": train_meta.get("training_history_points"),
@@ -1830,8 +2026,64 @@ def run_suite(
                 "inside_html": str(train_dir / "inside.html"),
                 "train_overrides": "|".join(train_overrides),
                 "eval_overrides": "|".join(eval_overrides),
+                "subjob_dir": str(subjob_dir),
+                "subjob_stdout": str(subjob_stdout),
+                "subjob_stderr": str(subjob_stderr),
+                "worker_id": int(worker_id),
+                "assigned_gpu": gpu_id if gpu_id is not None else "cpu",
             }
-            rows.append(row)
+            row.update(
+                {
+                    "mask_area_fraction_abs_error": scientific_metrics.get("mask_area_fraction_abs_error"),
+                    "hydride_count_abs_error": scientific_metrics.get("hydride_count_abs_error"),
+                    "hydride_size_wasserstein": scientific_metrics.get("hydride_size_wasserstein"),
+                    "hydride_orientation_wasserstein": scientific_metrics.get("hydride_orientation_wasserstein"),
+                    "resolved_backend": train_resolved.get("backend", ""),
+                    "resolved_model_architecture": train_resolved.get("model_architecture", ""),
+                    "resolved_epochs": train_resolved.get("epochs"),
+                    "resolved_batch_size": train_resolved.get("batch_size"),
+                    "resolved_learning_rate": train_resolved.get("learning_rate"),
+                    "resolved_weight_decay": train_resolved.get("weight_decay"),
+                    "resolved_model_base_channels": train_resolved.get("model_base_channels"),
+                    "resolved_transformer_depth": train_resolved.get("transformer_depth"),
+                    "resolved_transformer_num_heads": train_resolved.get("transformer_num_heads"),
+                    "resolved_transformer_mlp_ratio": train_resolved.get("transformer_mlp_ratio"),
+                    "resolved_transformer_dropout": train_resolved.get("transformer_dropout"),
+                    "resolved_segformer_patch_size": train_resolved.get("segformer_patch_size"),
+                    "runtime_device": train_meta.get("runtime_device", ""),
+                    "runtime_gpu_name": train_meta.get("runtime_gpu_name", ""),
+                    "runtime_gpu_peak_memory_allocated_mb": train_meta.get("runtime_gpu_peak_memory_allocated_mb", 0.0),
+                    "model_parameter_count": model_param_count,
+                    "model_trainable_parameter_count": model_trainable_param_count,
+                    "model_artifact_path": str(model_path) if isinstance(model_path, Path) else "",
+                    "model_artifact_size_bytes": model_artifact_bytes,
+                    "model_artifact_size_mb": _bytes_to_mb(model_artifact_bytes),
+                    "model_weight_mean": model_weight_mean,
+                    "model_weight_std": model_weight_std,
+                    "model_weight_min": model_weight_min,
+                    "model_weight_max": model_weight_max,
+                }
+            )
+            subjob_metadata.write_text(json.dumps({
+                "schema_version": "microseg.hydride_benchmark_subjob.v1",
+                "unit_id": run_tag,
+                "status": status,
+                "status_message": status_message,
+                "model": model_name,
+                "seed": int(seed),
+                "worker_id": int(worker_id),
+                "assigned_gpu": gpu_id,
+                "pid": launched_pid,
+                "stdout_log": str(subjob_stdout),
+                "stderr_log": str(subjob_stderr),
+                "train_log": str(train_log),
+                "eval_log": str(eval_log),
+                "started_utc": run_started_utc,
+                "ended_utc": _utc_now(),
+                "duration_seconds": float(row.get("run_duration_seconds") or 0.0),
+                "return_status": status,
+            }, indent=2), encoding="utf-8")
+
             _emit_run_event(
                 "run_complete",
                 status=status,
@@ -1840,17 +2092,104 @@ def run_suite(
                 eval_report=str(eval_report),
                 run_duration_seconds=row.get("run_duration_seconds"),
             )
-            if status != "ok" and not continue_on_failure:
-                stop_requested = True
-                _emit_suite_event(
-                    "suite_stop_requested",
-                    reason="continue_on_failure_disabled",
-                    failed_run_tag=run_tag,
-                    failed_status=status,
-                )
+            _emit_suite_event(
+                "subjob_finished",
+                unit_id=run_tag,
+                status=status,
+                status_message=status_message,
+                worker_id=int(worker_id),
+                assigned_gpu=gpu_id,
+                duration_seconds=float(row.get("run_duration_seconds") or 0.0),
+                stdout_log=str(subjob_stdout),
+                stderr_log=str(subjob_stderr),
+                stderr_tail=_tail_text(subjob_stderr) if status != "ok" else "",
+            )
+            if status != "ok":
+                failed_unit_ids.append(run_tag)
+            return row
+        except Exception as exc:
+            mark_failure()
+            tb = traceback.format_exc()
+            _append_jsonl(
+                suite_event_log,
+                {
+                    "ts_utc": _utc_now(),
+                    "event": "scheduler_exception",
+                    "unit_id": run_tag,
+                    "worker_id": int(worker_id),
+                    "assigned_gpu": gpu_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "traceback": tb,
+                },
+            )
+            subjob_metadata.write_text(json.dumps({
+                "schema_version": "microseg.hydride_benchmark_subjob.v1",
+                "unit_id": run_tag,
+                "status": "scheduler_exception",
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": tb,
+                "worker_id": int(worker_id),
+                "assigned_gpu": gpu_id,
+                "started_utc": run_started_utc,
+                "ended_utc": _utc_now(),
+            }, indent=2), encoding="utf-8")
+            failed_unit_ids.append(run_tag)
+            return {
+                "execution_run_index": unit.run_index,
+                "model": model_name,
+                "seed": seed,
+                "status": "scheduler_exception",
+                "status_message": f"{type(exc).__name__}: {exc}",
+                "run_duration_seconds": float(time.monotonic() - run_started_monotonic),
+                "train_config": train_config,
+                "eval_config": eval_config,
+                "train_log": str(train_log),
+                "eval_log": str(eval_log),
+                "run_events_log": str(run_events_log),
+                "assigned_gpu": gpu_id if gpu_id is not None else "cpu",
+                "worker_id": int(worker_id),
+            }
+
+    if worker_count <= 1:
+        assigned_gpu = gpu_info.worker_gpu_ids[0] if gpu_info.worker_gpu_ids else None
+        for unit in units:
+            row = _execute_unit(unit, worker_id=0, gpu_id=assigned_gpu)
+            rows.append(row)
+            if assigned_gpu is not None:
+                gpu_assignment_count[assigned_gpu] = gpu_assignment_count.get(assigned_gpu, 0) + 1
+            if row.get("status") != "ok" and failure_policy == "fail-fast":
                 break
-        if stop_requested:
-            break
+    else:
+        queue: Queue[BenchmarkUnit] = Queue()
+        for unit in units:
+            queue.put(unit)
+        fail_fast_event = threading.Event()
+
+        def _worker(worker_id: int, gpu_id: str) -> None:
+            while True:
+                if failure_policy == "fail-fast" and fail_fast_event.is_set():
+                    break
+                try:
+                    unit = queue.get_nowait()
+                except Empty:
+                    break
+                row = _execute_unit(unit, worker_id=worker_id, gpu_id=gpu_id)
+                with rows_lock:
+                    rows.append(row)
+                    gpu_assignment_count[gpu_id] = gpu_assignment_count.get(gpu_id, 0) + 1
+                if row.get("status") != "ok" and failure_policy == "fail-fast":
+                    fail_fast_event.set()
+                queue.task_done()
+
+        threads: list[threading.Thread] = []
+        for idx, gpu_id in enumerate(gpu_info.worker_gpu_ids[:worker_count]):
+            thread = threading.Thread(target=_worker, args=(idx, gpu_id), daemon=True)
+            thread.start()
+            threads.append(thread)
+        for thread in threads:
+            thread.join()
+
+    rows.sort(key=lambda r: int(_safe_int(r.get("execution_run_index")) or 0))
 
     agg = _aggregate(rows)
     summary_json = output_root / "benchmark_summary.json"
@@ -1872,9 +2211,18 @@ def run_suite(
         "effective_seeds": list(seeds),
         "single_seed_override": bool(single_seed_requested),
         "continue_on_failure": bool(continue_on_failure),
+        "failure_policy": failure_policy,
+        "scheduler_mode": scheduler_mode,
+        "worker_count": int(worker_count),
+        "max_parallel_gpus": max_parallel_gpus,
+        "parallel_jobs": parallel_jobs,
+        "visible_gpus": gpu_info.worker_gpu_ids,
+        "gpu_discovery_source": gpu_info.source,
         "expected_dataset_manifest_sha256": expected_manifest_sha,
         "run_count": len(rows),
         "failure_count": failures,
+        "failed_unit_ids": failed_unit_ids,
+        "gpu_assignment_count": gpu_assignment_count,
         "suite_runtime_seconds": float(time.monotonic() - suite_started_monotonic),
         "rows": rows,
         "aggregate": agg,
@@ -1970,6 +2318,11 @@ def run_suite(
             "train_log",
             "eval_log",
             "run_events_log",
+            "assigned_gpu",
+            "worker_id",
+            "subjob_dir",
+            "subjob_stdout",
+            "subjob_stderr",
             "inside_html",
             "preflight_required",
             "preflight_mode",
@@ -2085,12 +2438,19 @@ def run_suite(
     print(f"suite canonical summary html: {canonical_summary_html}")
     print(f"suite event log jsonl: {suite_event_log}")
     print(f"runs: {len(rows)} failures: {failures}")
+    print(f"scheduler mode: {scheduler_mode} workers: {worker_count} failure_policy: {failure_policy}")
+    print(f"gpu assignment count: {gpu_assignment_count}")
 
     _emit_suite_event(
         "suite_complete",
         run_count=len(rows),
         failure_count=failures,
+        failed_unit_ids=failed_unit_ids,
         strict=bool(strict),
+        failure_policy=failure_policy,
+        scheduler_mode=scheduler_mode,
+        worker_count=int(worker_count),
+        gpu_assignment_count=gpu_assignment_count,
         suite_runtime_seconds=float(time.monotonic() - suite_started_monotonic),
         summary_json=str(summary_json),
         aggregate_csv=str(aggregate_csv),
@@ -2114,6 +2474,22 @@ def main() -> None:
         action="store_true",
         help="Override suite seeds and run only the first configured seed",
     )
+    parser.add_argument(
+        "--max-parallel-gpus",
+        default="",
+        help="Maximum GPUs to use in suite scheduler (auto or integer)",
+    )
+    parser.add_argument(
+        "--parallel-jobs",
+        default="",
+        help="Maximum concurrent benchmark units (auto or integer)",
+    )
+    parser.add_argument(
+        "--failure-policy",
+        default="",
+        choices=["", "continue", "fail-fast"],
+        help="Suite failure handling policy (continue or fail-fast)",
+    )
     args = parser.parse_args()
     rc = run_suite(
         Path(args.config),
@@ -2122,6 +2498,9 @@ def main() -> None:
         skip_train=bool(args.skip_train),
         skip_eval=bool(args.skip_eval),
         single_seed=bool(args.single_seed),
+        max_parallel_gpus=str(args.max_parallel_gpus),
+        parallel_jobs=str(args.parallel_jobs),
+        failure_policy=str(args.failure_policy),
     )
     raise SystemExit(rc)
 
