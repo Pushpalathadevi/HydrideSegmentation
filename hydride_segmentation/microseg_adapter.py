@@ -16,6 +16,7 @@ LEGACY_GUI_MODEL_TO_ID = {
 
 def get_gui_model_options() -> list[str]:
     """Return model display names for desktop GUI selectors."""
+
     specs = build_hydride_registry().specs()
     return [spec.display_name for spec in specs]
 
@@ -54,6 +55,7 @@ def get_gui_model_specs() -> list[dict[str, str]]:
 
 def resolve_gui_model_id(model_name: str) -> str:
     """Resolve a GUI model label (new or legacy) to a model identifier."""
+
     specs = build_hydride_registry().specs()
     display_map = {spec.display_name: spec.model_id for spec in specs}
     if model_name in display_map:
@@ -63,6 +65,7 @@ def resolve_gui_model_id(model_name: str) -> str:
 
 def is_conventional_model(model_name: str) -> bool:
     """Return whether selected model uses conventional parameters."""
+
     return resolve_gui_model_id(model_name) == "hydride_conventional"
 
 
@@ -73,7 +76,7 @@ def run_pipeline(
     params: dict | None = None,
     include_analysis: bool = True,
 ):
-    """Run segmentation through the phase-1 microseg orchestration layer."""
+    """Run segmentation through the microseg orchestration layer."""
 
     pipeline = SegmentationPipeline.with_hydride_defaults()
     request = SegmentationRequest(
@@ -92,7 +95,7 @@ def run_pipeline_from_gui(
     *,
     include_analysis: bool = False,
 ):
-    """Map existing GUI model names to microseg model identifiers."""
+    """Map GUI model names to model identifiers."""
 
     model_id = resolve_gui_model_id(model_name)
     return run_pipeline(

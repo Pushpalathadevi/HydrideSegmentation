@@ -78,6 +78,12 @@ def infer():
             ml_params["enable_gpu"] = request.form.get("enable_gpu", "false").lower() == "true"
         if "device_policy" in request.form:
             ml_params["device_policy"] = request.form.get("device_policy", "cpu")
+        if "run_dir" in request.form:
+            ml_params["run_dir"] = request.form.get("run_dir", "")
+        if "registry_model_id" in request.form:
+            ml_params["registry_model_id"] = request.form.get("registry_model_id", "")
+        if "checkpoint_path" in request.form:
+            ml_params["checkpoint_path"] = request.form.get("checkpoint_path", "")
 
     tmp_path = _save_upload(file)
     try:

@@ -43,3 +43,5 @@ Current phase coverage includes:
 - `test_data_preparation_module.py` paired image/mask collector, RGB red-threshold + red-dominance fallback binarization, noisy-grayscale auto-Otsu fallback, short-side resize+crop alignment, empty-mask warn/error policy, manifests/QA reports, debug criteria exports, and dry-run behavior
 - `test_mask_binary_normalization.py` binary-mask auto-normalization option (`two_value_zero_background`) for 2-value indexed masks
 - `test_service.py` legacy Flask service request validation for model selection, parameter parsing, and response behavior
+
+- `test_phase30_unified_inference_loader.py` unified architecture-aware inference discovery/loading across run folders, failed-run rejection, and GUI model option integration

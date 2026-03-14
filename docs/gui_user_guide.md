@@ -202,3 +202,27 @@ Smoke-stage models are debug-only and are not intended for scientific reporting.
   - top-bar `Load Sample`
 - Desktop logs are written to:
   - `outputs/logs/desktop/`
+
+
+## Trained model discovery (architecture-aware)
+
+The model dropdown now includes inference-capable trained models discovered from:
+
+- `outputs/runs/<run_name>/` (successful runs only)
+- frozen checkpoint registry entries when paths are valid
+
+A trained run is considered inference-eligible when it has:
+
+- `report.json` with status `ok`/`success`/`completed`
+- a resolvable model checkpoint path
+- architecture metadata (`model_architecture`) compatible with repo-supported trainable families
+
+Failed/incomplete runs are skipped and not shown as runnable model options.
+
+When troubleshooting model loading:
+
+1. confirm run status in `report.json`
+2. confirm checkpoint file exists at declared `model_path`
+3. confirm architecture is one of the supported trainable families
+4. verify required backend dependencies are installed (for example `transformers` for HF backends)
+

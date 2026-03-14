@@ -108,6 +108,26 @@ Inference:
 microseg-cli infer --config configs/inference.default.yml --set params.area_threshold=120
 ```
 
+
+## Unified trained-model inference loading
+
+Model-based inference now uses one architecture-aware loader shared by GUI, legacy API/service adapters, and ML inference entry points.
+
+- Discovery sources:
+  - training runs under `outputs/runs/<run_name>/`
+  - frozen registry entries in `frozen_checkpoints/model_registry.json`
+- Run eligibility requires successful metadata + checkpoint artifacts (`report.json` status ok/success/completed and resolvable `model_path`).
+- Failed/incomplete runs (for example folders with only `error_report.json`) are excluded from inference-capable discovery with explicit diagnostics.
+- Architecture is reconstructed from run metadata (`model_architecture` in report/manifest/config), then loaded via the unified binary-backend loader used in training/evaluation (`unet_binary`, SMP families, HF SegFormer/UPerNet, `transunet_tiny`, `segformer_mini`).
+
+For legacy service/API callers, pass one of:
+- `run_dir`
+- `registry_model_id`
+- `checkpoint_path`
+
+to select the exact inference artifact and avoid architecture mismatches.
+
+
 Training (UNet):
 ```bash
 microseg-cli train --config configs/train.default.yml --set epochs=20

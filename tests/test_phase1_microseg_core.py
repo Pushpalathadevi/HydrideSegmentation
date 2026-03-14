@@ -32,7 +32,8 @@ def _write_temp_image(image: np.ndarray) -> str:
 
 def test_hydride_registry_contains_phase1_models() -> None:
     reg = build_hydride_registry()
-    assert sorted(reg.model_ids()) == ["hydride_conventional", "hydride_ml"]
+    assert "hydride_conventional" in reg.model_ids()
+    assert "hydride_ml" in reg.model_ids()
 
 
 def test_microseg_pipeline_conventional_matches_legacy_mask() -> None:
