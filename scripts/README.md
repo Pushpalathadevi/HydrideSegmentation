@@ -18,6 +18,7 @@ Current scripts:
   - `dataset-prepare` converts unsplit source/masks datasets into train/val/test layout with global ID-suffixed names.
   - `dataset-prepare` uses leakage-aware auto-split by default and optionally supports RGB mask conversion via configurable colormap.
   - `dataset-qa` runs packaged dataset quality checks.
+  - `phaseid-benchmark` runs the raw `.oh5` phase-ID workflow end to end: extraction -> split prep -> QA -> benchmark suite -> PPTX deck.
   - `phase-gate` command runs mandatory end-of-phase checks and writes closeout artifacts.
   - `preflight` runs unified workflow checks for train/eval/benchmark/deploy modes.
   - `deploy-package` creates a deployment handoff bundle (`deployment_manifest.json` + checksums).
@@ -62,4 +63,6 @@ Current scripts:
   - failed runs generate explicit skip/failure logs and the suite continues by default (`continue_on_failure=true`).
   - aggregate output includes mean/std rollups for quality and runtime metrics across seeds.
   - installed console entry point: `microseg-benchmark-suite`
+- `generate_benchmark_lab_meeting_ppt.py` converts `benchmark_summary.json` into a deck manifest and `.pptx`.
+- `build_benchmark_lab_meeting_ppt.js` is the PptxGenJS authoring script for the generated benchmark deck.
 - `build_windows_installer.ps1` builds the Qt desktop executable (`PyInstaller`) and optional single offline installer (`Inno Setup`).

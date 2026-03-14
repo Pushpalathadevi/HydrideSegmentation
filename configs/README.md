@@ -30,6 +30,8 @@ Additional workflow config:
 - `dataset_qa.default.yml` for packaged dataset QA checks
 - `dataset_prepare.default.yml` for unsplit source/masks -> split dataset preparation
   - includes `split_strategy`, leakage-group controls, RGB `mask_input_type`, `mask_colormap`, optional `binary_mask_normalization`, and optional `class_map_path` (fallback: `configs/segmentation_classes.json`)
+- `phaseid_oh5_benchmark.default.yml` for the single-command raw `.oh5` phaseId workflow
+  - includes `.oh5` dataset-path resolution, phase-ID foreground mapping, dataset split/QA policy, benchmark template selection, and PPTX generation settings
 - `data_prep.default.yml` for `prep-dataset` binary segmentation data preparation (`src/microseg/data_preparation`)
   - includes binarization mode/threshold controls, red-dominance RGB fallback, auto-Otsu fallback for noisy near-binary grayscale masks, empty-mask warn/error policy, resizing policy, debug inspection options, and warning-related raw-mask expectations
 - `segmentation_classes.json` repo-level default class definitions used by correction/export and RGB-mask class-color fallback

@@ -9,6 +9,17 @@ Use this workflow when your objective is:
 - scientifically defensible conclusions
 - manuscript-ready evidence and traceability
 
+For raw `.oh5` phase-ID data, use the single-command orchestration path when your file format is not yet materialized as `source/` + `masks/`:
+
+```bash
+microseg-cli phaseid-benchmark \
+  --config configs/phaseid_oh5_benchmark.default.yml \
+  --raw-input-dir D:/phaseid/raw_oh5 \
+  --working-dir D:/phaseid/run_001
+```
+
+That command performs extraction, split preparation, dataset QA, suite execution, and PPTX deck generation in one reproducible run root.
+
 This project assumes a real annotated dataset (>10,000 examples, from prior publication) and requires strict split consistency across all compared models.
 
 ## Non-Negotiable Rules For Fair Comparison

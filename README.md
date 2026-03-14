@@ -63,6 +63,9 @@ annotation, correction, and deployment needs.
 pip install -r requirements-core.txt
 pip install -e .
 
+# PPTX generation for benchmark decks
+npm install
+
 # Desktop GUI profile
 pip install -r requirements-gui.txt
 
@@ -216,6 +219,15 @@ Dataset QA:
 ```bash
 microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict
 ```
+
+Single-command raw `.oh5` -> benchmark -> PPTX workflow:
+```bash
+microseg-cli phaseid-benchmark \
+  --config configs/phaseid_oh5_benchmark.default.yml \
+  --raw-input-dir D:/phaseid/raw_oh5 \
+  --working-dir D:/phaseid/run_001
+```
+This workflow extracts image/mask pairs from `.oh5`, prepares a frozen split dataset, runs dataset QA, launches the configured benchmark suite, and generates a lab-meeting PPTX from `benchmark_summary.json`.
 
 Registry validation:
 ```bash

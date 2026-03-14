@@ -45,3 +45,7 @@ Current phase coverage includes:
 - `test_service.py` legacy Flask service request validation for model selection, parameter parsing, and response behavior
 
 - `test_phase30_unified_inference_loader.py` unified architecture-aware inference discovery/loading across run folders, failed-run rejection, and GUI model option integration
+<<<<<<< ours
+- `test_phase31_oh5_workflow.py` raw `.oh5` extraction plus end-to-end phaseId workflow orchestration contract checks
+=======
+>>>>>>> theirs

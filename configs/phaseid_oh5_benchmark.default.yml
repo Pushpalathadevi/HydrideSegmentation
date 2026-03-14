@@ -1,0 +1,43 @@
+raw_input_dir: data/raw_oh5
+working_dir: outputs/phaseid_workflow
+benchmark_template: configs/hydride/benchmark_suite.top5_local_pretrained.debug.yml
+deck_title: PhaseId Benchmark Lab Meeting
+strict: true
+benchmark_single_seed: true
+benchmark_strict: true
+python_executable: python
+node_executable: node
+
+extraction:
+  glob_pattern: "*.oh5"
+  recursive: true
+  image_dataset_candidates:
+    - /images
+    - /image
+    - /Data/Image
+    - /ScanData/Image
+  phase_dataset_candidates:
+    - /phaseId
+    - /phase_id
+    - /Data/PhaseId
+    - /ScanData/PhaseId
+  foreground_phase_ids: [1]
+  unknown_phase_action: background
+
+dataset_prepare:
+  output_dir: outputs/phaseid_workflow/prepared_dataset
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  seed: 42
+  id_width: 6
+  split_strategy: leakage_aware
+  leakage_group_mode: suffix_aware
+  leakage_group_regex: ""
+  mask_input_type: indexed
+  binary_mask_normalization: nonzero_foreground
+
+dataset_qa:
+  output_path: outputs/phaseid_workflow/dataset_qa/dataset_qa_report.json
+  imbalance_ratio_warn: 0.995
+  strict: true

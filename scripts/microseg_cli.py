@@ -25,6 +25,11 @@ from src.microseg.app.hpc_ga import (
 )
 from src.microseg.corrections import CorrectionDatasetPackager
 from src.microseg.data_preparation.config import DatasetPrepConfig
+from src.microseg.data_preparation.oh5 import (
+    DEFAULT_IMAGE_DATASET_CANDIDATES,
+    DEFAULT_PHASE_DATASET_CANDIDATES,
+    Oh5ExtractionConfig,
+)
 from src.microseg.data_preparation.pipeline import DatasetPreparer
 from src.microseg.dataops import (
     CorrectionSplitConfig,
@@ -90,6 +95,7 @@ from src.microseg.feedback import (
     export_feedback_bundle,
     ingest_feedback_bundles,
 )
+from src.microseg.workflows import PhaseIdBenchmarkWorkflowConfig, run_phaseid_benchmark_workflow
 
 
 def _parse_name_list(value: object) -> list[str]:
@@ -1537,6 +1543,104 @@ def _feedback_train_trigger(args: argparse.Namespace) -> int:
     return 0
 
 
+def _phaseid_benchmark(args: argparse.Namespace) -> int:
+    cfg = resolve_config(args.config, args.set)
+    raw_input_dir = str(args.raw_input_dir or cfg.get("raw_input_dir") or "").strip()
+    if not raw_input_dir:
+        raise ValueError("raw input directory is required (--raw-input-dir or config:raw_input_dir)")
+    working_dir = str(args.working_dir or cfg.get("working_dir") or "outputs/phaseid_workflow").strip()
+    benchmark_template = str(
+        args.benchmark_template
+        or cfg.get("benchmark_template")
+        or "configs/hydride/benchmark_suite.top5_local_pretrained.debug.yml"
+    ).strip()
+
+    extraction_cfg_raw = cfg.get("extraction") or {}
+    if not isinstance(extraction_cfg_raw, dict):
+        raise ValueError("config:extraction must be a mapping")
+    image_candidates = extraction_cfg_raw.get("image_dataset_candidates", DEFAULT_IMAGE_DATASET_CANDIDATES)
+    phase_candidates = extraction_cfg_raw.get("phase_dataset_candidates", DEFAULT_PHASE_DATASET_CANDIDATES)
+    extraction_cfg = Oh5ExtractionConfig(
+        input_dir=str(extraction_cfg_raw.get("input_dir") or raw_input_dir),
+        output_dir=str(extraction_cfg_raw.get("output_dir") or (Path(working_dir) / "oh5_extracted")),
+        recursive=bool(extraction_cfg_raw.get("recursive", True)),
+        glob_pattern=str(extraction_cfg_raw.get("glob_pattern", "*.oh5")),
+        image_dataset=str(extraction_cfg_raw.get("image_dataset", "")),
+        phase_dataset=str(extraction_cfg_raw.get("phase_dataset", "")),
+        image_dataset_candidates=tuple(str(v) for v in image_candidates),
+        phase_dataset_candidates=tuple(str(v) for v in phase_candidates),
+        image_percentile_low=float(extraction_cfg_raw.get("image_percentile_low", 1.0)),
+        image_percentile_high=float(extraction_cfg_raw.get("image_percentile_high", 99.0)),
+        foreground_phase_ids=tuple(int(v) for v in extraction_cfg_raw.get("foreground_phase_ids", [])),
+        phase_id_to_class_index={
+            str(k): int(v) for k, v in dict(extraction_cfg_raw.get("phase_id_to_class_index", {})).items()
+        },
+        unknown_phase_action=str(extraction_cfg_raw.get("unknown_phase_action", "background")),
+        report_name=str(extraction_cfg_raw.get("report_name", "oh5_extract_report.json")),
+    )
+
+    dataset_prepare_raw = cfg.get("dataset_prepare") or {}
+    if not isinstance(dataset_prepare_raw, dict):
+        raise ValueError("config:dataset_prepare must be a mapping")
+    dataset_prepare_cfg = DatasetPrepareConfig(
+        dataset_dir=str(dataset_prepare_raw.get("dataset_dir") or extraction_cfg.output_dir),
+        output_dir=str(dataset_prepare_raw.get("output_dir") or (Path(working_dir) / "prepared_dataset")),
+        train_ratio=float(dataset_prepare_raw.get("train_ratio", args.split_train_ratio)),
+        val_ratio=float(dataset_prepare_raw.get("val_ratio", args.split_val_ratio)),
+        test_ratio=float(dataset_prepare_raw.get("test_ratio", args.split_test_ratio)),
+        seed=int(dataset_prepare_raw.get("seed", args.split_seed)),
+        id_width=int(dataset_prepare_raw.get("id_width", args.split_id_width)),
+        split_strategy=str(dataset_prepare_raw.get("split_strategy", args.split_strategy)),
+        leakage_group_mode=str(dataset_prepare_raw.get("leakage_group_mode", args.leakage_group_mode)),
+        leakage_group_regex=str(dataset_prepare_raw.get("leakage_group_regex", args.leakage_group_regex)),
+        mask_input_type=str(dataset_prepare_raw.get("mask_input_type", args.mask_input_type)),
+        mask_colormap=_parse_mapping(
+            dataset_prepare_raw.get("mask_colormap", args.mask_colormap_json),
+            field_name="dataset_prepare.mask_colormap",
+        ),
+        mask_colormap_strict=bool(dataset_prepare_raw.get("mask_colormap_strict", args.mask_colormap_strict)),
+        binary_mask_normalization=_normalize_binary_mask_mode(
+            dataset_prepare_raw.get("binary_mask_normalization", args.binary_mask_normalization)
+        ),
+        class_map_path=str(dataset_prepare_raw.get("class_map_path", "")),
+    )
+
+    dataset_qa_raw = cfg.get("dataset_qa") or {}
+    if not isinstance(dataset_qa_raw, dict):
+        raise ValueError("config:dataset_qa must be a mapping")
+    dataset_qa_cfg = DatasetQualityConfig(
+        dataset_dir=str(dataset_qa_raw.get("dataset_dir") or dataset_prepare_cfg.output_dir),
+        output_path=str(
+            dataset_qa_raw.get("output_path") or (Path(working_dir) / "dataset_qa" / "dataset_qa_report.json")
+        ),
+        imbalance_ratio_warn=float(dataset_qa_raw.get("imbalance_ratio_warn", args.imbalance_ratio_warn)),
+        strict=bool(dataset_qa_raw.get("strict", args.strict)),
+    )
+
+    report = run_phaseid_benchmark_workflow(
+        PhaseIdBenchmarkWorkflowConfig(
+            raw_input_dir=raw_input_dir,
+            working_dir=working_dir,
+            benchmark_template=benchmark_template,
+            deck_title=str(args.deck_title or cfg.get("deck_title") or "PhaseId Benchmark Lab Meeting"),
+            strict=bool(cfg.get("strict", args.strict)),
+            python_executable=str(args.python_executable or cfg.get("python_executable") or sys.executable),
+            node_executable=str(args.node_executable or cfg.get("node_executable") or "node"),
+            benchmark_single_seed=bool(cfg.get("benchmark_single_seed", args.benchmark_single_seed)),
+            benchmark_strict=bool(cfg.get("benchmark_strict", args.benchmark_strict)),
+            extraction=extraction_cfg,
+            dataset_prepare=dataset_prepare_cfg,
+            dataset_qa=dataset_qa_cfg,
+        )
+    )
+    print(f"workflow report: {report['report_path']}")
+    print(f"prepared dataset: {report['prepared_dataset_dir']}")
+    print(f"benchmark summary: {report['benchmark_summary_json']}")
+    print(f"benchmark dashboard: {report['benchmark_dashboard_html']}")
+    print(f"deck output dir: {report['deck_output_dir']}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="MicroSeg unified CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -2193,6 +2297,40 @@ def _build_parser() -> argparse.ArgumentParser:
     gate.add_argument("--verify-deployment-sha256", action=argparse.BooleanOptionalAction, default=True)
     gate.add_argument("--strict", action="store_true")
     gate.set_defaults(handler=_phase_gate)
+
+    phaseid = sub.add_parser(
+        "phaseid-benchmark",
+        help="Run raw `.oh5` extraction, dataset prep, QA, benchmark suite, and lab-meeting PPTX generation",
+    )
+    phaseid.add_argument("--config", type=str, help="YAML config path")
+    phaseid.add_argument("--set", action="append", default=[], help="Override key=value (supports dotted keys)")
+    phaseid.add_argument("--raw-input-dir", type=str, help="Directory containing raw `.oh5` files")
+    phaseid.add_argument("--working-dir", type=str, help="Workflow output root")
+    phaseid.add_argument("--benchmark-template", type=str, help="Benchmark suite template YAML")
+    phaseid.add_argument("--deck-title", type=str, help="PowerPoint title")
+    phaseid.add_argument("--python-executable", type=str, help="Python interpreter for child jobs")
+    phaseid.add_argument("--node-executable", type=str, help="Node executable for PPTX generation")
+    phaseid.add_argument("--benchmark-single-seed", action=argparse.BooleanOptionalAction, default=False)
+    phaseid.add_argument("--benchmark-strict", action=argparse.BooleanOptionalAction, default=True)
+    phaseid.add_argument("--split-train-ratio", type=float, default=0.8)
+    phaseid.add_argument("--split-val-ratio", type=float, default=0.1)
+    phaseid.add_argument("--split-test-ratio", type=float, default=0.1)
+    phaseid.add_argument("--split-seed", type=int, default=42)
+    phaseid.add_argument("--split-id-width", type=int, default=6)
+    phaseid.add_argument("--split-strategy", choices=["leakage_aware", "random"], default="leakage_aware")
+    phaseid.add_argument("--leakage-group-mode", choices=["suffix_aware", "stem", "regex"], default="suffix_aware")
+    phaseid.add_argument("--leakage-group-regex", type=str, default="")
+    phaseid.add_argument("--mask-input-type", choices=["indexed", "rgb_colormap", "auto"], default="indexed")
+    phaseid.add_argument("--mask-colormap-json", type=str, default="")
+    phaseid.add_argument("--mask-colormap-strict", action=argparse.BooleanOptionalAction, default=True)
+    phaseid.add_argument(
+        "--binary-mask-normalization",
+        choices=["off", "two_value_zero_background", "nonzero_foreground"],
+        default="nonzero_foreground",
+    )
+    phaseid.add_argument("--imbalance-ratio-warn", type=float, default=0.98)
+    phaseid.add_argument("--strict", action="store_true")
+    phaseid.set_defaults(handler=_phaseid_benchmark)
 
     return p
 

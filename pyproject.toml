@@ -16,6 +16,7 @@ dependencies = [
     "scikit-image",
     "scikit-learn",
     "pillow",
+    "h5py",
     "albumentations",
     "tqdm",
     "scipy",
