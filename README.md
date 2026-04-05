@@ -57,6 +57,15 @@ The documentation and implementation policies are aligned with and adapted from 
 [DeepImageDeconvolution](https://github.com/kvmani/DeepImageDeconvolution), then extended for segmentation-specific
 annotation, correction, and deployment needs.
 
+The repository now ships a Sphinx-based documentation system that is treated as part of the product surface:
+
+- source markdown, SVG diagrams, and math live under `docs/`
+- HTML docs build with `python scripts/build_docs.py --html-only`
+- HTML + PDF docs build with `python scripts/build_docs.py`
+- the generated HTML can be served locally from `docs/_build/html/`
+
+Documentation build dependencies live in `requirements-docs.txt`.
+
 ## Installation
 
 ```bash
@@ -110,6 +119,32 @@ Inference:
 ```bash
 microseg-cli infer --config configs/inference.default.yml --set params.area_threshold=120
 ```
+
+## Documentation
+
+The canonical documentation landing page is [`docs/index.md`](docs/index.md).
+
+Build the docs locally:
+
+```bash
+pip install -r requirements-docs.txt
+python scripts/build_docs.py
+python -m http.server 8000 -d docs/_build/html
+```
+
+HTML-only build:
+
+```bash
+python scripts/build_docs.py --html-only
+```
+
+The docs site includes:
+
+- exact command recipes
+- output-path guidance
+- mathematical algorithm notes
+- SVG diagrams for architecture, workflow, and GUI schematics
+- repository policy updates that make documentation part of the change contract
 
 
 ## Unified trained-model inference loading

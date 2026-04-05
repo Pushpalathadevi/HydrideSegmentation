@@ -160,11 +160,11 @@ sequenceDiagram
 | Registry and pretrained handling | [`src/microseg/plugins/registry.py`](../src/microseg/plugins/registry.py), [`src/microseg/plugins/pretrained_weights.py`](../src/microseg/plugins/pretrained_weights.py), [`src/microseg/plugins/frozen_checkpoints.py`](../src/microseg/plugins/frozen_checkpoints.py) | Model metadata, checkpoint guidance, pretrained weight wiring | [`pretrained_model_catalog.md`](pretrained_model_catalog.md), [`offline_pretrained_transfer_workflow.md`](offline_pretrained_transfer_workflow.md), [`frozen_checkpoint_registry.md`](frozen_checkpoint_registry.md) |
 | Deployment + quality | [`src/microseg/deployment/package_bundle.py`](../src/microseg/deployment/package_bundle.py), [`src/microseg/deployment/runtime_health.py`](../src/microseg/deployment/runtime_health.py), [`src/microseg/quality/phase_gate.py`](../src/microseg/quality/phase_gate.py), [`src/microseg/quality/support_bundle.py`](../src/microseg/quality/support_bundle.py) | Package, validate, smoke, runtime checks, promotion gates, support diagnostics | [`deployment_ops_workflow.md`](deployment_ops_workflow.md), [`phase26_deployment_runtime_modes.md`](phase26_deployment_runtime_modes.md), [`failure_taxonomy.md`](failure_taxonomy.md) |
 | Compatibility layer | [`hydride_segmentation/microseg_adapter.py`](../hydride_segmentation/microseg_adapter.py), [`hydride_segmentation/inference.py`](../hydride_segmentation/inference.py), [`hydride_segmentation/ml_api.py`](../hydride_segmentation/ml_api.py) | Legacy API and GUI compatibility while core migrates to `src/microseg` | [`repository_blueprint.md`](repository_blueprint.md), [`phase2_desktop_refactor.md`](phase2_desktop_refactor.md) |
-| Tests and validation | [`tests/`](../tests), [`tests/test_phase*.py`](../tests) | Regression coverage across phases, desktop, training, deployment, and data prep | [`tests/README.md`](../tests/README.md), [`development_workflow.md`](development_workflow.md) |
+| Tests and validation | `tests/`, `tests/test_phase*.py` | Regression coverage across phases, desktop, training, deployment, and data prep | `tests/README.md`, [`development_workflow.md`](development_workflow.md) |
 
 ## 5) Fast Navigation for New Developers
 
-1. Start with [`README.md`](../README.md) and [`docs/README.md`](README.md).
+1. Start with `README.md` and [`docs/README.md`](README.md).
 2. Read [`target_architecture.md`](target_architecture.md) and [`repository_blueprint.md`](repository_blueprint.md).
 3. If your task is data prep, jump to [`data_preparation.md`](data_preparation.md) and `src/microseg/data_preparation/`.
 4. If your task is training/benchmarking, jump to [`hpc_airgap_top5_realdata_runbook.md`](hpc_airgap_top5_realdata_runbook.md) and `src/microseg/training/`.

@@ -1,5 +1,18 @@
 # Documentation Index
 
+This directory is both the human-readable documentation library and the source tree for the Sphinx site.
+
+Start here:
+
+- [`index.md`](index.md) for the rendered landing page
+- [`documentation_principles.md`](documentation_principles.md) for the normative docs contract
+- [`mission_statement.md`](mission_statement.md) for project direction
+- [`current_state_gap_analysis.md`](current_state_gap_analysis.md) for current status and gaps
+- [`usage_commands.md`](usage_commands.md) for exact command recipes
+- [`results_analysis.md`](results_analysis.md) for output locations and report inspection
+- [`algorithms.md`](algorithms.md) for the mathematics behind the metrics and trainers
+- [`developer_guide.md`](developer_guide.md) for extension and contribution guidance
+
 Core planning and governance docs:
 
 - Mission: `mission_statement.md`
@@ -58,3 +71,10 @@ Core planning and governance docs:
 - Migration strategy: `migration_strategy.md`
 - Repository blueprint: `repository_blueprint.md`
 - Architecture decisions process: `adr/README.md`
+
+Build the docs with:
+
+```bash
+pip install -r requirements-docs.txt
+python scripts/build_docs.py
+```

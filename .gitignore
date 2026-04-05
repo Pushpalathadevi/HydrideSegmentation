@@ -54,6 +54,28 @@ logs/
 log/
 outputs/
 
+# Generated docs and site builds
+docs/_build/
+docs/.doctrees/
+site/
+_site/
+.site/
+
+# Generic temporary / backup artifacts
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.cache
+*.swp
+*.swo
+*.seed
+*.pid
+*.pid.lock
+*.sqlite3
+*.db
+
 # Model files and large binaries
 *.pkl
 *.h5

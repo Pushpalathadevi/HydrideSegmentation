@@ -7,6 +7,15 @@ HydrideSegmentation/
   AGENTS.md
   README.md
   docs/
+    conf.py
+    index.md
+    documentation_principles.md
+    usage_commands.md
+    results_analysis.md
+    algorithms.md
+    developer_guide.md
+    _static/
+    diagrams/
     mission_statement.md
     base_zero_audit.md
     target_architecture.md
@@ -53,6 +62,7 @@ HydrideSegmentation/
     candidates/
     promoted/
   scripts/
+    build_docs.py
   tests/
     unit/
     integration/

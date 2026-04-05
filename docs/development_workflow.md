@@ -8,10 +8,11 @@
 4. Implement smallest vertical slice with tests.
 5. Add regression tests for preserved behavior.
 6. Update docs in the same change.
-7. Validate CPU-only local run path.
-8. Verify YAML + `--set` configuration paths for changed workflows.
-9. Verify project/session persistence if correction UI behavior changed.
-10. Run end-of-phase closeout checks before declaring phase completion.
+7. Validate the docs site build when documentation or user-visible behavior changes.
+8. Validate CPU-only local run path.
+9. Verify YAML + `--set` configuration paths for changed workflows.
+10. Verify project/session persistence if correction UI behavior changed.
+11. Run end-of-phase closeout checks before declaring phase completion.
 
 ## Mandatory End-Of-Phase Closeout
 
@@ -35,6 +36,7 @@ or
 5. Documentation synchronization:
 - update `README.md`, `docs/development_roadmap.md`, and impacted user/developer docs
 - ensure markdown links are repository-relative
+- build the Sphinx docs site and inspect the HTML landing page for any user-facing change
 
 ## Pull Request Checklist
 

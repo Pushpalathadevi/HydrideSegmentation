@@ -73,3 +73,6 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Hydride workflows remain stable while generalization is implemented.
 - Desktop users can export full run evidence packages (images + masks + metrics + HTML/PDF reports) without external tooling.
 - Desktop workflows support optional spatial calibration so size statistics can be reported in physical units when scale is available.
+- Documentation is treated as a first-class deliverable: commands, outputs, algorithms, and current status must be updated in the same change as behavior.
+- The Sphinx docs site must remain buildable into HTML and PDF artifacts from repository sources.
+- SVG diagrams and schematic visuals should be used liberally when they improve understanding of architecture, workflows, or GUI behavior.

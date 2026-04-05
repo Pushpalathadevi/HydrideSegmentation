@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720" role="img" aria-label="Documentation build flow">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"/>
+      <stop offset="100%" stop-color="#eef4ff"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f7faff"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1952d4"/>
+    </marker>
+    <style>
+      .title { font: 700 28px system-ui, sans-serif; fill: #152033; }
+      .subtitle { font: 500 16px system-ui, sans-serif; fill: #44546a; }
+      .box { fill: url(#panel); stroke: #b8c7e2; stroke-width: 2; rx: 18; ry: 18; }
+      .box-title { font: 700 20px system-ui, sans-serif; fill: #103a8c; }
+      .box-body { font: 500 15px system-ui, sans-serif; fill: #334155; }
+      .arrow { stroke: #1952d4; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .tag { font: 700 13px system-ui, sans-serif; fill: #ffffff; }
+      .tag-bg { fill: #1952d4; rx: 10; ry: 10; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1600" height="720" fill="url(#bg)"/>
+  <text x="60" y="60" class="title">Documentation system pipeline</text>
+  <text x="60" y="92" class="subtitle">Source markdown + SVG diagrams are rendered into navigable HTML, single-page HTML, and PDF archives.</text>
+
+  <rect class="box" x="70" y="150" width="300" height="170"/>
+  <text x="100" y="190" class="box-title">Repository Sources</text>
+  <text x="100" y="225" class="box-body">docs/*.md</text>
+  <text x="100" y="250" class="box-body">docs/diagrams/*.svg</text>
+  <text x="100" y="275" class="box-body">scripts/build_docs.py</text>
+
+  <rect class="box" x="440" y="150" width="300" height="170"/>
+  <text x="470" y="190" class="box-title">Sphinx + MyST</text>
+  <text x="470" y="225" class="box-body">conf.py theme + extensions</text>
+  <text x="470" y="250" class="box-body">math, mermaid, design cards</text>
+  <text x="470" y="275" class="box-body">cross-links and section labels</text>
+
+  <rect class="box" x="810" y="150" width="300" height="170"/>
+  <text x="840" y="190" class="box-title">HTML Output</text>
+  <text x="840" y="225" class="box-body">docs/_build/html/</text>
+  <text x="840" y="250" class="box-body">interactive navigation</text>
+  <text x="840" y="275" class="box-body">SVG diagrams and mathjax</text>
+
+  <rect class="box" x="1180" y="150" width="330" height="170"/>
+  <text x="1210" y="190" class="box-title">PDF Archive</text>
+  <text x="1210" y="225" class="box-body">docs/_build/pdf/microseg-docs.pdf</text>
+  <text x="1210" y="250" class="box-body">single-page HTML + browser print</text>
+  <text x="1210" y="275" class="box-body">offline review and sharing</text>
+
+  <path class="arrow" d="M 370 235 C 400 235, 410 235, 440 235"/>
+  <path class="arrow" d="M 740 235 C 770 235, 780 235, 810 235"/>
+  <path class="arrow" d="M 1110 235 C 1140 235, 1150 235, 1180 235"/>
+
+  <rect class="box" x="180" y="420" width="520" height="200"/>
+  <text x="210" y="460" class="box-title">Reading Surfaces</text>
+  <text x="210" y="495" class="box-body">Users inspect workflows, commands, and results.</text>
+  <text x="210" y="525" class="box-body">Developers inspect contracts, algorithms, and extension points.</text>
+  <text x="210" y="555" class="box-body">Reviewers inspect current status and non-regression policies.</text>
+
+  <rect class="box" x="790" y="420" width="650" height="200"/>
+  <text x="820" y="460" class="box-title">Documentation Contract</text>
+  <text x="820" y="495" class="box-body">Exact commands, explicit outputs, scientific math, traceable figures, and repository-relative links.</text>
+  <text x="820" y="525" class="box-body">Every behavior change updates docs in the same change.</text>
+  <text x="820" y="555" class="box-body">Docs are treated as a release artifact, not a side note.</text>
+
+  <rect class="tag-bg" x="56" y="648" width="128" height="30"/>
+  <text x="74" y="669" class="tag">HTML</text>
+  <rect class="tag-bg" x="196" y="648" width="128" height="30"/>
+  <text x="222" y="669" class="tag">PDF</text>
+  <rect class="tag-bg" x="336" y="648" width="190" height="30"/>
+  <text x="354" y="669" class="tag">SVG-first</text>
+  <rect class="tag-bg" x="538" y="648" width="240" height="30"/>
+  <text x="556" y="669" class="tag">source-controlled</text>
+</svg>

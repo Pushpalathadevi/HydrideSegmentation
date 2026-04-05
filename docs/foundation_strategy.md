@@ -10,6 +10,9 @@
 - Timestamped progress logging + ETA for long-running jobs
 - Machine-readable reports and optional HTML summaries for inspectability
 - Repository-relative documentation links only
+- Documentation is a product surface: exact commands, outputs, and scientific math must be documented with code changes
+- Sphinx-based HTML and PDF documentation builds must remain reproducible from source-controlled files
+- SVG diagrams are preferred for architecture, workflow, and GUI explanations
 
 ## Must-Have Capabilities
 
@@ -54,3 +57,5 @@
 - Developer docs: architecture, contracts, migration decisions
 - Release docs: semver changes and behavior-impact notes
 - Keep mission/roadmap docs as living strategy artifacts with phase-level updates
+- Keep docs build commands visible in the repo root and in the documentation landing page
+- Update status docs whenever a phase or workflow reaches a new state

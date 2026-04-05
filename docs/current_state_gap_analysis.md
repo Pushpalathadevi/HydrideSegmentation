@@ -39,6 +39,7 @@ Implemented:
 - Bundled sample image onboarding (`Load Sample` + `File -> Open Sample`)
 - Persistent desktop operational logs in `outputs/logs/desktop/`
 - Windows packaging assets for offline installer build (PyInstaller spec + Inno Setup script + build script)
+- Sphinx-based documentation source tree with HTML/PDF build helper, SVG diagrams, and math-aware narrative docs
 
 ## Remaining Gaps To World-Class Target
 
@@ -53,6 +54,7 @@ Medium-priority gaps:
 - Multi-feature default registries beyond hydrides
 - Rich experiment tracking backends
 - Signed installer and update channels for field distribution
+- More GUI schematic screenshots and captured visual QA artifacts for future release notes
 
 ## Risks
 
