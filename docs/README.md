@@ -4,13 +4,19 @@ This directory is both the human-readable documentation library and the source t
 
 Start here:
 
+- [`student_onramp.md`](student_onramp.md) for a beginner-friendly entry path
 - [`index.md`](index.md) for the rendered landing page
 - [`documentation_principles.md`](documentation_principles.md) for the normative docs contract
 - [`mission_statement.md`](mission_statement.md) for project direction
 - [`current_state_gap_analysis.md`](current_state_gap_analysis.md) for current status and gaps
 - [`usage_commands.md`](usage_commands.md) for exact command recipes
+- [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) for the classical algorithm flow sheet and parameter guide
 - [`results_analysis.md`](results_analysis.md) for output locations and report inspection
 - [`algorithms.md`](algorithms.md) for the mathematics behind the metrics and trainers
+- [`model_architecture_manuscript_foundation.md`](model_architecture_manuscript_foundation.md) for model-family comparison and citations
+- [`model_selection_decision_tree.md`](model_selection_decision_tree.md) for a simple model choice guide
+- [`worked_example_conventional_vs_ml.md`](worked_example_conventional_vs_ml.md) for a side-by-side comparison workflow
+- [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for adding a trained model to desktop inference
 - [`developer_guide.md`](developer_guide.md) for extension and contribution guidance
 
 Core planning and governance docs:
@@ -61,8 +67,14 @@ Core planning and governance docs:
 - Offline pretrained transfer workflow: `offline_pretrained_transfer_workflow.md`
 - HPC air-gapped top-10 real-data runbook (scratch + local-pretrained): `hpc_airgap_top5_realdata_runbook.md`
 - Benchmark metrics and dashboard reference: `benchmark_metrics_reference.md`
+- Conventional segmentation flow sheet and tuning guide: `conventional_segmentation_pipeline.md`
 - Pretrained model catalog + provenance metadata: `pretrained_model_catalog.md`
 - Model architecture manuscript foundation (diagrams + critical comparison): `model_architecture_manuscript_foundation.md`
+- Beginner on-ramp and glossary: `student_onramp.md`
+- Model decision tree: `model_selection_decision_tree.md`
+- Conventional vs ML worked example: `worked_example_conventional_vs_ml.md`
+- GUI model integration guide: `gui_model_integration_guide.md`
+- Documentation upgrade plan: `documentation_upgrade_plan.md`
 - Pretrained citation BibTeX: `pretrained_model_citations.bib`
 - Pretrained model catalog JSON: `pretrained_model_catalog.json`
 - Versioning and release policy: `versioning_and_release_policy.md`

@@ -13,6 +13,11 @@ This repository treats documentation as a product surface, not an afterthought.
 7. New workflows should explain how to run, how to validate, and how to interpret results.
 8. When GUI features are introduced, they need schematic visuals or equivalent structure diagrams.
 9. The docs system itself must stay reproducible through source-controlled build commands.
+10. Classical segmentation docs must include a flow sheet, parameter table, typical values, and failure modes.
+11. Model-family docs must include the original publication citation, architecture summary, comparison notes, and performance factors.
+12. Internal model variants must be labeled as internal variants, not as canonical reproductions of an external paper unless they truly are.
+13. New user-facing workflows should have a beginner or on-ramp page that points to the shortest safe reading path.
+14. When defaults differ between legacy and modern code paths, the docs must name both and explain which one is canonical.
 
 ## Required Documentation Layers
 
@@ -22,6 +27,7 @@ This repository treats documentation as a product surface, not an afterthought.
 - Scientific notes: metrics, assumptions, and algorithmic limits.
 - Developer notes: extension points, contracts, and migration rules.
 - Status notes: current progress, known gaps, and phase-specific constraints.
+- Learning notes: recommended reading order, glossary terms, and first-run guidance for students.
 
 ## Build Targets
 
@@ -38,4 +44,3 @@ python scripts/build_docs.py
 ```
 
 to generate the site locally.
-

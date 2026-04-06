@@ -144,6 +144,9 @@ The docs site includes:
 - output-path guidance
 - mathematical algorithm notes
 - SVG diagrams for architecture, workflow, and GUI schematics
+- a classical segmentation flow sheet with parameter meaning and tuning guidance
+- model-family architecture comparisons with original citations
+- a beginner on-ramp for students and new contributors
 - repository policy updates that make documentation part of the change contract
 
 

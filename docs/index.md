@@ -14,6 +14,12 @@
 - Exact GUI and CLI commands for day-to-day use
 - Output locations, report structures, and analysis workflows
 - Algorithms, mathematics, metrics, and scientific validation logic
+- Classical segmentation flow sheets with parameter meaning and tuning guidance
+- Model-family architecture comparison with citations and performance trade-offs
+- Beginner-friendly reading paths and glossary support for students
+- A GUI integration guide for bringing trained models into desktop inference
+- A worked comparison example for conventional vs ML outputs
+- A decision tree for choosing a starting model
 - Developer guidance for extending the platform without breaking traceability
 
 ## Build Commands
@@ -73,6 +79,7 @@ Schematic view of the desktop results workspace and export surfaces.
 :maxdepth: 1
 :caption: Core
 
+student_onramp
 documentation_principles
 mission_statement
 current_state_gap_analysis
@@ -80,7 +87,12 @@ code_architecture_map
 usage_commands
 results_analysis
 algorithms
+conventional_segmentation_pipeline
+model_selection_decision_tree
+worked_example_conventional_vs_ml
+gui_model_integration_guide
 developer_guide
+documentation_upgrade_plan
 ```
 
 ```{toctree}

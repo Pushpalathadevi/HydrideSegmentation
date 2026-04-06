@@ -68,6 +68,11 @@ microseg-cli infer \
 
 Outputs are written under a dedicated run folder and include the input image, predicted mask, overlays, metrics, and a manifest.
 
+If you are integrating a new trained model into the GUI, review:
+
+- [`docs/gui_model_integration_guide.md`](gui_model_integration_guide.md)
+- [`docs/model_selection_decision_tree.md`](model_selection_decision_tree.md)
+
 ## Training
 
 Train the default UNet path:
@@ -200,4 +205,3 @@ Build HTML + PDF documentation:
 ```bash
 python scripts/build_docs.py
 ```
-

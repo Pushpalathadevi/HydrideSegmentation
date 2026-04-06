@@ -67,6 +67,6 @@ The generated HTML lives under `docs/_build/html/`.
 - No untracked schema changes
 - Exact commands are documented
 - Results paths are documented
+- GUI model integration updates must be documented alongside registry, loader, and smoke-test changes
 - New math is explained clearly
 - SVG diagrams are updated when architecture or UX changes
-

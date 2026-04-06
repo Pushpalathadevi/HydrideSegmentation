@@ -183,3 +183,23 @@ Do not prioritize web deployment or cloud-only assumptions until local CPU workf
 - Undocumented algorithmic constants.
 - Changes that break reproducibility logging.
 - New features without corresponding user/developer documentation.
+
+## 15. Documentation And Scientific Traceability Requirements
+
+- Any change that modifies a segmentation stage, model backend, default parameter, output schema, or registry entry must update the relevant documentation in the same change.
+- Classical segmentation docs must include:
+  - an end-to-end flow sheet,
+  - a parameter table,
+  - typical values and valid ranges,
+  - the scientific purpose of each stage,
+  - failure modes and tuning guidance.
+- Model-family docs must include:
+  - the architecture family and what is internal versus externally published,
+  - the original publication citation,
+  - a comparison table across model families,
+  - the main performance factors,
+  - a clear note when a backend is an internal variant rather than an official reproduction.
+- When legacy and modern code paths disagree on defaults, documentation must name both and identify the canonical runtime path.
+- New user-facing workflows should be accompanied by a beginner or on-ramp guide and added to the docs index.
+- If a docs change alters navigation or entry points, update `docs/index.md`, `docs/README.md`, and any user-facing top-level references in the same change.
+- Keep `docs/documentation_principles.md` synchronized with this contract; if the contract changes, update both files together.

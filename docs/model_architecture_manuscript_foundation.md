@@ -2,32 +2,77 @@
 
 ## Purpose
 
-This document is a manuscript-oriented technical foundation for the model families used in this repository.
-It focuses on architecture behavior, comparative strengths/weaknesses, pretrained-weight provenance, and practical research considerations for hydride and broader microstructural segmentation.
+This document is the manuscript-oriented reference for the segmentation backends implemented in the repository. It is written for scientific reporting, comparison studies, and student-facing explanation of why one model family behaves differently from another.
 
-Scope in this repo:
+The goal is not to advertise a single winner. The goal is to make architectural trade-offs explicit so that model selection is defensible.
+
+## Scope
+
+Supported backends covered here:
+
 - `unet_binary`
 - `smp_unet_resnet18`
+- `smp_deeplabv3plus_resnet101`
+- `smp_unetplusplus_resnet101`
+- `smp_pspnet_resnet101`
+- `smp_fpn_resnet101`
 - `hf_segformer_b0`
 - `hf_segformer_b2`
 - `hf_segformer_b5`
+- `hf_upernet_swin_large`
 - `transunet_tiny`
 - `segformer_mini`
 
+Related baseline note:
+
+- the classical, non-learned baseline is documented separately in [`docs/conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md)
+
 Important interpretation note:
-- `transunet_tiny` and `segformer_mini` are in-repo lightweight research variants.
-- They are inspired by transformer-hybrid ideas, but they are not official checkpoint-equivalent reproductions of external papers.
 
-## Architecture Flow Diagrams
+- `transunet_tiny` and `segformer_mini` are internal research variants.
+- They are inspired by published ideas, but they are not official checkpoint-equivalent reproductions of the original papers.
+- If you write about them in a manuscript, label them as internal implementations or adapted baselines.
 
-### U-Net Family (`unet_binary`, `smp_unet_resnet18`)
+## Architecture Overview
+
+```mermaid
+flowchart TB
+    I["Input image"]
+
+    subgraph CNN["CNN encoder-decoder family"]
+        U["unet_binary"]
+        S1["smp_unet_resnet18"]
+        S2["smp_deeplabv3plus_resnet101"]
+        S3["smp_unetplusplus_resnet101"]
+        S4["smp_pspnet_resnet101"]
+        S5["smp_fpn_resnet101"]
+    end
+
+    subgraph TF["Transformer family"]
+        F1["hf_segformer_b0"]
+        F2["hf_segformer_b2"]
+        F3["hf_segformer_b5"]
+        UPN["hf_upernet_swin_large"]
+    end
+
+    subgraph HY["Hybrid internal variants"]
+        T["transunet_tiny"]
+        M["segformer_mini"]
+    end
+
+    I --> CNN
+    I --> TF
+    I --> HY
+```
+
+### U-Net-Style Decoder Flow
 
 ```mermaid
 flowchart LR
-    I["Input image"] --> E1["Encoder stage 1"]
+    I["Input"] --> E1["Encoder stage 1"]
     E1 --> E2["Encoder stage 2"]
-    E2 --> E3["Bottleneck"]
-    E3 --> D2["Decoder stage 2"]
+    E2 --> B["Bottleneck / high-level features"]
+    B --> D2["Decoder stage 2"]
     D2 --> D1["Decoder stage 1"]
     D1 --> H["1x1 segmentation head"]
     H --> O["Binary mask logits"]
@@ -36,188 +81,494 @@ flowchart LR
     E1 -. skip .-> D1
 ```
 
-### SegFormer Family (`hf_segformer_b0/b2/b5`, concept basis for `segformer_mini`)
+### SegFormer-Style Flow
 
 ```mermaid
 flowchart LR
-    I["Input image"] --> P["Patch embedding"]
-    P --> S1["MiT stage 1"]
-    S1 --> S2["MiT stage 2"]
-    S2 --> S3["MiT stage 3"]
-    S3 --> S4["MiT stage 4"]
-    S4 --> D["All-MLP decode head"]
-    D --> H["Segmentation logits"]
+    I["Input"] --> P["Patch embedding / hierarchical tokenization"]
+    P --> M1["Stage 1"]
+    M1 --> M2["Stage 2"]
+    M2 --> M3["Stage 3"]
+    M3 --> M4["Stage 4"]
+    M4 --> D["Lightweight MLP decode head"]
+    D --> O["Binary logits"]
 ```
 
-### Hybrid Transformer-U-Net (`transunet_tiny`)
+### Hybrid Flow
 
 ```mermaid
 flowchart LR
-    I["Input image"] --> C["Convolutional downsampling stem"]
-    C --> T["Tokenization + transformer encoder"]
+    I["Input"] --> C["Convolutional stem"]
+    C --> T["Transformer block(s)"]
     T --> R["Reshape to feature map"]
-    R --> U["U-Net-like decoder"]
-    U --> H["Segmentation head"]
-    H --> O["Binary mask logits"]
-
-    C -. skip features .-> U
+    R --> D["Decoder"]
+    D --> O["Binary logits"]
 ```
 
-## Per-Model Technical Notes
+## Model Family Overview
 
-## `unet_binary`
-
-Architecture lineage:
-- U-Net encoder-decoder pattern ([U-Net paper](https://arxiv.org/abs/1505.04597))
-- optional ResNet-derived warm-start source ([ResNet paper](https://arxiv.org/abs/1512.03385))
-
-Unique features in this repo:
-- lightweight baseline with deterministic, robust behavior
-- local-pretrained bootstrap supported via `unet_binary_resnet18_imagenet_partial`
-- good controllability for ablation and debugging
-
-Major considerations:
-- strongest on local texture and boundary fidelity when data is moderate
-- can underperform transformer backbones when long-range context dominates
-- usually easiest to stabilize across seeds and node types
-
-Critical comparison:
-- compared to SegFormer variants: often lower global-context quality, but lower operational complexity
-- compared to `transunet_tiny`: usually simpler and more reproducible; less global relation modeling
-
-## `smp_unet_resnet18`
-
-Architecture lineage:
-- U-Net decoder + ResNet18 encoder via segmentation-models-pytorch
-- references: [U-Net](https://arxiv.org/abs/1505.04597), [ResNet](https://arxiv.org/abs/1512.03385)
-
-Unique features:
-- mature external implementation and encoder ecosystem
-- practical transfer-learning baseline using ImageNet encoder initialization
-
-Major considerations:
-- external dependency footprint is larger than internal `unet_binary`
-- encoder-pretrained benefits are strongest when texture primitives transfer well
-
-Critical comparison:
-- stronger transfer baseline than pure scratch U-Net in many small/medium-data regimes
-- still more locality-biased than transformer-heavy models
-
-## `hf_segformer_b0`, `hf_segformer_b2`, `hf_segformer_b5`
-
-Architecture lineage:
-- SegFormer/MiT family ([paper](https://arxiv.org/abs/2105.15203), [official repo](https://github.com/NVlabs/SegFormer))
-
-Variant-level intuition:
-- `b0`: lowest compute/memory among the three; best for rapid iteration
-- `b2`: balanced midpoint for quality vs cost
-- `b5`: highest capacity; best when GPU memory/time budget is acceptable
-
-Unique features:
-- strong global context modeling from transformer hierarchy
-- robust benchmark relevance due to wide ecosystem usage
-- local-pretrained ADE20K checkpoints available for offline reuse
-
-Major considerations:
-- transformer training is sensitive to learning-rate/batch-size policy
-- higher variants (`b5`) increase memory and runtime sharply
-- domain gap (ADE20K -> microstructure) can help initialization but must be validated empirically
-
-Critical comparison:
-- often higher ceiling than U-Net baselines on complex global structures
-- may not always dominate on tiny datasets or strict compute budgets
-
-## `transunet_tiny`
-
-Architecture lineage:
-- inspired by TransUNet concept ([paper](https://arxiv.org/abs/2102.04306)) and ViT ([paper](https://arxiv.org/abs/2010.11929))
-
-Unique features in this repo:
-- compact hybrid model combining local conv priors with transformer context blocks
-- offline local-pretrained bootstrap via ViT-tiny mapped tensors
-
-Major considerations:
-- local-pretrained bundle is a partial warm-start mapping, not official TransUNet author checkpoint
-- optimization may be less forgiving than pure U-Net under weak hyperparameter settings
-
-Critical comparison:
-- can outperform pure U-Net on context-heavy patterns while staying lighter than larger SegFormer variants
-- may require more careful tuning than `unet_binary`
-
-## `segformer_mini`
-
-Architecture lineage:
-- lightweight internal transformer variant conceptually aligned with SegFormer-style encoding
-- bootstrap source from ViT-tiny model family
-
-Unique features:
-- small transformer research baseline for fast comparative experiments
-- local-pretrained partial warm-start available in offline workflow
-
-Major considerations:
-- not an official NVIDIA SegFormer checkpoint-equivalent architecture
-- publication claims should clearly label it as an internal variant
-
-Critical comparison:
-- useful as a compute-efficient transformer reference against `transunet_tiny` and `hf_segformer_b0`
-- lower representational capacity than larger HF SegFormer variants
-
-## Cross-Model Critical Comparison
-
-| Model | Core Strength | Main Weakness | Compute Profile | Best Use Case | High-Risk Failure Mode |
+| Model | Family | Core Idea | Primary Citation(s) | Best When | Main Caution |
 |---|---|---|---|---|---|
-| `unet_binary` | Strong local boundary modeling and stability | Limited long-range context reasoning | Low | robust baseline and ablation anchor | fragmented predictions on globally ambiguous regions |
-| `smp_unet_resnet18` | Practical transfer start via pretrained encoder | Locality bias remains | Low-Medium | fast transfer baseline with known tooling | encoder transfer mismatch to microstructure textures |
-| `hf_segformer_b0` | Efficient global-context transformer baseline | can underfit very complex structures vs larger variants | Medium | first transformer benchmark on constrained GPUs | unstable gains if LR/batch policy is poor |
-| `hf_segformer_b2` | Better quality/capacity balance than B0 | more memory/runtime cost | Medium-High | primary transformer candidate for full studies | longer convergence and higher tuning cost |
-| `hf_segformer_b5` | Highest capacity in current HF set | expensive in memory/time | High | maximum-quality attempt with sufficient resources | OOM/slow turnaround causing weak experiment coverage |
-| `transunet_tiny` | Hybrid local+global inductive bias | tuning sensitivity; partial bootstrap only | Medium | bridge model between CNN and transformers | unstable optimization under aggressive LR |
-| `segformer_mini` | Lightweight transformer comparison point | internal, lower-capacity variant | Medium-Low | quick transformer-side ablations | underfitting on complex morphologies |
+| `unet_binary` | compact CNN encoder-decoder | small, fully local U-Net-style baseline | [U-Net](https://arxiv.org/abs/1505.04597) | you need a simple, reproducible baseline | limited long-range context |
+| `smp_unet_resnet18` | U-Net with pretrained encoder | U-Net decoder plus ResNet18 encoder | [U-Net](https://arxiv.org/abs/1505.04597), [ResNet](https://arxiv.org/abs/1512.03385) | transfer learning on modest data | still biased toward local texture |
+| `smp_deeplabv3plus_resnet101` | encoder-decoder with atrous context | DeepLabV3+ head with ResNet101 encoder | [DeepLabV3+](https://arxiv.org/abs/1802.02611), [ResNet](https://arxiv.org/abs/1512.03385) | thin boundaries plus broader context | larger compute and tuning cost |
+| `smp_unetplusplus_resnet101` | nested U-Net | dense skip hierarchy for feature refinement | [U-Net++](https://arxiv.org/abs/1807.10165), [ResNet](https://arxiv.org/abs/1512.03385) | complex boundaries and multi-scale detail | more memory and more moving parts |
+| `smp_pspnet_resnet101` | pyramid pooling | global context by pooling across regions | [PSPNet](https://arxiv.org/abs/1612.01105), [ResNet](https://arxiv.org/abs/1512.03385) | morphology benefits from scene-level context | can oversmooth small features |
+| `smp_fpn_resnet101` | feature pyramid fusion | multi-resolution fusion of encoder features | [FPN](https://arxiv.org/abs/1612.03144), [ResNet](https://arxiv.org/abs/1512.03385) | scale variation is a major issue | decoder may be less expressive than newer designs |
+| `hf_segformer_b0` | transformer encoder-decoder | hierarchical transformer with tiny capacity | [SegFormer](https://arxiv.org/abs/2105.15203) | compute-constrained transformer baseline | can underfit difficult textures |
+| `hf_segformer_b2` | transformer encoder-decoder | balanced SegFormer variant | [SegFormer](https://arxiv.org/abs/2105.15203) | general-purpose transformer study | higher runtime than B0 |
+| `hf_segformer_b5` | transformer encoder-decoder | highest-capacity SegFormer variant in this repo | [SegFormer](https://arxiv.org/abs/2105.15203) | maximum-capacity benchmark attempt | memory and runtime pressure |
+| `hf_upernet_swin_large` | hierarchical transformer + pyramid decoder | Swin backbone with UPerNet head | [UPerNet](https://arxiv.org/abs/1807.10221), [Swin Transformer](https://arxiv.org/abs/2103.14030) | large-context segmentation with a strong decoder | expensive, especially on small GPUs |
+| `transunet_tiny` | hybrid transformer-CNN | compact bridge between local and global features | [TransUNet](https://arxiv.org/abs/2102.04306), [ViT](https://arxiv.org/abs/2010.11929) | educational bridge model and hybrid ablations | more tuning-sensitive than pure CNNs |
+| `segformer_mini` | internal lightweight transformer | small SegFormer-like research variant | [SegFormer](https://arxiv.org/abs/2105.15203), [ViT](https://arxiv.org/abs/2010.11929) | low-cost transformer-side comparison | internal variant, not an official paper checkpoint |
 
-## Pretrained Weight Provenance And Manual Download URLs
+## Detailed Model Notes
 
-Repository-local bundles are generated into `pre_trained_weights/` and indexed in `pre_trained_weights/registry.json`.
+### `unet_binary`
 
-Direct upstream/manual download URLs used for air-gap preparation:
+Architecture:
 
-| Local Model ID | Upstream Source | Direct Manual Download URL(s) | Remarks |
-|---|---|---|---|
-| `hf_segformer_b0_ade20k` | Hugging Face NVIDIA SegFormer-B0 | `https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512/resolve/main/pytorch_model.bin`  `https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512/resolve/main/model.safetensors` | ADE20K-finetuned checkpoint used for local directory snapshot |
-| `hf_segformer_b2_ade20k` | Hugging Face NVIDIA SegFormer-B2 | `https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512/resolve/main/pytorch_model.bin` | ADE20K-finetuned checkpoint |
-| `hf_segformer_b5_ade20k` | Hugging Face NVIDIA SegFormer-B5 | `https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640/resolve/main/pytorch_model.bin` | ADE20K-finetuned checkpoint |
-| `smp_unet_resnet18_imagenet` | segmentation-models-pytorch U-Net + ImageNet ResNet18 encoder | encoder source URLs: `https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/model.safetensors`  `https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/pytorch_model.bin` | final U-Net state dict is assembled locally by script from initialized SMP model |
-| `unet_binary_resnet18_imagenet_partial` | timm ResNet18 | `https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/model.safetensors`  `https://huggingface.co/timm/resnet18.a1_in1k/resolve/main/pytorch_model.bin` | partial warm-start mapping into internal `unet_binary` encoder tensors |
-| `transunet_tiny_vit_tiny_patch16_imagenet` | timm ViT-tiny | `https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/model.safetensors`  `https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/pytorch_model.bin` | partial warm-start mapping; not official TransUNet weights |
-| `segformer_mini_vit_tiny_patch16_imagenet` | timm ViT-tiny | `https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/model.safetensors`  `https://huggingface.co/timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k/resolve/main/pytorch_model.bin` | partial warm-start mapping for internal `segformer_mini` |
+- compact encoder-decoder with two downsampling stages and two upsampling stages,
+- skip connections pass encoder feature maps directly into the decoder,
+- final `1x1` convolution produces a single binary logit channel.
 
-Current pinned upstream snapshot SHAs (from `pre_trained_weights/registry.json` at documentation time):
-- `hf_segformer_b0_ade20k`: `489d5cd81a0b59fab9b7ea758d3548ebe99677da`
-- `hf_segformer_b2_ade20k`: `de01bae28967510f9ddd496c60a969357195400c`
-- `hf_segformer_b5_ade20k`: `739f5d4692954e4a185eac280dec1ba5a7d52f1d`
-- `timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k`: `7d3afdd0cf93ad84d986eb2d6bcc5812ebd0b106`
-- `timm/resnet18.a1_in1k`: `491b427b45c94c7fb0e78b5474cc919aff584bbf`
+Implemented knobs:
 
-## Original Publications And Primary References
+- `model_base_channels` controls the width of the network,
+- default in the trainer is `16`,
+- larger values increase capacity but also memory and overfitting risk.
 
-- U-Net: [https://arxiv.org/abs/1505.04597](https://arxiv.org/abs/1505.04597)
-- ResNet: [https://arxiv.org/abs/1512.03385](https://arxiv.org/abs/1512.03385)
-- ViT: [https://arxiv.org/abs/2010.11929](https://arxiv.org/abs/2010.11929)
-- SegFormer: [https://arxiv.org/abs/2105.15203](https://arxiv.org/abs/2105.15203)
-- TransUNet: [https://arxiv.org/abs/2102.04306](https://arxiv.org/abs/2102.04306)
-- SegFormer official implementation: [https://github.com/NVlabs/SegFormer](https://github.com/NVlabs/SegFormer)
-- segmentation-models-pytorch docs: [https://segmentation-models-pytorch.readthedocs.io/](https://segmentation-models-pytorch.readthedocs.io/)
+Working principle:
 
-## Manuscript Discussion Guidance
+- local edges and textures are encoded in the early layers,
+- high-level structure is compressed in the bottleneck,
+- skip connections restore spatial detail during decoding.
 
-Recommended framing for future discussion sections:
-1. Separate architecture capacity effects from initialization effects (scratch vs local-pretrained).
-2. Explicitly state that internal bootstrap bundles are partial warm-start mappings.
-3. Report both metric quality (`mean_iou`, `macro_f1`) and operational cost (runtime, memory pressure, convergence stability).
-4. Discuss failure modes by morphology type (thin boundaries, low contrast, clustered hydrides, texture ambiguity).
-5. Justify final model selection with both quantitative results and annotation-correction burden.
+Why it matters:
 
-Related companion docs:
-- `docs/pretrained_model_catalog.md`
-- `docs/pretrained_model_citations.bib`
-- `docs/hpc_airgap_top5_realdata_runbook.md`
-- `docs/hydride_research_workflow.md`
+- this is the simplest deep-learning baseline in the repository,
+- it is usually the easiest to train and reproduce,
+- it is the best anchor for ablation studies.
+
+Primary citation:
+
+- [Ronneberger et al., 2015](https://arxiv.org/abs/1505.04597)
+
+### `smp_unet_resnet18`
+
+Architecture:
+
+- standard U-Net decoder,
+- ResNet18 encoder initialized from ImageNet-pretrained weights when requested,
+- external implementation via `segmentation_models_pytorch`.
+
+Working principle:
+
+- the encoder learns robust early features from generic natural images,
+- the decoder reconstructs pixel-aligned segmentation from those features,
+- ImageNet initialization often improves data efficiency in small-to-medium datasets.
+
+Why it differs from `unet_binary`:
+
+- the encoder is deeper and pretrained,
+- the implementation is more modular and externally maintained,
+- it is typically stronger when the dataset is not large enough to train everything from scratch.
+
+Primary citations:
+
+- [Ronneberger et al., 2015](https://arxiv.org/abs/1505.04597)
+- [He et al., 2016](https://arxiv.org/abs/1512.03385)
+
+### `smp_deeplabv3plus_resnet101`
+
+Architecture:
+
+- DeepLabV3+ decoder,
+- ResNet101 encoder,
+- atrous / dilated context aggregation in the decoder path.
+
+Working principle:
+
+- dilated convolutions expand the receptive field without excessive downsampling,
+- the decoder combines semantic context with boundary refinement,
+- useful when object extent and boundary precision both matter.
+
+Why it differs:
+
+- more context-aware than a plain U-Net,
+- usually more expensive than `smp_unet_resnet18`,
+- often better when the background contains texture clutter or repeated motifs.
+
+Primary citations:
+
+- [Chen et al., 2018](https://arxiv.org/abs/1802.02611)
+- [He et al., 2016](https://arxiv.org/abs/1512.03385)
+
+### `smp_unetplusplus_resnet101`
+
+Architecture:
+
+- nested U-Net decoder with dense skip refinement,
+- ResNet101 encoder,
+- multiple paths between encoder and decoder scales.
+
+Working principle:
+
+- intermediate decoder stages are refined by nested feature reuse,
+- the architecture tries to reduce the semantic gap between encoder and decoder features,
+- this can help on boundaries where one skip path is not enough.
+
+Why it differs:
+
+- usually more expressive than a plain U-Net decoder,
+- often more memory-hungry than `smp_unet_resnet18`,
+- can be a good compromise when boundary detail matters more than raw speed.
+
+Primary citations:
+
+- [Zhou et al., 2018](https://arxiv.org/abs/1807.10165)
+- [He et al., 2016](https://arxiv.org/abs/1512.03385)
+
+### `smp_pspnet_resnet101`
+
+Architecture:
+
+- PSPNet decoder with pyramid pooling,
+- ResNet101 encoder.
+
+Working principle:
+
+- the decoder pools context at multiple scales,
+- the network mixes local evidence with larger scene context,
+- this helps when the same local texture may be foreground or background depending on the surrounding area.
+
+Why it differs:
+
+- stronger global-context bias than a basic U-Net,
+- sometimes too smooth for very thin or very small structures,
+- useful when segmentation should respect broader morphology context.
+
+Primary citations:
+
+- [Zhao et al., 2017](https://arxiv.org/abs/1612.01105)
+- [He et al., 2016](https://arxiv.org/abs/1512.03385)
+
+### `smp_fpn_resnet101`
+
+Architecture:
+
+- Feature Pyramid Network decoder,
+- ResNet101 encoder,
+- feature fusion across multiple spatial scales.
+
+Working principle:
+
+- lower-level and higher-level features are merged across the pyramid,
+- the network sees both fine details and coarse structure,
+- scale-consistent fusion is often useful when feature size varies substantially.
+
+Why it differs:
+
+- designed for multi-scale representation rather than a single bottleneck view,
+- generally lighter than some context-heavy decoders,
+- can be a strong middle ground for scale-sensitive segmentation.
+
+Primary citations:
+
+- [Lin et al., 2017](https://arxiv.org/abs/1612.03144)
+- [He et al., 2016](https://arxiv.org/abs/1512.03385)
+
+### `hf_segformer_b0`, `hf_segformer_b2`, `hf_segformer_b5`
+
+Architecture:
+
+- hierarchical transformer backbone,
+- lightweight all-MLP decode head,
+- implemented through Hugging Face `SegformerForSemanticSegmentation`.
+
+Implemented variant settings:
+
+| Variant | Hidden sizes | Depths | Attention heads | Decoder hidden size | Drop path |
+|---|---|---|---|---|---|
+| `b0` | `[32, 64, 160, 256]` | `[2, 2, 2, 2]` | `[1, 2, 5, 8]` | `256` | `0.1` |
+| `b2` | `[64, 128, 320, 512]` | `[3, 4, 6, 3]` | `[1, 2, 5, 8]` | `768` | `0.1` |
+| `b5` | `[64, 128, 320, 512]` | `[3, 6, 40, 3]` | `[1, 2, 5, 8]` | `768` | `0.1` |
+
+Working principle:
+
+- patch embedding turns the image into a token hierarchy,
+- each stage mixes local detail with broader context,
+- the decode head stays lightweight so compute is focused on the encoder hierarchy.
+
+Why the variants differ:
+
+- `b0` is the smallest and fastest,
+- `b2` balances capacity and efficiency,
+- `b5` is the largest and most expensive in this repo.
+
+Primary citation:
+
+- [Xie et al., 2021](https://arxiv.org/abs/2105.15203)
+
+### `hf_upernet_swin_large`
+
+Architecture:
+
+- Swin Transformer backbone,
+- UPerNet decode head,
+- implemented through Hugging Face `UperNetForSemanticSegmentation`.
+
+Implemented settings:
+
+- backbone image size: `512`
+- patch size: `4`
+- embedding dimension: `192`
+- backbone depths: `[2, 2, 18, 2]`
+- attention heads: `[6, 12, 24, 48]`
+- window size: `7`
+- drop path rate: `0.3`
+- UPerNet pool scales: `[1, 2, 3, 6]`
+- auxiliary head enabled
+
+Working principle:
+
+- Swin encodes the image with shifted-window attention,
+- UPerNet aggregates multi-scale context in the decoder,
+- this combination is strong when both global structure and multi-resolution detail matter.
+
+Why it differs:
+
+- compared with SegFormer, the decoder is more explicitly pyramid-oriented,
+- compared with CNNs, the backbone can model broader relations with fewer locality assumptions,
+- the model is usually expensive enough that it should be justified by measured gains.
+
+Primary citations:
+
+- [Xiao et al., 2018](https://arxiv.org/abs/1807.10221)
+- [Liu et al., 2021](https://arxiv.org/abs/2103.14030)
+
+### `transunet_tiny`
+
+Architecture:
+
+- small U-Net-like CNN stem,
+- transformer encoder at the bottleneck,
+- U-Net-style decoder.
+
+Implemented settings:
+
+- `base_channels = 16` by default,
+- `transformer_depth = 2`,
+- `transformer_num_heads = 4`,
+- `transformer_mlp_ratio = 2.0`,
+- `transformer_dropout = 0.0`
+
+Working principle:
+
+- the convolutional stem captures local texture,
+- the transformer bottleneck injects global relation modeling,
+- the decoder restores spatial detail after the transformer pass.
+
+Why it differs:
+
+- it bridges CNN and transformer behavior in one compact model,
+- it is more sensitive to optimization choices than `unet_binary`,
+- it is useful for teaching and for hybrid ablations.
+
+Primary citations:
+
+- [Chen et al., 2021](https://arxiv.org/abs/2102.04306)
+- [Dosovitskiy et al., 2021](https://arxiv.org/abs/2010.11929)
+
+### `segformer_mini`
+
+Architecture:
+
+- internal miniature patch-transformer segmentation model,
+- patch embedding + transformer encoder + small convolutional decoder.
+
+Implemented settings:
+
+- `base_channels = 16` by default,
+- `transformer_depth = 2`,
+- `transformer_num_heads = 4`,
+- `transformer_mlp_ratio = 2.0`,
+- `patch_size = 4`
+
+Working principle:
+
+- patch embedding compresses the image into a learned token grid,
+- the transformer mixes information globally,
+- the decoder upsamples the transformed features back to pixel space.
+
+Why it differs:
+
+- it is a lightweight internal comparison point for transformer-style segmentation,
+- it is not an official NVIDIA SegFormer checkpoint or a direct paper reproduction,
+- use it as an internal baseline, not as a canonical published architecture.
+
+Primary citations:
+
+- [Xie et al., 2021](https://arxiv.org/abs/2105.15203)
+- [Dosovitskiy et al., 2021](https://arxiv.org/abs/2010.11929)
+
+## Critical Comparison
+
+| Model | Local detail | Global context | Compute cost | Training sensitivity | Best role in the repo |
+|---|---|---|---|---|---|
+| `unet_binary` | strong | limited | low | low | baseline anchor |
+| `smp_unet_resnet18` | strong | moderate | low-medium | low-medium | practical transfer baseline |
+| `smp_deeplabv3plus_resnet101` | strong | strong | medium-high | medium | context-aware CNN benchmark |
+| `smp_unetplusplus_resnet101` | strong | moderate-strong | medium-high | medium | detail-heavy comparison model |
+| `smp_pspnet_resnet101` | moderate | strong | medium-high | medium | large-context benchmark |
+| `smp_fpn_resnet101` | strong | moderate | medium | medium | multi-scale fusion benchmark |
+| `hf_segformer_b0` | moderate | strong | medium | medium-high | smallest transformer benchmark |
+| `hf_segformer_b2` | strong | strong | medium-high | medium-high | balanced transformer candidate |
+| `hf_segformer_b5` | strong | very strong | high | high | high-capacity transformer attempt |
+| `hf_upernet_swin_large` | strong | very strong | high | high | strong but expensive transformer-pyramid benchmark |
+| `transunet_tiny` | strong | strong | medium | medium-high | hybrid bridge model |
+| `segformer_mini` | moderate | moderate-strong | medium-low | medium-high | internal lightweight transformer baseline |
+
+## Architecture-Specific Parameters
+
+This section translates the most important implementation knobs into plain language.
+
+### CNN family knobs
+
+| Knob | Meaning | Typical Effect When Increased |
+|---|---|---|
+| `base_channels` | width of the first convolutional stage | more capacity, more memory use |
+| encoder depth | how many downsampling scales the encoder uses | stronger abstraction, coarser detail |
+| skip connections | whether decoder receives encoder features | better boundary recovery |
+| decoder type | how context is fused back into pixel space | changes balance between detail and context |
+
+### SegFormer knobs
+
+| Knob | Meaning | Typical Effect When Increased |
+|---|---|---|
+| `hidden_sizes` | channel width at each transformer stage | more capacity and memory use |
+| `depths` | number of blocks per stage | deeper contextual modeling |
+| `num_attention_heads` | attention parallelism | more representational flexibility but more tuning sensitivity |
+| `decoder_hidden_size` | width of the decode head | stronger pixel refinement but more compute |
+| `drop_path_rate` | stochastic depth regularization | better regularization, slower convergence if too high |
+
+### UPerNet-Swin knobs
+
+| Knob | Meaning | Typical Effect When Increased |
+|---|---|---|
+| `embed_dim` | starting width of the Swin backbone | higher capacity and memory use |
+| `depths` | number of blocks in each stage | more context modeling |
+| `num_heads` | heads per stage | more feature diversity |
+| `window_size` | local attention window | larger receptive windows, higher cost |
+| `pool_scales` | multi-scale pooling bins in the decoder | broader contextual fusion |
+
+### Hybrid knobs
+
+| Knob | Meaning | Typical Effect When Increased |
+|---|---|---|
+| `transformer_depth` | number of transformer encoder blocks | more context modeling, more cost |
+| `transformer_num_heads` | number of attention heads | richer interactions, more sensitivity to divisibility constraints |
+| `transformer_mlp_ratio` | feed-forward expansion ratio | more capacity in the transformer block |
+| `transformer_dropout` | dropout probability | more regularization, sometimes slower convergence |
+| `patch_size` | size of the patch embedding step | smaller patches preserve detail but cost more compute |
+
+## Factors That Affect Performance
+
+The same architecture can behave very differently depending on the following factors:
+
+1. dataset size and diversity,
+2. label quality and correction consistency,
+3. class imbalance,
+4. contrast normalization and preprocessing,
+5. input resolution,
+6. crop policy,
+7. pretrained initialization,
+8. learning rate and batch size,
+9. augmentation strength,
+10. seed and determinism settings,
+11. hardware memory pressure,
+12. whether validation is used for tuning only or also for final reporting.
+
+## What Usually Helps Which Family
+
+### When the images are small and contrast-driven
+
+Prefer:
+
+- `unet_binary`
+- `smp_unet_resnet18`
+
+Reason:
+
+- local texture is often enough,
+- simpler architectures are easier to debug.
+
+### When global morphology matters
+
+Prefer:
+
+- `smp_deeplabv3plus_resnet101`
+- `smp_pspnet_resnet101`
+- `hf_segformer_b2`
+- `hf_upernet_swin_large`
+
+Reason:
+
+- these architectures can integrate broader context.
+
+### When you need a strong but efficient transformer baseline
+
+Prefer:
+
+- `hf_segformer_b0`
+- `hf_segformer_b2`
+
+Reason:
+
+- they are easier to justify than a very large model when compute is constrained.
+
+### When you want a pedagogical bridge between CNNs and transformers
+
+Prefer:
+
+- `transunet_tiny`
+- `segformer_mini`
+
+Reason:
+
+- these are useful for explaining how local inductive bias and global attention interact.
+
+## Manuscript Writing Guidance
+
+When describing a result set in a report or paper:
+
+1. state the model family and whether it is official or internal,
+2. state the initialization regime: scratch, pretrained, or partial warm start,
+3. state the input and output contract,
+4. compare quality metrics and runtime cost together,
+5. discuss failure cases by morphology type,
+6. report across seeds when possible,
+7. separate architecture effects from data/preprocessing effects,
+8. avoid claiming superiority from a single seed or a single image.
+
+## Citation And Provenance Policy
+
+For any manuscript table or figure, include:
+
+- model ID,
+- architecture family,
+- source citation,
+- initialization source,
+- source revision or weight provenance when applicable,
+- whether the implementation is official, adapted, or internal.
+
+The complementary provenance table for pretrained bundles lives in [`docs/pretrained_model_catalog.md`](pretrained_model_catalog.md), and the canonical BibTeX entries live in [`docs/pretrained_model_citations.bib`](pretrained_model_citations.bib).
+
+## Related Documentation
+
+- [`docs/pretrained_model_catalog.md`](pretrained_model_catalog.md)
+- [`docs/pretrained_model_citations.bib`](pretrained_model_citations.bib)
+- [`docs/hydride_research_workflow.md`](hydride_research_workflow.md)
+- [`docs/benchmark_metrics_reference.md`](benchmark_metrics_reference.md)
+- [`docs/scientific_validation.md`](scientific_validation.md)
+
