@@ -1,0 +1,8 @@
+model_path: outputs/training/model.pth
+output_dir: outputs/deployments
+package_name: hydride_candidate
+resolved_config_path: outputs/training/resolved_config.json
+training_report_path: outputs/training/training_report.json
+evaluation_report_path: outputs/eval/report.json
+extra_paths: []
+notes: ""

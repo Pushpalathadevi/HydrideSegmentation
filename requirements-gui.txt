@@ -1,0 +1,3 @@
+-r requirements-core.txt
+tkinterdnd2
+PySide6

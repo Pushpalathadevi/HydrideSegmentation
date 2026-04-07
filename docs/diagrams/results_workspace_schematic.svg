@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-label="Desktop workspace schematic">
+  <defs>
+    <linearGradient id="wall" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f6f8fb"/>
+      <stop offset="100%" stop-color="#e8eef9"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f8fbff"/>
+    </linearGradient>
+    <style>
+      .window { fill: url(#wall); stroke: #8fa3c2; stroke-width: 2; rx: 24; ry: 24; }
+      .chrome { fill: #1f2d40; }
+      .chrome-text { font: 700 18px system-ui, sans-serif; fill: #ffffff; }
+      .panel { fill: url(#panel); stroke: #c5d2e8; stroke-width: 2; rx: 18; ry: 18; }
+      .label { font: 700 18px system-ui, sans-serif; fill: #123b8f; }
+      .text { font: 500 14px system-ui, sans-serif; fill: #334155; }
+      .chip { fill: #dbe7ff; stroke: #8eb0ff; stroke-width: 1; rx: 10; ry: 10; }
+      .chip-text { font: 700 12px system-ui, sans-serif; fill: #103a8c; }
+    </style>
+  </defs>
+  <rect x="10" y="10" width="1580" height="880" class="window"/>
+  <rect x="10" y="10" width="1580" height="56" class="chrome" rx="24" ry="24"/>
+  <text x="36" y="45" class="chrome-text">MicroSeg Qt Desktop Workspace</text>
+  <text x="1230" y="45" class="chrome-text">Load Sample | Run | Correct | Export | Review</text>
+
+  <rect x="36" y="92" width="1020" height="600" class="panel"/>
+  <text x="64" y="128" class="label">Image and annotation canvas</text>
+  <rect x="64" y="150" width="450" height="490" class="panel"/>
+  <text x="92" y="186" class="text">Input image</text>
+  <rect x="540" y="150" width="480" height="490" class="panel"/>
+  <text x="568" y="186" class="text">Prediction / correction overlay</text>
+  <rect x="110" y="220" width="320" height="300" fill="#d8dee9" rx="12" ry="12"/>
+  <rect x="588" y="220" width="320" height="300" fill="#e9f1ff" rx="12" ry="12"/>
+  <path d="M 430 260 C 470 240, 500 240, 540 260" fill="none" stroke="#86a8ff" stroke-width="3"/>
+  <text x="92" y="560" class="text">Zoom, pan, transparency, brush/polygon/lasso, feature delete/relabel</text>
+  <text x="568" y="560" class="text">Split view stays synchronized for inspection efficiency</text>
+
+  <rect x="1090" y="92" width="474" height="290" class="panel"/>
+  <text x="1120" y="128" class="label">Results dashboard</text>
+  <rect x="1120" y="152" width="184" height="48" class="chip"/>
+  <text x="1144" y="182" class="chip-text">Area fraction</text>
+  <rect x="1320" y="152" width="214" height="48" class="chip"/>
+  <text x="1344" y="182" class="chip-text">Orientation summary</text>
+  <rect x="1120" y="214" width="184" height="48" class="chip"/>
+  <text x="1150" y="244" class="chip-text">Size histogram</text>
+  <rect x="1320" y="214" width="214" height="48" class="chip"/>
+  <text x="1340" y="244" class="chip-text">Tracked validation</text>
+  <rect x="1120" y="276" width="414" height="64" fill="#eef3ff" rx="12" ry="12"/>
+  <text x="1144" y="304" class="text">Scalar metrics, predicted/corrected comparisons, and calibration-aware reporting.</text>
+  <text x="1144" y="326" class="text">Use this area to inspect scientific drift before exporting results.</text>
+
+  <rect x="1090" y="406" width="474" height="286" class="panel"/>
+  <text x="1120" y="442" class="label">Workflow and export controls</text>
+  <rect x="1120" y="470" width="414" height="42" fill="#eef3ff" rx="12" ry="12"/>
+  <text x="1142" y="497" class="text">Inference | Training | Evaluation | Packaging | Dataset QA</text>
+  <rect x="1120" y="524" width="414" height="42" fill="#eef3ff" rx="12" ry="12"/>
+  <text x="1142" y="551" class="text">Results export: JSON, HTML, PDF, CSV, manifest</text>
+  <rect x="1120" y="578" width="414" height="42" fill="#eef3ff" rx="12" ry="12"/>
+  <text x="1142" y="605" class="text">Batch summary and run review / compare</text>
+  <rect x="1120" y="632" width="414" height="42" fill="#eef3ff" rx="12" ry="12"/>
+  <text x="1142" y="659" class="text">Persistent logs and project/session save-resume</text>
+
+  <rect x="36" y="714" width="1528" height="146" class="panel"/>
+  <text x="64" y="750" class="label">Canonical output roots</text>
+  <text x="64" y="784" class="text">outputs/runs/ | outputs/training/ | outputs/evaluation/ | outputs/dataops/ | outputs/support_bundles/ | outputs/feedback_records/</text>
+  <text x="64" y="814" class="text">Use the JSON summary as the machine-readable source of truth and the HTML/PDF reports for human review.</text>
+</svg>

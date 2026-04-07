@@ -1,0 +1,47 @@
+schema_version: microseg.desktop_ui_config.v1
+
+appearance:
+  base_font_size: 14
+  heading_font_size: 16
+  monospace_font_size: 13
+  control_padding_px: 6
+  panel_spacing_px: 8
+  table_row_padding_px: 8
+  table_min_row_height_px: 24
+  high_contrast: false
+
+export_defaults:
+  report_profile: balanced
+  write_html_report: true
+  write_pdf_report: true
+  write_csv_report: true
+  write_batch_summary: true
+  selected_metric_keys:
+    - hydride_area_fraction_percent
+    - hydride_count
+    - hydride_total_area_um2
+    - hydride_total_area_pixels
+    - equivalent_diameter_mean_um
+    - equivalent_diameter_mean_px
+    - hydride_density_per_megapixel
+    - size_mean_um2
+    - size_mean_pixels
+    - size_p90_um2
+    - size_p90_pixels
+    - orientation_mean_deg
+    - orientation_std_deg
+    - orientation_alignment_index
+    - orientation_entropy_bits
+    - excluded_small_features
+  include_sections:
+    - metadata
+    - calibration
+    - key_summary
+    - scalar_table
+    - distribution_charts
+    - overlays
+    - diff_panel
+    - artifact_manifest
+  sort_metrics: name
+  top_k_key_metrics: 12
+  include_artifact_manifest: true

@@ -1,34 +1,126 @@
 # Developer Guide
 
-This document provides quick examples for using the package from your own projects.
+This guide covers day-to-day development against the current baseline while the repository transitions to a general microstructural segmentation platform.
 
-## Installation
+## Start Here
+
+- Mission and scope: `docs/mission_statement.md`
+- Baseline audit: `docs/base_zero_audit.md`
+- Target architecture: `docs/target_architecture.md`
+- Phase plan: `docs/development_roadmap.md`
+- Working rules: `AGENTS.md`
+- Frozen checkpoint metadata: `docs/frozen_checkpoint_registry.md`
+- Phase closeout workflow: `docs/development_workflow.md`
+
+## Local Setup
 
 ```bash
+pip install -r requirements.txt
 pip install -e .
 ```
 
-or add the repository as a Git submodule and run the same command in the submodule directory.
-
-## Command Line Interfaces
-
-The package exposes a few convenience entry points once installed:
+## Existing Entry Points
 
 ```bash
-hydride-gui           # Launch the Tkinter application
-hydride-orientation   # Analyse hydride orientations from an image
-segmentation-eval     # Evaluate segmentation quality on sample data
+hydride-gui
+hydride-gui-qt
+hydride-orientation --help
+segmentation-eval --help
+package-corrections-dataset --help
 ```
 
-Append `--help` to any command for detailed options.
+Qt runtime note:
+  - `hydride-gui` defaults to Qt framework and requires `PySide6`.
+  - Legacy Tk path remains available via `hydride-gui --framework tk`.
 
-## Using as a Library
-
-```python
-from hydride_segmentation import run_model, orientation_analysis
-
-mask_image, mask = run_model("image.png", params)
-orient, size_plot, angle_plot = orientation_analysis(mask)
+Model metadata inspection:
+```bash
+microseg-cli models --details
+microseg-cli validate-registry --config configs/registry_validation.default.yml --strict
 ```
 
-Each module contains docstrings describing expected parameters and return values.
+Smoke checkpoint generation (tiny random-weight `.pth` for pipeline debugging):
+```bash
+python scripts/generate_smoke_checkpoint.py --force
+```
+
+HPC GA bundle generation:
+```bash
+microseg-cli hpc-ga-generate --config configs/hpc_ga.default.yml --dataset-dir outputs/prepared_dataset --output-dir outputs/hpc_ga_bundle
+```
+
+Phase closeout gate:
+```bash
+microseg-cli phase-gate --phase-label "Phase N" --strict
+```
+
+## Development Procedure
+
+Follow `docs/development_workflow.md` for implementation order, testing expectations, and documentation sync requirements.
+
+## Phase 1 Core Entry Points
+
+- Microseg pipeline: `src/microseg/pipelines/segmentation_pipeline.py`
+- Hydride compatibility adapter: `hydride_segmentation/microseg_adapter.py`
+- Core contracts: `src/microseg/domain/contracts.py`
+
+## Phase 2 Desktop Workflow Entry Points
+
+- Desktop workflow manager: `src/microseg/app/desktop_workflow.py`
+- GUI integration: `hydride_segmentation/core/gui_app.py`
+- GUI model and processing helpers: `hydride_segmentation/core/image_processing.py`
+
+Current GUI capabilities:
+- registry-backed model selection
+- single-image and batch execution
+- run history browsing
+- structured run export with `manifest.json` and `metrics.json`
+
+## Phase 3 Correction and Export Entry Points
+
+- Correction session utilities: `src/microseg/corrections/session.py`
+- Correction export and dataset packaging: `src/microseg/corrections/exporter.py`
+- Qt desktop app: `hydride_segmentation/qt/main_window.py`
+- Correction dataset CLI: `scripts/package_corrections_dataset.py`
+
+Correction UX controls implemented:
+- zoom in/out/reset (+ Ctrl-wheel zoom)
+- predicted/corrected/diff layer toggles and transparency sliders
+- polygon and lasso interactive tools
+- split-view synchronized pan/zoom correction workspace
+- keyboard shortcuts for tool selection and undo/redo
+
+Phase 7 observability additions:
+- UNet training writes `report.json`, `training_report.html`, `epoch_history.jsonl`, and tracked val sample panels.
+- Evaluation writes JSON + HTML reports and tracked sample panels.
+- Long jobs emit progress/ETA logs and preserve partial artifacts on interruption.
+
+Phase 9 model lifecycle + data ops additions:
+- Dataset split planning: `microseg-cli dataset-split --config configs/dataset_split.default.yml`
+- Dataset preparation from unsplit source/masks: `microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml`
+- Dataset QA checks: `microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict`
+- Dataset auto-prepare defaults:
+  - leakage-aware split strategy
+  - global ID suffixes for all prepared samples
+  - optional RGB mask conversion through configurable `mask_colormap`
+- New modules:
+  - `src/microseg/plugins/registry_validation.py`
+  - `src/microseg/dataops/split_planner.py`
+  - `src/microseg/dataops/quality.py`
+  - `src/microseg/dataops/training_dataset.py`
+
+Phase 12 GUI dataset workspace additions:
+- Workflow Hub `Dataset Prep + QA` tab in `hydride_segmentation/qt/main_window.py`
+- In-app dataset preview API usage with searchable mapping table and class histogram
+- Optional training launch gate requiring dataset QA pass
+- YAML workflow profiles for `dataset_prepare`, `training`, and `evaluation`
+
+Phase 13 run review additions:
+- Workflow Hub `Run Review` tab for report loading and metric comparison
+- Report analytics module: `src/microseg/app/report_review.py`
+- Workflow profile persistence module: `src/microseg/app/workflow_profiles.py`
+
+Phase 15 HPC GA additions:
+- Workflow Hub `HPC GA Planner` tab for one-click script-bundle generation
+- Planner module: `src/microseg/app/hpc_ga.py`
+- CLI command: `microseg-cli hpc-ga-generate`

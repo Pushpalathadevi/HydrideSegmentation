@@ -1,0 +1,14 @@
+phase_label: "Phase 8"
+output_dir: outputs/phase_gates
+skip_tests: false
+verify_release_policy: true
+release_policy_path: docs/versioning_and_release_policy.md
+require_rollback_keywords: true
+rollback_keywords:
+  - rollback
+  - patch
+  - release
+deployment_package_dirs: []
+verify_deployment_sha256: true
+strict: false
+notes: ""

@@ -1,0 +1,6 @@
+bundle_paths: []
+ingest_root: outputs/feedback_lake
+output_path: outputs/feedback_ingest/ingest_report.json
+dedup_index_path: outputs/feedback_ingest/feedback_ingest_index.json
+review_queue_path: outputs/feedback_ingest/review_queue.jsonl
+strict: false

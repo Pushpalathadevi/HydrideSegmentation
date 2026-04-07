@@ -1,0 +1,12 @@
+package_dir: outputs/deployments/latest
+output_dir: outputs/deployments/health
+image_paths: []
+image_dir: test_data
+glob_patterns:
+  - "*.png"
+  - "*.jpg"
+max_workers: 1
+enable_gpu: false
+device_policy: cpu
+report_path: outputs/deployments/health/runtime_health_report.json
+strict: false

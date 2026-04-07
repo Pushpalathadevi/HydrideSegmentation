@@ -1,0 +1,51 @@
+{
+  "schema_version": "microseg.pretrained_bundle_metadata.v1",
+  "model_id": "unet_binary_resnet18_imagenet_partial",
+  "architecture": "unet_binary",
+  "framework": "torch",
+  "weights_format": "torch_state_dict",
+  "upstream": {
+    "source": "timm:resnet18",
+    "url": "https://github.com/huggingface/pytorch-image-models",
+    "maintainers": ["Ross Wightman and timm contributors"],
+    "checkpoint_revision": "set at download time in registry.json",
+    "dataset_context": "ImageNet"
+  },
+  "model_properties": {
+    "family": "internal unet_binary",
+    "bootstrap_type": "partial warm-start mapping",
+    "mapped_components": [
+      "inc",
+      "down1",
+      "down2"
+    ],
+    "unmapped_components": [
+      "up1_t",
+      "up1_c",
+      "up2_t",
+      "up2_c",
+      "out"
+    ],
+    "target_defaults": {
+      "model_base_channels": 16
+    }
+  },
+  "citations": [
+    {
+      "key": "he2016resnet",
+      "title": "Deep Residual Learning for Image Recognition",
+      "url": "https://arxiv.org/abs/1512.03385"
+    },
+    {
+      "key": "ronneberger2015unet",
+      "title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+      "url": "https://arxiv.org/abs/1505.04597"
+    }
+  ],
+  "license_notes": "See upstream timm model and original ResNet/U-Net license/citation terms.",
+  "remarks": [
+    "This is a shape-adapted bootstrap, not an official external unet_binary checkpoint.",
+    "Run scratch-vs-pretrained comparisons before deriving conclusions.",
+    "Checksum validation should be enabled before training."
+  ]
+}

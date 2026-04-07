@@ -4,9 +4,9 @@ import os
 import numpy as np
 from PIL import Image
 
-from hydride_segmentation.core.gui_app import HydrideSegmentationGUI
 from hydride_segmentation.core.analysis import orientation_analysis, combined_figure
 from hydride_segmentation.segmentation_mask_creation import run_model
+from hydride_segmentation.qt_gui import launch_qt_gui
 
 DEBUG_IMAGE = "test_data/3PB_SRT_data_generation_1817_OD_side1_8.png"
 DEBUG_OUTPUT = "test_data/results/3PB_SRT_data_generation_1817_OD_side1_8_combined.png"
@@ -50,15 +50,32 @@ def main() -> None:
     """Parse command line arguments and launch GUI or debug run."""
     parser = argparse.ArgumentParser(description="Hydride Segmentation GUI")
     parser.add_argument("--debug", action="store_true", help="Run in headless debug mode")
+    parser.add_argument(
+        "--framework",
+        choices=["qt", "tk"],
+        default="qt",
+        help="GUI framework to launch (default: qt)",
+    )
+    parser.add_argument(
+        "--ui-config",
+        type=str,
+        default="",
+        help="Optional desktop UI YAML config path (Qt only)",
+    )
     args = parser.parse_args()
 
     if args.debug:
         run_debug()
     else:
-        from tkinterdnd2 import TkinterDnD
-        root = TkinterDnD.Tk()
-        HydrideSegmentationGUI(root)
-        root.mainloop()
+        if args.framework == "qt":
+            launch_qt_gui(ui_config_path=str(args.ui_config or "").strip() or None)
+        else:
+            from tkinterdnd2 import TkinterDnD
+            from hydride_segmentation.core.gui_app import HydrideSegmentationGUI
+
+            root = TkinterDnD.Tk()
+            HydrideSegmentationGUI(root)
+            root.mainloop()
 
 
 if __name__ == "__main__":

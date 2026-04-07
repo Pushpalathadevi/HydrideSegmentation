@@ -1,0 +1,60 @@
+dataset_dir: outputs/debug_pretrained_dataset
+output_root: outputs/benchmarks/top5_suite_scratch_debug
+eval_config: configs/evaluate.default.yml
+eval_split: val
+python_executable: python
+seeds: [42]
+command_idle_timeout_seconds: 10800
+command_wall_timeout_seconds: 10800
+benchmark_mode: false
+experiments:
+  - name: unet_binary_scratch_debug
+    train_config: configs/hydride/train.unet_binary.baseline.yml
+    train_overrides:
+      - epochs=1
+      - batch_size=1
+      - enable_gpu=false
+      - device_policy=cpu
+      - early_stopping_patience=1
+      - val_tracking_samples=2
+      - progress_log_interval_pct=50
+  - name: hf_segformer_b0_scratch_debug
+    train_config: configs/hydride/train.hf_segformer_b0_scratch.yml
+    train_overrides:
+      - epochs=1
+      - batch_size=1
+      - enable_gpu=false
+      - device_policy=cpu
+      - early_stopping_patience=1
+      - val_tracking_samples=2
+      - progress_log_interval_pct=50
+  - name: hf_segformer_b2_scratch_debug
+    train_config: configs/hydride/train.hf_segformer_b2_scratch.yml
+    train_overrides:
+      - epochs=1
+      - batch_size=1
+      - enable_gpu=false
+      - device_policy=cpu
+      - early_stopping_patience=1
+      - val_tracking_samples=2
+      - progress_log_interval_pct=50
+  - name: transunet_tiny_scratch_debug
+    train_config: configs/hydride/train.transunet_tiny.yml
+    train_overrides:
+      - epochs=1
+      - batch_size=1
+      - enable_gpu=false
+      - device_policy=cpu
+      - early_stopping_patience=1
+      - val_tracking_samples=2
+      - progress_log_interval_pct=50
+  - name: segformer_mini_scratch_debug
+    train_config: configs/hydride/train.segformer_mini.yml
+    train_overrides:
+      - epochs=1
+      - batch_size=1
+      - enable_gpu=false
+      - device_policy=cpu
+      - early_stopping_patience=1
+      - val_tracking_samples=2
+      - progress_log_interval_pct=50

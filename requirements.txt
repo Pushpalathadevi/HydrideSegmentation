@@ -1,15 +1,2 @@
-numpy
-matplotlib
-opencv-python
-scikit-image
-scikit-learn
-pillow
-albumentations
-tqdm
-
-scipy
-tkinterdnd2
-torch
-segmentation-models-pytorch
-Flask
+-r requirements-gui.txt
 pytest

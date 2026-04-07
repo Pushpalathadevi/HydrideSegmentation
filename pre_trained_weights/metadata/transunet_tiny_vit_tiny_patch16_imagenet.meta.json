@@ -1,0 +1,45 @@
+{
+  "schema_version": "microseg.pretrained_bundle_metadata.v1",
+  "model_id": "transunet_tiny_vit_tiny_patch16_imagenet",
+  "architecture": "transunet_tiny",
+  "framework": "torch",
+  "weights_format": "torch_state_dict",
+  "upstream": {
+    "source": "timm:vit_tiny_patch16_224",
+    "url": "https://github.com/huggingface/pytorch-image-models",
+    "maintainers": ["Ross Wightman and timm contributors"],
+    "checkpoint_revision": "set at download time in registry.json",
+    "dataset_context": "ImageNet-1k/21k pretrained ViT variants depending on timm release"
+  },
+  "model_properties": {
+    "family": "internal transunet_tiny",
+    "bootstrap_type": "partial warm-start mapping",
+    "mapped_components": [
+      "transformer.layers.0",
+      "transformer.layers.1"
+    ],
+    "unmapped_components": [
+      "convolutional encoder/decoder blocks",
+      "output head"
+    ],
+    "target_defaults": {
+      "model_base_channels": 16,
+      "transformer_depth": 2,
+      "transformer_num_heads": 4,
+      "transformer_mlp_ratio": 2.0
+    }
+  },
+  "citations": [
+    {
+      "key": "dosovitskiy2020vit",
+      "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+      "url": "https://arxiv.org/abs/2010.11929"
+    }
+  ],
+  "license_notes": "See upstream timm model and original ViT license/citation terms.",
+  "remarks": [
+    "This is a shape-adapted bootstrap, not an official transunet_tiny checkpoint from external authors.",
+    "Use non-strict loading only when needed for future architecture changes.",
+    "Run validation and compare against scratch baseline before scientific conclusions."
+  ]
+}

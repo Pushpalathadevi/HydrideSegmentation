@@ -1,0 +1,13 @@
+mode: train
+dataset_dir: outputs/prepared_dataset_hydride_v1
+model_path: ""
+train_config: configs/train.default.yml
+train_overrides: []
+eval_config: configs/evaluate.default.yml
+benchmark_config: configs/hydride/benchmark_suite.top5.yml
+deployment_package_dir: ""
+require_dataset_qa: true
+dataset_qa_report_path: outputs/preflight/dataset_qa_report.json
+verify_sha256: true
+output_path: outputs/preflight/preflight_train.json
+strict: false

@@ -1,0 +1,13 @@
+feedback_root: outputs/feedback_lake
+output_path: outputs/feedback_trigger/trigger_report.json
+state_path: outputs/feedback_trigger/trigger_state.json
+corrected_threshold: 500
+max_days_since_last_trigger: 14
+train_config: configs/train.default.yml
+evaluate_config: configs/evaluate.default.yml
+dataset_output_dir: outputs/feedback_training_dataset
+train_output_dir: outputs/training_feedback_cycle
+evaluate_output_path: outputs/evaluation/feedback_cycle_eval.json
+execute: false
+train_overrides: []
+evaluate_overrides: []

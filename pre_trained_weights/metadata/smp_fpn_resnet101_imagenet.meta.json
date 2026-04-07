@@ -1,0 +1,39 @@
+{
+  "schema_version": "microseg.pretrained_bundle_metadata.v1",
+  "model_id": "smp_fpn_resnet101_imagenet",
+  "architecture": "smp_fpn_resnet101",
+  "framework": "segmentation_models_pytorch",
+  "weights_format": "torch_state_dict",
+  "upstream": {
+    "source": "segmentation_models_pytorch:FPN(resnet101, encoder_weights=imagenet)",
+    "url": "https://github.com/qubvel-org/segmentation_models.pytorch",
+    "maintainers": ["Pavel Yakubovskiy and contributors"],
+    "checkpoint_revision": "set at download time in registry.json",
+    "dataset_context": "ImageNet encoder initialization"
+  },
+  "model_properties": {
+    "family": "FPN",
+    "encoder": "ResNet101",
+    "task": "semantic segmentation",
+    "input_channels": 3,
+    "target_num_labels": 1,
+    "notes": "Full model state dict saved after encoder-pretrained initialization"
+  },
+  "citations": [
+    {
+      "key": "lin2017fpn",
+      "title": "Feature Pyramid Networks for Object Detection",
+      "url": "https://arxiv.org/abs/1612.03144"
+    },
+    {
+      "key": "he2016resnet",
+      "title": "Deep Residual Learning for Image Recognition",
+      "url": "https://arxiv.org/abs/1512.03385"
+    }
+  ],
+  "license_notes": "See upstream package and weight source license terms.",
+  "remarks": [
+    "Suitable high-capacity SMP baseline for transfer learning in MicroSeg.",
+    "Checksum validation should be enabled before training."
+  ]
+}

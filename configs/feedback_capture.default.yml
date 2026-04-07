@@ -1,0 +1,5 @@
+capture_feedback: true
+feedback_root: outputs/feedback_records
+deployment_id: deployment_local
+operator_id: unknown_operator
+source: desktop_gui

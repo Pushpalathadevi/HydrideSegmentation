@@ -1,0 +1,9 @@
+{
+  "name": "hydride-segmentation-slides",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Presentation tooling for benchmark result decks",
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}

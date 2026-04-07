@@ -1,0 +1,3 @@
+registry_path: frozen_checkpoints/model_registry.json
+output_path: outputs/registry/validation_report.json
+strict: false

@@ -1,0 +1,40 @@
+{
+  "schema_version": "microseg.pretrained_bundle_metadata.v1",
+  "model_id": "hf_segformer_b2_ade20k",
+  "architecture": "hf_segformer_b2",
+  "framework": "transformers",
+  "weights_format": "hf_model_dir",
+  "upstream": {
+    "source": "huggingface:nvidia/segformer-b2-finetuned-ade-512-512",
+    "url": "https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512",
+    "maintainers": ["NVIDIA"],
+    "checkpoint_revision": "set at download time in registry.json",
+    "dataset_context": "ADE20K"
+  },
+  "model_properties": {
+    "family": "SegFormer",
+    "variant": "B2",
+    "task": "semantic segmentation",
+    "input_channels": 3,
+    "target_num_labels": 2,
+    "resolution_notes": "upstream model card target is 512x512; MicroSeg supports variable image sizes"
+  },
+  "citations": [
+    {
+      "key": "xie2021segformer",
+      "title": "SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers",
+      "url": "https://arxiv.org/abs/2105.15203"
+    },
+    {
+      "key": "zhou2017ade20k",
+      "title": "Scene Parsing through ADE20K Dataset",
+      "url": "https://arxiv.org/abs/1608.05442"
+    }
+  ],
+  "license_notes": "See upstream Hugging Face model card for exact license and usage constraints.",
+  "remarks": [
+    "Classifier head is reinitialized for 2-label binary segmentation in MicroSeg.",
+    "Higher-capacity variant than B0; requires more GPU memory.",
+    "Checksum validation should be enabled before training."
+  ]
+}

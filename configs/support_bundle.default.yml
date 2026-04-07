@@ -1,0 +1,4 @@
+run_root: outputs/hydride_benchmark_suite
+output_dir: outputs/support_bundles
+bundle_name: hydride_suite_support
+include_paths: []

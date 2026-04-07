@@ -34,6 +34,7 @@ ENV/
 *.swp
 *.swo
 .DS_Store
+node_modules/
 
 # Flask
 instance/
@@ -51,6 +52,29 @@ static/temp/*
 *.log
 logs/
 log/
+outputs/
+
+# Generated docs and site builds
+docs/_build/
+docs/.doctrees/
+site/
+_site/
+.site/
+
+# Generic temporary / backup artifacts
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.cache
+*.swp
+*.swo
+*.seed
+*.pid
+*.pid.lock
+*.sqlite3
+*.db
 
 # Model files and large binaries
 *.pkl
@@ -59,6 +83,26 @@ log/
 *.ckpt
 *.pt
 *.pth
+models/weights/*
+!models/weights/.gitkeep
+frozen_checkpoints/**/*.pt
+frozen_checkpoints/**/*.pth
+frozen_checkpoints/**/*.ckpt
+frozen_checkpoints/**/*.onnx
+frozen_checkpoints/smoke/*.meta.json
+# Keep lifecycle folders tracked, but never track checkpoint binaries by default.
+!frozen_checkpoints/**/.gitkeep
+
+# Local pretrained transfer-learning bundles (air-gap staging area)
+pre_trained_weights/**
+!pre_trained_weights/.gitkeep
+!pre_trained_weights/README.md
+!pre_trained_weights/registry.template.json
+!pre_trained_weights/metadata/
+!pre_trained_weights/metadata/*.json
+
+# Local transfer archives for air-gapped copy (never commit)
+transfer_bundle/
 
 # Local development
 .env.local

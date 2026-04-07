@@ -1,0 +1,14 @@
+dataset_dir: outputs/prepared_dataset_hydride_v1
+output_dir: outputs/benchmarks/torch_pixel_seed42
+backend: torch_pixel
+train_split: train
+val_split: val
+binary_mask_normalization: nonzero_foreground
+auto_prepare_dataset: false
+max_samples: 300000
+epochs: 20
+batch_size: 64
+learning_rate: 0.001
+seed: 42
+enable_gpu: true
+device_policy: auto

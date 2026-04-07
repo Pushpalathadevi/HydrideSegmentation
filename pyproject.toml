@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydride-segmentation"
-version = "0.1.0"
+version = "0.22.0"
 description = "Toolkit for zirconium hydride segmentation and analysis"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,18 +12,33 @@ license = {text = "MIT"}
 dependencies = [
     "numpy",
     "matplotlib",
-    "opencv-python",
+    "opencv-python-headless",
     "scikit-image",
     "scikit-learn",
     "pillow",
+    "h5py",
     "albumentations",
     "tqdm",
     "scipy",
-    "tkinterdnd2",
     "torch",
     "segmentation-models-pytorch",
+    "transformers",
+    "huggingface_hub",
     "flask",
     "pydantic",
+    "PyYAML",
+]
+
+[project.optional-dependencies]
+core = [
+    "opencv-python-headless",
+]
+gui = [
+    "PySide6",
+]
+transformers = [
+    "transformers",
+    "huggingface_hub",
 ]
 
 [project.scripts]
@@ -31,3 +46,10 @@ hydride-gui = "hydride_segmentation.gui:main"
 hydride-orientation = "hydride_segmentation.hydride_orientation_analyzer:main"
 segmentation-eval = "hydride_segmentation.segmentation_evaluator:main"
 hydride-service = "hydride_segmentation.service:main"
+hydride-gui-qt = "hydride_segmentation.qt_gui:main"
+microseg-docs = "scripts.build_docs:main"
+package-corrections-dataset = "scripts.package_corrections_dataset:main"
+microseg-cli = "scripts.microseg_cli:main"
+microseg-phase-gate = "scripts.run_phase_gate:main"
+microseg-benchmark-suite = "scripts.hydride_benchmark_suite:main"
+prep-dataset = "src.microseg.data_preparation.cli:main"

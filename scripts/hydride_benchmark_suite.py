@@ -1,0 +1,2509 @@
+"""Run hydride benchmark suites and produce consolidated comparison dashboards."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import html
+import json
+import math
+import os
+from pathlib import Path
+import re
+import signal
+import socket
+import statistics
+import subprocess
+import sys
+import threading
+import time
+import traceback
+from datetime import datetime, timezone
+from queue import Empty, Queue
+from typing import Any
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.microseg.dataops import generate_dataset_split_manifest_from_splits
+from src.microseg.quality.preflight import preflight_pretrained_train_config
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"suite config must be a mapping: {path}")
+    return data
+
+
+def _ensure_list(value: object) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _parse_overrides(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    sep = "|" if "|" in text else ","
+    return [part.strip() for part in text.split(sep) if part.strip()]
+
+
+def _resolve_path(path_value: str, *, base: Path) -> Path:
+    p = Path(str(path_value).strip())
+    if p.is_absolute():
+        return p
+    return (base / p).resolve()
+
+
+def _write_skip_log(
+    *,
+    log_path: Path,
+    run_tag: str,
+    reason: str,
+    actions: list[str],
+    details: dict[str, Any],
+) -> None:
+    lines = [
+        f"[skip] run={run_tag}",
+        f"[reason] {reason}",
+    ]
+    if details:
+        lines.append("[details]")
+        for key in sorted(details.keys()):
+            if key in {"reason", "actions"}:
+                continue
+            lines.append(f"  - {key}: {details.get(key)}")
+    if actions:
+        lines.append("[actions]")
+        for action in actions:
+            lines.append(f"  - {action}")
+    lines.append("")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _safe_positive_seconds(value: object) -> float | None:
+    try:
+        sec = float(value)
+    except Exception:
+        return None
+    if sec <= 0.0:
+        return None
+    return float(sec)
+
+
+def _terminate_process(proc: subprocess.Popen[str], *, grace_seconds: float) -> None:
+    if proc.poll() is not None:
+        return
+
+    sent_term = False
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+            sent_term = True
+        except Exception:
+            sent_term = False
+    if not sent_term:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+    try:
+        proc.wait(timeout=max(1.0, float(grace_seconds)))
+        return
+    except Exception:
+        pass
+
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            pass
+    else:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+
+
+def _run_cmd(
+    cmd: list[str],
+    stdout_log_path: Path,
+    *,
+    stderr_log_path: Path | None = None,
+    dry_run: bool,
+    run_label: str,
+    idle_timeout_seconds: float | None,
+    wall_timeout_seconds: float | None,
+    terminate_grace_seconds: float,
+    poll_interval_seconds: float,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> tuple[int, int | None]:
+    stdout_log_path.parent.mkdir(parents=True, exist_ok=True)
+    if stderr_log_path is not None:
+        stderr_log_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd_text = " ".join(cmd)
+    if dry_run:
+        stdout_log_path.write_text("$ " + cmd_text + "\n[dry-run]\n", encoding="utf-8")
+        if stderr_log_path is not None:
+            stderr_log_path.write_text("[dry-run]\n", encoding="utf-8")
+        print(f"[suite] {run_label} dry-run planned | log={stdout_log_path}")
+        return 0, None
+
+    print(f"[suite] {run_label} starting | log={stdout_log_path}")
+    with stdout_log_path.open("w", encoding="utf-8") as stdout_file:
+        stderr_target = subprocess.STDOUT
+        stderr_handle = None
+        if stderr_log_path is not None:
+            stderr_handle = stderr_log_path.open("w", encoding="utf-8")
+            stderr_target = stderr_handle
+        try:
+            stdout_file.write("$ " + cmd_text + "\n\n")
+            stdout_file.flush()
+
+            popen_kwargs: dict[str, Any] = {
+                "stdout": stdout_file,
+                "stderr": stderr_target,
+                "text": True,
+                "env": env,
+            }
+            if cwd is not None:
+                popen_kwargs["cwd"] = str(cwd)
+            if os.name != "nt":
+                popen_kwargs["start_new_session"] = True
+            proc = subprocess.Popen(cmd, **popen_kwargs)
+            pid = int(proc.pid)
+
+            started = time.monotonic()
+            last_activity = started
+            try:
+                last_size = stdout_log_path.stat().st_size
+            except Exception:
+                last_size = 0
+
+            poll_seconds = max(0.1, float(poll_interval_seconds))
+            grace_seconds = max(1.0, float(terminate_grace_seconds))
+
+            timeout_reason = ""
+            timeout_seconds = 0.0
+            while True:
+                rc = proc.poll()
+                if rc is not None:
+                    print(f"[suite] {run_label} finished | rc={int(rc)} | log={stdout_log_path}")
+                    return int(rc), pid
+
+                now = time.monotonic()
+                try:
+                    size_now = stdout_log_path.stat().st_size
+                except Exception:
+                    size_now = last_size
+                if size_now > last_size:
+                    last_size = size_now
+                    last_activity = now
+
+                if wall_timeout_seconds is not None and (now - started) > float(wall_timeout_seconds):
+                    timeout_reason = "wall_timeout"
+                    timeout_seconds = float(wall_timeout_seconds)
+                    break
+                if idle_timeout_seconds is not None and (now - last_activity) > float(idle_timeout_seconds):
+                    timeout_reason = "idle_timeout"
+                    timeout_seconds = float(idle_timeout_seconds)
+                    break
+                time.sleep(poll_seconds)
+
+            stdout_file.write(
+                f"\n[watchdog] {timeout_reason} triggered after {timeout_seconds:.1f}s; "
+                "terminating subprocess and continuing suite.\n"
+            )
+            stdout_file.flush()
+            _terminate_process(proc, grace_seconds=grace_seconds)
+            print(
+                f"[suite] {run_label} watchdog {timeout_reason} after {timeout_seconds:.1f}s | "
+                f"returning rc=124 | log={stdout_log_path}"
+            )
+            return 124, pid
+        finally:
+            if stderr_handle is not None:
+                stderr_handle.close()
+
+
+def _resolve_model_path(train_dir: Path) -> Path:
+    candidates = [
+        train_dir / "best_checkpoint.pt",
+        train_dir / "last_checkpoint.pt",
+        train_dir / "torch_pixel_classifier.pt",
+        train_dir / "pixel_classifier.joblib",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    raise FileNotFoundError(f"no model artifact found in {train_dir}")
+
+
+def _safe_float(v: object) -> float | None:
+    try:
+        return float(v)
+    except Exception:
+        return None
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return payload
+    except Exception:
+        pass
+    return {}
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, ensure_ascii=True, sort_keys=True, default=str))
+        fh.write("\n")
+
+
+def _runtime_environment_snapshot() -> dict[str, Any]:
+    return {
+        "cwd": str(Path.cwd()),
+        "python_executable": sys.executable,
+        "python_version": sys.version.split()[0],
+        "platform": sys.platform,
+        "hostname": os.environ.get("HOSTNAME", "") or socket.gethostname(),
+        "pid": os.getpid(),
+    }
+
+
+class VisibleGpuInfo:
+    """Resolved visible GPU mapping for suite-level scheduling."""
+
+    def __init__(self, worker_gpu_ids: list[str], source: str, cuda_visible_devices: str) -> None:
+        self.worker_gpu_ids = list(worker_gpu_ids)
+        self.source = str(source)
+        self.cuda_visible_devices = str(cuda_visible_devices)
+
+    @property
+    def count(self) -> int:
+        return len(self.worker_gpu_ids)
+
+
+def _parse_cuda_visible_devices(raw: str) -> list[str]:
+    parts = [p.strip() for p in str(raw).split(",")]
+    return [p for p in parts if p]
+
+
+def _discover_visible_gpus() -> VisibleGpuInfo:
+    env_raw = str(os.environ.get("CUDA_VISIBLE_DEVICES", "")).strip()
+    if env_raw:
+        parsed = _parse_cuda_visible_devices(env_raw)
+        if parsed:
+            return VisibleGpuInfo(worker_gpu_ids=parsed, source="cuda_visible_devices", cuda_visible_devices=env_raw)
+
+    torch_count = 0
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch_count = int(torch.cuda.device_count())
+    except Exception:
+        torch_count = 0
+
+    if torch_count > 0:
+        ids = [str(i) for i in range(torch_count)]
+        return VisibleGpuInfo(worker_gpu_ids=ids, source="torch.cuda.device_count", cuda_visible_devices=env_raw)
+
+    return VisibleGpuInfo(worker_gpu_ids=[], source="none", cuda_visible_devices=env_raw)
+
+
+def _resolve_parallel_workers(
+    gpu_info: VisibleGpuInfo,
+    *,
+    max_parallel_gpus: str,
+    parallel_jobs: str,
+) -> tuple[int, str]:
+    detected = max(1, gpu_info.count)
+
+    def _resolve_limit(raw: str, *, default: int, label: str) -> int:
+        txt = str(raw).strip().lower()
+        if txt in {"", "auto"}:
+            return int(default)
+        parsed = _safe_int(txt)
+        if parsed is None or int(parsed) <= 0:
+            raise ValueError(f"{label} must be 'auto' or a positive integer")
+        return int(parsed)
+
+    gpu_limit = _resolve_limit(max_parallel_gpus, default=detected, label="max_parallel_gpus")
+    job_limit = _resolve_limit(parallel_jobs, default=gpu_limit, label="parallel_jobs")
+    workers = max(1, min(detected, gpu_limit, job_limit))
+    mode = "parallel" if workers > 1 else "serial"
+    return workers, mode
+
+
+class BenchmarkUnit:
+    """Single benchmark unit for one (experiment, seed) train/eval flow."""
+
+    def __init__(
+        self,
+        *,
+        run_index: int,
+        model_name: str,
+        seed: int,
+        train_config: str,
+        train_overrides: list[str],
+        eval_overrides: list[str],
+        execution_family: str,
+        execution_priority: int,
+        source_index: int,
+    ) -> None:
+        self.run_index = int(run_index)
+        self.model_name = str(model_name)
+        self.seed = int(seed)
+        self.train_config = str(train_config)
+        self.train_overrides = list(train_overrides)
+        self.eval_overrides = list(eval_overrides)
+        self.execution_family = str(execution_family)
+        self.execution_priority = int(execution_priority)
+        self.source_index = int(source_index)
+
+    @property
+    def run_tag(self) -> str:
+        return f"{self.model_name}_seed{self.seed}"
+
+
+def _resolve_failure_policy(raw_policy: str | None, *, continue_on_failure: bool) -> str:
+    policy = str(raw_policy or "").strip().lower()
+    if policy in {"continue", "fail-fast"}:
+        return policy
+    return "continue" if continue_on_failure else "fail-fast"
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _safe_int(v: object) -> int | None:
+    try:
+        return int(v)
+    except Exception:
+        return None
+
+
+def _mean_and_std(rows: list[dict[str, Any]], key: str) -> tuple[float, float]:
+    vals = [float(v) for v in (_safe_float(r.get(key)) for r in rows) if v is not None]
+    if not vals:
+        return 0.0, 0.0
+    if len(vals) == 1:
+        return float(vals[0]), 0.0
+    return float(sum(vals) / len(vals)), float(statistics.pstdev(vals))
+
+
+def _bytes_to_mb(value: int | float | None) -> float:
+    if value is None:
+        return 0.0
+    return float(value) / (1024.0 * 1024.0)
+
+
+def _safe_name(text: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(text).strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or "sample"
+
+
+
+
+def _tail_text(path: Path, *, max_chars: int = 1200) -> str:
+    if not path.exists():
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    return text[-max_chars:]
+def _as_bool(value: object, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return bool(default)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _classify_experiment_family(exp: dict[str, Any], *, repo_root: Path) -> tuple[str, int]:
+    family_priority = {
+        "transformer": 0,
+        "deeplab": 1,
+        "advanced": 2,
+        "unet": 3,
+    }
+    explicit_family = str(exp.get("execution_family", "")).strip().lower()
+    if explicit_family in family_priority:
+        return explicit_family, int(family_priority[explicit_family])
+
+    texts: list[str] = [
+        str(exp.get("name", "")),
+        str(exp.get("train_config", "")),
+    ]
+    train_config = str(exp.get("train_config", "")).strip()
+    if train_config:
+        cfg_path = _resolve_path(train_config, base=repo_root)
+        try:
+            cfg = _load_yaml(cfg_path)
+        except Exception:
+            cfg = {}
+        if isinstance(cfg, dict):
+            texts.extend(
+                [
+                    str(cfg.get("backend", "")),
+                    str(cfg.get("backend_label", "")),
+                    str(cfg.get("model_architecture", "")),
+                ]
+            )
+
+    search = " ".join(part.lower() for part in texts if str(part).strip())
+    transformer_tokens = ("segformer", "transunet", "swin", "transformer", "upernet", "vit")
+    if any(token in search for token in transformer_tokens):
+        return "transformer", int(family_priority["transformer"])
+    if "deeplab" in search:
+        return "deeplab", int(family_priority["deeplab"])
+    if "unet_binary" in search:
+        return "unet", int(family_priority["unet"])
+    return "advanced", int(family_priority["advanced"])
+
+
+def _artifact_link(path_value: object, *, label: str) -> str:
+    path_text = str(path_value or "").strip()
+    if not path_text:
+        return "-"
+    return (
+        "<a href='"
+        + html.escape(path_text)
+        + "' target='_blank' rel='noopener noreferrer'>"
+        + html.escape(label)
+        + "</a>"
+    )
+
+
+def _extract_history_series(history: list[dict[str, Any]], key: str) -> tuple[list[int], list[float]]:
+    epochs: list[int] = []
+    vals: list[float] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        ep = _safe_int(item.get("epoch"))
+        val = _safe_float(item.get(key))
+        if ep is None or val is None:
+            continue
+        epochs.append(ep)
+        vals.append(float(val))
+    return epochs, vals
+
+
+def _write_curve_plot(
+    *,
+    output_path: Path,
+    title: str,
+    x_vals: list[int],
+    lines: list[tuple[str, list[float]]],
+    y_label: str,
+) -> None:
+    if not x_vals:
+        return
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for label, y_vals in lines:
+        if not y_vals:
+            continue
+        points = min(len(x_vals), len(y_vals))
+        if points <= 0:
+            continue
+        ax.plot(x_vals[:points], y_vals[:points], marker="o", linewidth=1.8, label=label)
+    ax.set_title(title)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(y_label)
+    ax.grid(True, alpha=0.3)
+    if any(y for _, y in lines):
+        ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=140)
+    plt.close(fig)
+
+
+def _checkpoint_state_dict(model_path: Path) -> dict[str, Any] | None:
+    if not model_path.exists():
+        return None
+    if model_path.suffix.lower() not in {".pt", ".pth", ".ckpt"}:
+        return None
+    try:
+        import torch
+    except Exception:
+        return None
+    try:
+        payload = torch.load(model_path, map_location="cpu")
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    state = payload.get("model_state_dict")
+    if isinstance(state, dict):
+        return state
+    state = payload.get("state_dict")
+    if isinstance(state, dict):
+        return state
+    return None
+
+
+def _checkpoint_state_stats(model_path: Path) -> dict[str, Any]:
+    state = _checkpoint_state_dict(model_path)
+    if not isinstance(state, dict):
+        return {}
+    total = 0
+    tensor_count = 0
+    total_sum = 0.0
+    total_sq = 0.0
+    value_count = 0
+    min_value: float | None = None
+    max_value: float | None = None
+    for val in state.values():
+        try:
+            count = int(val.numel())  # type: ignore[call-arg]
+        except Exception:
+            continue
+        total += count
+        try:
+            arr = val.detach().to("cpu").reshape(-1)  # type: ignore[attr-defined]
+        except Exception:
+            arr = None
+        if arr is None:
+            continue
+        try:
+            import torch
+
+            arr = arr.to(dtype=torch.float32)
+        except Exception:
+            continue
+        if int(arr.numel()) <= 0:
+            continue
+        tensor_count += 1
+        value_count += int(arr.numel())
+        total_sum += float(arr.sum().item())
+        total_sq += float((arr * arr).sum().item())
+        vmin = float(arr.min().item())
+        vmax = float(arr.max().item())
+        min_value = vmin if min_value is None else min(min_value, vmin)
+        max_value = vmax if max_value is None else max(max_value, vmax)
+    out: dict[str, Any] = {}
+    if total > 0:
+        out["parameter_count"] = int(total)
+    if value_count > 0:
+        mean = total_sum / float(value_count)
+        variance = max(0.0, (total_sq / float(value_count)) - (mean * mean))
+        out.update(
+            {
+                "weight_tensor_count": int(tensor_count),
+                "weight_value_count": int(value_count),
+                "weight_mean": float(mean),
+                "weight_std": float(math.sqrt(variance)),
+                "weight_min": float(min_value if min_value is not None else 0.0),
+                "weight_max": float(max_value if max_value is not None else 0.0),
+            }
+        )
+    return out
+
+
+def _read_training_metadata(train_dir: Path, run_tag: str, output_root: Path) -> dict[str, Any]:
+    report = _read_json(train_dir / "report.json")
+    manifest = _read_json(train_dir / "training_manifest.json")
+    runtime_source = report if report else manifest
+    history_raw = report.get("history", manifest.get("history", []))
+    history = history_raw if isinstance(history_raw, list) else []
+    progress = report.get("progress", {})
+    if not isinstance(progress, dict):
+        progress = {}
+    if not progress:
+        progress_from_manifest = manifest.get("progress", {})
+        if isinstance(progress_from_manifest, dict):
+            progress = progress_from_manifest
+
+    epochs_loss, train_loss = _extract_history_series(history, "train_loss")
+    _, val_loss = _extract_history_series(history, "val_loss")
+    epochs_acc, train_acc = _extract_history_series(history, "train_accuracy")
+    _, val_acc = _extract_history_series(history, "val_accuracy")
+    _, train_iou = _extract_history_series(history, "train_iou")
+    _, val_iou = _extract_history_series(history, "val_iou")
+    _, epoch_runtime = _extract_history_series(history, "epoch_runtime_seconds")
+    _, train_epoch_runtime = _extract_history_series(history, "train_epoch_seconds")
+    _, validation_epoch_runtime = _extract_history_series(history, "validation_epoch_seconds")
+
+    curves_dir = output_root / "curves"
+    loss_curve = curves_dir / f"{run_tag}_loss_curve.png"
+    acc_curve = curves_dir / f"{run_tag}_accuracy_curve.png"
+    iou_curve = curves_dir / f"{run_tag}_iou_curve.png"
+
+    _write_curve_plot(
+        output_path=loss_curve,
+        title=f"{run_tag} - Loss vs Epoch",
+        x_vals=epochs_loss,
+        lines=[("Train Loss", train_loss), ("Val Loss", val_loss)],
+        y_label="Loss",
+    )
+    _write_curve_plot(
+        output_path=acc_curve,
+        title=f"{run_tag} - Accuracy vs Epoch",
+        x_vals=epochs_acc,
+        lines=[("Train Accuracy", train_acc), ("Val Accuracy", val_acc)],
+        y_label="Accuracy",
+    )
+    _write_curve_plot(
+        output_path=iou_curve,
+        title=f"{run_tag} - IoU vs Epoch",
+        x_vals=epochs_acc if epochs_acc else epochs_loss,
+        lines=[("Train IoU", train_iou), ("Val IoU", val_iou)],
+        y_label="IoU",
+    )
+
+    epoch_total = (
+        _safe_int(progress.get("epochs_total"))
+        or _safe_int(runtime_source.get("training_epochs_total"))
+        or _safe_int(manifest.get("training_epoch_count"))
+        or _safe_int(manifest.get("training_epoch_equivalent_count"))
+        or len(history)
+    )
+    epoch_done = (
+        _safe_int(progress.get("epochs_completed"))
+        or _safe_int(runtime_source.get("training_epochs_completed"))
+        or _safe_int(manifest.get("training_epoch_count"))
+        or _safe_int(manifest.get("training_epoch_equivalent_count"))
+        or len(history)
+    )
+
+    training_runtime_seconds = _safe_float(runtime_source.get("runtime_seconds"))
+    if training_runtime_seconds is None:
+        training_runtime_seconds = _safe_float(runtime_source.get("training_runtime_seconds"))
+    avg_epoch_runtime = (sum(epoch_runtime) / len(epoch_runtime)) if epoch_runtime else _safe_float(
+        runtime_source.get("mean_epoch_runtime_seconds")
+    )
+    if avg_epoch_runtime is None and training_runtime_seconds is not None and int(epoch_done) > 0:
+        avg_epoch_runtime = float(training_runtime_seconds) / float(max(1, int(epoch_done)))
+    mean_train_epoch_runtime = (sum(train_epoch_runtime) / len(train_epoch_runtime)) if train_epoch_runtime else _safe_float(
+        runtime_source.get("mean_train_epoch_seconds")
+    )
+    if mean_train_epoch_runtime is None:
+        mean_train_epoch_runtime = avg_epoch_runtime
+    mean_validation_epoch_runtime = (
+        (sum(validation_epoch_runtime) / len(validation_epoch_runtime))
+        if validation_epoch_runtime
+        else _safe_float(runtime_source.get("mean_validation_epoch_seconds"))
+    )
+    sample_metric_keys = [
+        "pixel_accuracy",
+        "macro_f1",
+        "mean_iou",
+        "macro_precision",
+        "macro_recall",
+        "weighted_f1",
+        "balanced_accuracy",
+        "cohen_kappa",
+        "frequency_weighted_iou",
+        "foreground_precision",
+        "foreground_recall",
+        "foreground_specificity",
+        "foreground_iou",
+        "foreground_dice",
+        "false_positive_rate",
+        "false_negative_rate",
+        "matthews_corrcoef",
+        "mask_area_fraction_abs_error",
+        "hydride_count_abs_error",
+        "hydride_size_wasserstein",
+        "hydride_orientation_wasserstein",
+    ]
+    tracked_samples_raw = report.get("latest_tracked_samples", [])
+    tracked_samples: list[dict[str, Any]] = []
+    tracked_ious: list[float] = []
+    if isinstance(tracked_samples_raw, list):
+        for item in tracked_samples_raw:
+            if not isinstance(item, dict):
+                continue
+            iou = _safe_float(item.get("iou"))
+            if iou is not None:
+                tracked_ious.append(float(iou))
+            sample_name = str(item.get("sample_name", "")).strip()
+            panel_rel = str(item.get("panel", "")).strip()
+            pred_rel = str(item.get("pred", "")).strip()
+            gt_rel = str(item.get("gt", "")).strip()
+            sample_entry: dict[str, Any] = {
+                "sample_name": sample_name,
+                "iou": iou,
+                "panel_png": str((train_dir / panel_rel).resolve()) if panel_rel else "",
+                "pred_png": str((train_dir / pred_rel).resolve()) if pred_rel else "",
+                "gt_png": str((train_dir / gt_rel).resolve()) if gt_rel else "",
+            }
+            for key in sample_metric_keys:
+                value = _safe_float(item.get(key))
+                if value is not None:
+                    sample_entry[key] = float(value)
+            tracked_samples.append(sample_entry)
+
+    tracked_history_map: dict[str, list[dict[str, Any]]] = {}
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        epoch_num = _safe_int(item.get("epoch"))
+        if epoch_num is None:
+            continue
+        tracked_epoch = item.get("tracked_samples", [])
+        if not isinstance(tracked_epoch, list):
+            continue
+        for sample in tracked_epoch:
+            if not isinstance(sample, dict):
+                continue
+            name = str(sample.get("sample_name", "")).strip()
+            iou = _safe_float(sample.get("iou"))
+            panel_rel = str(sample.get("panel", "")).strip()
+            if not name or iou is None:
+                continue
+            tracked_history_map.setdefault(name, []).append(
+                {
+                    "epoch": int(epoch_num),
+                    "iou": float(iou),
+                    "panel_png": str((train_dir / panel_rel).resolve()) if panel_rel else "",
+                }
+            )
+
+    tracked_sample_evolution: list[dict[str, Any]] = []
+    for sample_name in sorted(tracked_history_map.keys()):
+        records = sorted(tracked_history_map[sample_name], key=lambda v: int(v.get("epoch", 0)))
+        epochs = [int(r["epoch"]) for r in records if _safe_int(r.get("epoch")) is not None]
+        ious = [float(r["iou"]) for r in records if _safe_float(r.get("iou")) is not None]
+        if not epochs or not ious:
+            continue
+        evo_curve = curves_dir / f"{run_tag}_tracked_{_safe_name(sample_name)}_iou_curve.png"
+        _write_curve_plot(
+            output_path=evo_curve,
+            title=f"{run_tag} - {sample_name} IoU vs Epoch",
+            x_vals=epochs,
+            lines=[("Tracked Sample IoU", ious)],
+            y_label="IoU",
+        )
+        tracked_sample_evolution.append(
+            {
+                "sample_name": sample_name,
+                "points": len(ious),
+                "first_epoch": int(epochs[0]),
+                "last_epoch": int(epochs[-1]),
+                "first_iou": float(ious[0]),
+                "last_iou": float(ious[-1]),
+                "delta_iou": float(ious[-1] - ious[0]),
+                "best_iou": float(max(ious)),
+                "worst_iou": float(min(ious)),
+                "latest_panel_png": str(records[-1].get("panel_png", "")),
+                "iou_curve_png": str(evo_curve) if evo_curve.exists() else "",
+            }
+        )
+
+    tracked_deltas = [
+        float(item.get("delta_iou"))
+        for item in tracked_sample_evolution
+        if _safe_float(item.get("delta_iou")) is not None
+    ]
+    runtime_hardware = runtime_source.get("runtime_hardware", {})
+    if not isinstance(runtime_hardware, dict):
+        runtime_hardware = {}
+    compute_effort = runtime_source.get("compute_effort", {})
+    if not isinstance(compute_effort, dict):
+        compute_effort = {}
+    weight_stats = runtime_source.get("model_weight_statistics", {})
+    if not isinstance(weight_stats, dict):
+        weight_stats = {}
+    runtime_device = str(runtime_source.get("device", "")).strip()
+    runtime_device_reason = str(runtime_source.get("device_reason", "")).strip()
+
+    return {
+        "training_status": str(runtime_source.get("status", "")),
+        "training_runtime_seconds": training_runtime_seconds,
+        "training_runtime_human": str(
+            runtime_source.get("runtime_human", runtime_source.get("training_runtime_human", ""))
+        ),
+        "runtime_device": runtime_device,
+        "runtime_device_reason": runtime_device_reason,
+        "runtime_hardware": runtime_hardware,
+        "training_epochs_total": epoch_total,
+        "training_epochs_completed": epoch_done,
+        "training_history_points": len(history),
+        "best_val_loss_train": _safe_float(runtime_source.get("best_val_loss")),
+        "last_train_loss": train_loss[-1] if train_loss else None,
+        "last_val_loss": val_loss[-1] if val_loss else None,
+        "last_train_accuracy": train_acc[-1] if train_acc else None,
+        "last_val_accuracy": val_acc[-1] if val_acc else None,
+        "last_train_iou": train_iou[-1] if train_iou else None,
+        "last_val_iou": val_iou[-1] if val_iou else None,
+        "avg_epoch_runtime_seconds": avg_epoch_runtime,
+        "mean_epoch_runtime_seconds": avg_epoch_runtime,
+        "mean_train_epoch_seconds": mean_train_epoch_runtime,
+        "mean_validation_epoch_seconds": mean_validation_epoch_runtime,
+        "loss_curve_png": str(loss_curve) if loss_curve.exists() else "",
+        "accuracy_curve_png": str(acc_curve) if acc_curve.exists() else "",
+        "iou_curve_png": str(iou_curve) if iou_curve.exists() else "",
+        "tracked_samples_count": len(tracked_samples),
+        "tracked_samples_mean_iou": (sum(tracked_ious) / len(tracked_ious)) if tracked_ious else None,
+        "tracked_samples_min_iou": min(tracked_ious) if tracked_ious else None,
+        "tracked_samples_max_iou": max(tracked_ious) if tracked_ious else None,
+        "tracked_samples": tracked_samples,
+        "tracked_sample_evolution": tracked_sample_evolution,
+        "tracked_sample_evolution_count": len(tracked_sample_evolution),
+        "best_tracked_sample_delta_iou": max(tracked_deltas) if tracked_deltas else None,
+        "worst_tracked_sample_delta_iou": min(tracked_deltas) if tracked_deltas else None,
+        "model_parameter_count_report": _safe_int(runtime_source.get("model_parameter_count")),
+        "model_trainable_parameter_count": _safe_int(runtime_source.get("model_trainable_parameter_count")),
+        "model_checkpoint_size_bytes": _safe_int(runtime_source.get("model_checkpoint_size_bytes")),
+        "model_checkpoint_size_mb": _safe_float(runtime_source.get("model_checkpoint_size_mb")),
+        "model_weight_tensor_count": _safe_int(weight_stats.get("tensor_count")),
+        "model_weight_value_count": _safe_int(weight_stats.get("value_count")),
+        "model_weight_mean": _safe_float(weight_stats.get("mean")),
+        "model_weight_std": _safe_float(weight_stats.get("std")),
+        "model_weight_min": _safe_float(weight_stats.get("min")),
+        "model_weight_max": _safe_float(weight_stats.get("max")),
+        "compute_train_samples_processed": _safe_int(compute_effort.get("train_samples_processed")),
+        "compute_val_samples_processed": _safe_int(compute_effort.get("val_samples_processed")),
+        "compute_tracking_samples_processed": _safe_int(compute_effort.get("tracking_samples_processed")),
+        "compute_estimated_forward_flops_per_sample": _safe_float(compute_effort.get("estimated_forward_flops_per_sample")),
+        "compute_estimated_total_flops": _safe_float(compute_effort.get("estimated_total_flops")),
+        "compute_estimated_total_tflops": _safe_float(compute_effort.get("estimated_total_tflops")),
+        "compute_flops_estimate_method": str(compute_effort.get("flops_estimate_method", "")),
+        "runtime_gpu_name": str(runtime_hardware.get("gpu_name", runtime_hardware.get("nvidia_smi_name", ""))),
+        "runtime_gpu_peak_memory_allocated_mb": _safe_float(runtime_hardware.get("gpu_peak_memory_allocated_mb")),
+        "runtime_gpu_total_memory_mb": _safe_float(
+            runtime_hardware.get("gpu_total_memory_mb", runtime_hardware.get("nvidia_smi_memory_total_mb"))
+        ),
+        "runtime_gpu_utilization_pct": _safe_float(runtime_hardware.get("nvidia_smi_gpu_utilization_pct")),
+    }
+
+
+def _aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_model: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        model = str(row.get("model", "unknown"))
+        by_model.setdefault(model, []).append(row)
+
+    out: list[dict[str, Any]] = []
+    for model, items in sorted(by_model.items()):
+        ok_items = [i for i in items if str(i.get("status", "")).strip().lower() == "ok"]
+        fail_items = [i for i in items if i not in ok_items]
+        mean_pa, std_pa = _mean_and_std(items, "pixel_accuracy")
+        mean_f1, std_f1 = _mean_and_std(items, "macro_f1")
+        mean_mi, std_mi = _mean_and_std(items, "mean_iou")
+        mean_mp, std_mp = _mean_and_std(items, "macro_precision")
+        mean_mr, std_mr = _mean_and_std(items, "macro_recall")
+        mean_wf1, std_wf1 = _mean_and_std(items, "weighted_f1")
+        mean_bacc, std_bacc = _mean_and_std(items, "balanced_accuracy")
+        mean_kappa, std_kappa = _mean_and_std(items, "cohen_kappa")
+        mean_fwiou, std_fwiou = _mean_and_std(items, "frequency_weighted_iou")
+        mean_fg_dice, std_fg_dice = _mean_and_std(items, "foreground_dice")
+        mean_fg_iou, std_fg_iou = _mean_and_std(items, "foreground_iou")
+        mean_fg_precision, _ = _mean_and_std(items, "foreground_precision")
+        mean_fg_recall, _ = _mean_and_std(items, "foreground_recall")
+        mean_fg_specificity, _ = _mean_and_std(items, "foreground_specificity")
+        mean_fpr, _ = _mean_and_std(items, "false_positive_rate")
+        mean_fnr, _ = _mean_and_std(items, "false_negative_rate")
+        mean_mcc, _ = _mean_and_std(items, "matthews_corrcoef")
+        mean_eval_rt, std_eval_rt = _mean_and_std(items, "runtime_seconds")
+        mean_train_rt, std_train_rt = _mean_and_std(items, "training_runtime_seconds")
+        mean_total_rt, std_total_rt = _mean_and_std(items, "total_runtime_seconds")
+        mean_train_epoch_rt, std_train_epoch_rt = _mean_and_std(items, "mean_train_epoch_seconds")
+        mean_val_epoch_rt, std_val_epoch_rt = _mean_and_std(items, "mean_validation_epoch_seconds")
+        mean_epoch_rt, std_epoch_rt = _mean_and_std(items, "mean_epoch_runtime_seconds")
+        mean_params, _ = _mean_and_std(items, "model_parameter_count")
+        mean_trainable_params, _ = _mean_and_std(items, "model_trainable_parameter_count")
+        mean_ckpt_mb, _ = _mean_and_std(items, "model_artifact_size_mb")
+        mean_weight_mean, _ = _mean_and_std(items, "model_weight_mean")
+        mean_weight_std, _ = _mean_and_std(items, "model_weight_std")
+        mean_weight_min, _ = _mean_and_std(items, "model_weight_min")
+        mean_weight_max, _ = _mean_and_std(items, "model_weight_max")
+        mean_total_tflops, _ = _mean_and_std(items, "compute_estimated_total_tflops")
+        mean_gpu_peak_mb, _ = _mean_and_std(items, "runtime_gpu_peak_memory_allocated_mb")
+        mean_train_loss, _ = _mean_and_std(items, "last_train_loss")
+        mean_val_loss, _ = _mean_and_std(items, "last_val_loss")
+        mean_train_acc, _ = _mean_and_std(items, "last_train_accuracy")
+        mean_val_acc, _ = _mean_and_std(items, "last_val_accuracy")
+        mean_train_iou, _ = _mean_and_std(items, "last_train_iou")
+        mean_val_iou, _ = _mean_and_std(items, "last_val_iou")
+        mean_tracked_iou, _ = _mean_and_std(items, "tracked_samples_mean_iou")
+        mean_area_err, _ = _mean_and_std(items, "mask_area_fraction_abs_error")
+        mean_count_err, _ = _mean_and_std(items, "hydride_count_abs_error")
+        mean_size_w, _ = _mean_and_std(items, "hydride_size_wasserstein")
+        mean_orient_w, _ = _mean_and_std(items, "hydride_orientation_wasserstein")
+        mean_best_delta_iou, _ = _mean_and_std(items, "best_tracked_sample_delta_iou")
+        mean_worst_delta_iou, _ = _mean_and_std(items, "worst_tracked_sample_delta_iou")
+
+        iou_gaps: list[float] = []
+        tracked_spans: list[float] = []
+        for item in items:
+            tr = _safe_float(item.get("last_train_iou"))
+            va = _safe_float(item.get("last_val_iou"))
+            if tr is not None and va is not None:
+                iou_gaps.append(float(tr - va))
+            tmax = _safe_float(item.get("tracked_samples_max_iou"))
+            tmin = _safe_float(item.get("tracked_samples_min_iou"))
+            if tmax is not None and tmin is not None:
+                tracked_spans.append(float(tmax - tmin))
+        mean_overfit_iou_gap = float(sum(iou_gaps) / len(iou_gaps)) if iou_gaps else 0.0
+        mean_tracked_iou_span = float(sum(tracked_spans) / len(tracked_spans)) if tracked_spans else 0.0
+
+        fg_quality = mean_fg_dice if mean_fg_dice > 0 else mean_mi
+        quality_score = (
+            0.40 * mean_mi
+            + 0.25 * mean_f1
+            + 0.20 * mean_wf1
+            + 0.15 * fg_quality
+        )
+        runtime_base = mean_total_rt if mean_total_rt > 0 else mean_eval_rt
+        efficiency_score = quality_score / (1.0 + math.log1p(max(0.0, runtime_base)))
+        robustness_score = (len(ok_items) / len(items)) if items else 0.0
+        out.append(
+            {
+                "model": model,
+                "runs": len(items),
+                "ok_runs": len(ok_items),
+                "failed_runs": len(fail_items),
+                "mean_pixel_accuracy": mean_pa,
+                "std_pixel_accuracy": std_pa,
+                "mean_macro_f1": mean_f1,
+                "std_macro_f1": std_f1,
+                "mean_mean_iou": mean_mi,
+                "std_mean_iou": std_mi,
+                "mean_macro_precision": mean_mp,
+                "std_macro_precision": std_mp,
+                "mean_macro_recall": mean_mr,
+                "std_macro_recall": std_mr,
+                "mean_weighted_f1": mean_wf1,
+                "std_weighted_f1": std_wf1,
+                "mean_balanced_accuracy": mean_bacc,
+                "std_balanced_accuracy": std_bacc,
+                "mean_cohen_kappa": mean_kappa,
+                "std_cohen_kappa": std_kappa,
+                "mean_frequency_weighted_iou": mean_fwiou,
+                "std_frequency_weighted_iou": std_fwiou,
+                "mean_foreground_dice": mean_fg_dice,
+                "std_foreground_dice": std_fg_dice,
+                "mean_foreground_iou": mean_fg_iou,
+                "std_foreground_iou": std_fg_iou,
+                "mean_foreground_precision": mean_fg_precision,
+                "mean_foreground_recall": mean_fg_recall,
+                "mean_foreground_specificity": mean_fg_specificity,
+                "mean_false_positive_rate": mean_fpr,
+                "mean_false_negative_rate": mean_fnr,
+                "mean_matthews_corrcoef": mean_mcc,
+                "mean_eval_runtime_seconds": mean_eval_rt,
+                "std_eval_runtime_seconds": std_eval_rt,
+                "mean_training_runtime_seconds": mean_train_rt,
+                "std_training_runtime_seconds": std_train_rt,
+                "mean_total_runtime_seconds": mean_total_rt,
+                "std_total_runtime_seconds": std_total_rt,
+                "mean_train_epoch_seconds": mean_train_epoch_rt,
+                "std_train_epoch_seconds": std_train_epoch_rt,
+                "mean_validation_epoch_seconds": mean_val_epoch_rt,
+                "std_validation_epoch_seconds": std_val_epoch_rt,
+                "mean_epoch_runtime_seconds": mean_epoch_rt,
+                "std_epoch_runtime_seconds": std_epoch_rt,
+                "mean_model_parameter_count": mean_params,
+                "mean_model_trainable_parameter_count": mean_trainable_params,
+                "mean_model_artifact_size_mb": mean_ckpt_mb,
+                "mean_model_weight_mean": mean_weight_mean,
+                "mean_model_weight_std": mean_weight_std,
+                "mean_model_weight_min": mean_weight_min,
+                "mean_model_weight_max": mean_weight_max,
+                "mean_compute_estimated_total_tflops": mean_total_tflops,
+                "mean_runtime_gpu_peak_memory_allocated_mb": mean_gpu_peak_mb,
+                "mean_last_train_loss": mean_train_loss,
+                "mean_last_val_loss": mean_val_loss,
+                "mean_last_train_accuracy": mean_train_acc,
+                "mean_last_val_accuracy": mean_val_acc,
+                "mean_last_train_iou": mean_train_iou,
+                "mean_last_val_iou": mean_val_iou,
+                "mean_tracked_samples_iou": mean_tracked_iou,
+                "mean_mask_area_fraction_abs_error": mean_area_err,
+                "mean_hydride_count_abs_error": mean_count_err,
+                "mean_hydride_size_wasserstein": mean_size_w,
+                "mean_hydride_orientation_wasserstein": mean_orient_w,
+                "mean_overfit_iou_gap": mean_overfit_iou_gap,
+                "mean_tracked_iou_span": mean_tracked_iou_span,
+                "mean_best_tracked_sample_delta_iou": mean_best_delta_iou,
+                "mean_worst_tracked_sample_delta_iou": mean_worst_delta_iou,
+                "quality_score": quality_score,
+                "efficiency_score": efficiency_score,
+                "robustness_score": robustness_score,
+            }
+        )
+
+    if not out:
+        return out
+
+    quality_sorted = sorted(
+        out,
+        key=lambda item: (
+            -float(item.get("quality_score", 0.0)),
+            -float(item.get("mean_mean_iou", 0.0)),
+            float(item.get("mean_total_runtime_seconds", 0.0)),
+        ),
+    )
+    efficiency_sorted = sorted(
+        out,
+        key=lambda item: (
+            -float(item.get("efficiency_score", 0.0)),
+            -float(item.get("mean_mean_iou", 0.0)),
+        ),
+    )
+    runtime_sorted = sorted(
+        out,
+        key=lambda item: (
+            float(item.get("mean_total_runtime_seconds", 0.0)),
+            -float(item.get("mean_mean_iou", 0.0)),
+        ),
+    )
+    robust_sorted = sorted(
+        out,
+        key=lambda item: (
+            -float(item.get("robustness_score", 0.0)),
+            -float(item.get("mean_mean_iou", 0.0)),
+        ),
+    )
+
+    rank_quality = {item["model"]: idx + 1 for idx, item in enumerate(quality_sorted)}
+    rank_efficiency = {item["model"]: idx + 1 for idx, item in enumerate(efficiency_sorted)}
+    rank_runtime = {item["model"]: idx + 1 for idx, item in enumerate(runtime_sorted)}
+    rank_robustness = {item["model"]: idx + 1 for idx, item in enumerate(robust_sorted)}
+    for item in out:
+        model = str(item.get("model", ""))
+        item["rank_quality"] = int(rank_quality.get(model, 0))
+        item["rank_efficiency"] = int(rank_efficiency.get(model, 0))
+        item["rank_runtime"] = int(rank_runtime.get(model, 0))
+        item["rank_robustness"] = int(rank_robustness.get(model, 0))
+    return out
+
+
+def _write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for row in rows:
+            w.writerow({k: row.get(k, "") for k in fields})
+
+
+def _write_run_inside_page(path: Path, row: dict[str, Any], *, summary_path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _fmt(raw: object, *, digits: int = 6) -> str:
+        value = _safe_float(raw)
+        if value is None:
+            return "n/a"
+        return f"{float(value):.{digits}f}"
+
+    tracked_samples = row.get("tracked_samples", [])
+    if not isinstance(tracked_samples, list):
+        tracked_samples = []
+    tracked_evolution = row.get("tracked_sample_evolution", [])
+    if not isinstance(tracked_evolution, list):
+        tracked_evolution = []
+
+    title = f"{row.get('model', '')} seed {row.get('seed', '')}"
+    style = (
+        "<style>"
+        "body{font-family:Arial,sans-serif;margin:16px;line-height:1.4;}"
+        "table{border-collapse:collapse;margin:10px 0;width:100%;}"
+        "th,td{border:1px solid #bbb;padding:6px 8px;vertical-align:top;}"
+        "th{background:#f4f4f4;}"
+        ".cards{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 16px;}"
+        ".card{border:1px solid #bbb;border-radius:6px;padding:8px 10px;min-width:200px;background:#fafafa;}"
+        "details{border:1px solid #bbb;border-radius:6px;background:#fff;padding:8px 10px;margin:10px 0;}"
+        "summary{cursor:pointer;font-weight:600;}"
+        ".small{font-size:12px;color:#444;}"
+        "</style>"
+    )
+
+    lines: list[str] = [
+        "<html><head><meta charset='utf-8'><title>Hydride Run Detail</title>" + style + "</head><body>",
+        "<h1>Hydride Run Detail</h1>",
+        f"<h2>{html.escape(title)}</h2>",
+        "<p>"
+        + _artifact_link(summary_path, label="back to summary")
+        + "</p>",
+        "<div class='cards'>",
+        f"<div class='card'><b>Status</b><div>{html.escape(str(row.get('status', '')))}</div></div>",
+        f"<div class='card'><b>Status Detail</b><div>{html.escape(str(row.get('status_message', '') or '-'))}</div></div>",
+        f"<div class='card'><b>Execution Family</b><div>{html.escape(str(row.get('execution_family', 'advanced')))}</div></div>",
+        f"<div class='card'><b>Mean IoU</b><div>{_fmt(row.get('mean_iou'))}</div></div>",
+        f"<div class='card'><b>Macro F1</b><div>{_fmt(row.get('macro_f1'))}</div></div>",
+        f"<div class='card'><b>Total Runtime (s)</b><div>{_fmt(row.get('total_runtime_seconds'), digits=2)}</div></div>",
+        "</div>",
+        "<h3>Core Artifacts</h3>",
+        "<table>",
+        "<tr><th>Item</th><th>Link</th></tr>",
+        f"<tr><td>Train Config</td><td>{html.escape(str(row.get('train_config', '')))}</td></tr>",
+        f"<tr><td>Train Dir</td><td>{_artifact_link(row.get('train_dir', ''), label='open train dir')}</td></tr>",
+        f"<tr><td>Model Artifact</td><td>{_artifact_link(row.get('model_artifact_path', ''), label='open model')}</td></tr>",
+        f"<tr><td>Eval Report</td><td>{_artifact_link(row.get('eval_report', ''), label='open eval report')}</td></tr>",
+        f"<tr><td>Train Log</td><td>{_artifact_link(row.get('train_log', ''), label='open train log')}</td></tr>",
+        f"<tr><td>Eval Log</td><td>{_artifact_link(row.get('eval_log', ''), label='open eval log')}</td></tr>",
+        f"<tr><td>Run Events</td><td>{_artifact_link(row.get('run_events_log', ''), label='open run events')}</td></tr>",
+        "</table>",
+        "<details open>",
+        "<summary>Retrospective Plot Links</summary>",
+        "<table>",
+        "<tr><th>Plot</th><th>Link</th></tr>",
+        f"<tr><td>Loss Curve</td><td>{_artifact_link(row.get('loss_curve_png', ''), label='open loss curve')}</td></tr>",
+        f"<tr><td>Accuracy Curve</td><td>{_artifact_link(row.get('accuracy_curve_png', ''), label='open accuracy curve')}</td></tr>",
+        f"<tr><td>IoU Curve</td><td>{_artifact_link(row.get('iou_curve_png', ''), label='open IoU curve')}</td></tr>",
+        "</table>",
+        "<p class='small'>Images are loaded only when you open their links.</p>",
+        "</details>",
+        "<details>",
+        f"<summary>Tracked Sample Evolution ({len(tracked_evolution)})</summary>",
+        "<table>",
+        "<tr><th>Sample</th><th>Points</th><th>First IoU</th><th>Last IoU</th><th>Delta</th><th>Curve</th></tr>",
+    ]
+    for item in tracked_evolution:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "<tr>"
+            f"<td>{html.escape(str(item.get('sample_name', '')))}</td>"
+            f"<td>{int(_safe_int(item.get('points')) or 0)}</td>"
+            f"<td>{_fmt(item.get('first_iou'))}</td>"
+            f"<td>{_fmt(item.get('last_iou'))}</td>"
+            f"<td>{_fmt(item.get('delta_iou'))}</td>"
+            f"<td>{_artifact_link(item.get('iou_curve_png', ''), label='open curve')}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "</details>",
+            "<details>",
+            f"<summary>Validation Panel Links ({len(tracked_samples)})</summary>",
+            "<table>",
+            "<tr><th>Sample</th><th>IoU</th><th>Panel</th><th>Prediction</th><th>Ground Truth</th></tr>",
+        ]
+    )
+    for item in tracked_samples:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "<tr>"
+            f"<td>{html.escape(str(item.get('sample_name', '')))}</td>"
+            f"<td>{_fmt(item.get('iou'))}</td>"
+            f"<td>{_artifact_link(item.get('panel_png', ''), label='open panel')}</td>"
+            f"<td>{_artifact_link(item.get('pred_png', ''), label='open prediction')}</td>"
+            f"<td>{_artifact_link(item.get('gt_png', ''), label='open ground-truth')}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "<p class='small'>Panels are opened on demand from links to avoid heavy initial page load.</p>",
+            "</details>",
+            "</body></html>",
+        ]
+    )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_dashboard(path: Path, rows: list[dict[str, Any]], agg: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _pick_best(items: list[dict[str, Any]], key: str, *, higher_is_better: bool = True) -> dict[str, Any] | None:
+        if not items:
+            return None
+        filtered = [item for item in items if _safe_float(item.get(key)) is not None]
+        if not filtered:
+            return None
+        return sorted(filtered, key=lambda item: float(item.get(key, 0.0)), reverse=higher_is_better)[0]
+
+    def _summary_line(item: dict[str, Any] | None, metric_key: str, *, digits: int = 6) -> str:
+        if item is None:
+            return "n/a"
+        model = html.escape(str(item.get("model", "")))
+        value = _safe_float(item.get(metric_key))
+        if value is None:
+            return model
+        return f"{model} ({float(value):.{digits}f})"
+
+    def _fmt(raw: object, *, digits: int = 6) -> str:
+        value = _safe_float(raw)
+        if value is None:
+            return "n/a"
+        return f"{float(value):.{digits}f}"
+
+    rows_sorted = sorted(
+        rows,
+        key=lambda row: (
+            int(_safe_int(row.get("execution_run_index")) or 10_000_000),
+            str(row.get("model", "")),
+            int(_safe_int(row.get("seed")) or 0),
+        ),
+    )
+    model_family_map: dict[str, str] = {}
+    for row in rows_sorted:
+        model_name = str(row.get("model", "")).strip()
+        if not model_name:
+            continue
+        model_family_map.setdefault(model_name, str(row.get("execution_family", "advanced")).strip() or "advanced")
+
+    for row in rows_sorted:
+        inside_path_text = str(row.get("inside_html", "")).strip()
+        if inside_path_text:
+            inside_path = Path(inside_path_text)
+        else:
+            train_dir_text = str(row.get("train_dir", "")).strip()
+            if train_dir_text:
+                inside_path = Path(train_dir_text) / "inside.html"
+            else:
+                fallback_tag = _safe_name(f"{row.get('model', '')}_seed{row.get('seed', '')}")
+                inside_path = path.parent / "runs" / fallback_tag / "inside.html"
+            row["inside_html"] = str(inside_path)
+        _write_run_inside_page(inside_path, row, summary_path=path)
+
+    total_runs = len(rows_sorted)
+    failed_runs = len([r for r in rows_sorted if str(r.get("status", "")).strip().lower() != "ok"])
+    ok_runs = total_runs - failed_runs
+    best_quality = _pick_best(agg, "quality_score", higher_is_better=True)
+    best_efficiency = _pick_best(agg, "efficiency_score", higher_is_better=True)
+    fastest = _pick_best(agg, "mean_total_runtime_seconds", higher_is_better=False)
+
+    agg_sorted = sorted(
+        agg,
+        key=lambda item: (
+            int(_safe_int(item.get("rank_quality")) or 10_000_000),
+            str(item.get("model", "")),
+        ),
+    )
+
+    style = (
+        "<style>"
+        "body{font-family:Arial,sans-serif;margin:16px;line-height:1.4;}"
+        ".cards{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;}"
+        ".card{border:1px solid #bbb;border-radius:8px;padding:8px 10px;min-width:230px;background:#fafafa;}"
+        "table{border-collapse:collapse;margin:10px 0;width:100%;}"
+        "th,td{border:1px solid #bbb;padding:6px 8px;vertical-align:top;}"
+        "th{background:#f0f0f0;}"
+        ".small{font-size:12px;color:#444;}"
+        "details{border:1px solid #bbb;border-radius:6px;background:#fff;padding:8px 10px;margin:10px 0;}"
+        "summary{cursor:pointer;font-weight:600;}"
+        "</style>"
+    )
+
+    lines: list[str] = [
+        "<html><head><meta charset='utf-8'><title>Hydride Benchmark Summary</title>" + style + "</head><body>",
+        "<h1>Hydride Benchmark Summary</h1>",
+        "<p class='small'>Concise first view: open per-run inside pages for plots and sample panels.</p>",
+        "<div class='cards'>",
+        f"<div class='card'><b>Total Runs</b><div>{total_runs}</div></div>",
+        f"<div class='card'><b>Successful Runs</b><div>{ok_runs}</div></div>",
+        f"<div class='card'><b>Failed Runs</b><div>{failed_runs}</div></div>",
+        f"<div class='card'><b>Top Quality</b><div>{_summary_line(best_quality, 'quality_score')}</div></div>",
+        f"<div class='card'><b>Top Efficiency</b><div>{_summary_line(best_efficiency, 'efficiency_score')}</div></div>",
+        f"<div class='card'><b>Fastest (mean total runtime)</b><div>{_summary_line(fastest, 'mean_total_runtime_seconds', digits=2)}</div></div>",
+        "</div>",
+        "<h2>Model Summary</h2>",
+        "<table>",
+        "<tr><th>Model</th><th>Family</th><th>Rank Quality</th><th>Rank Efficiency</th><th>Runs</th><th>OK</th><th>Failed</th><th>Mean IoU</th><th>Macro F1</th><th>Quality Score</th><th>Mean Total Runtime (s)</th></tr>",
+    ]
+    for item in agg_sorted:
+        model_name = str(item.get("model", ""))
+        lines.append(
+            "<tr>"
+            f"<td>{html.escape(model_name)}</td>"
+            f"<td>{html.escape(model_family_map.get(model_name, 'advanced'))}</td>"
+            f"<td>{int(_safe_int(item.get('rank_quality')) or 0)}</td>"
+            f"<td>{int(_safe_int(item.get('rank_efficiency')) or 0)}</td>"
+            f"<td>{int(_safe_int(item.get('runs')) or 0)}</td>"
+            f"<td>{int(_safe_int(item.get('ok_runs')) or 0)}</td>"
+            f"<td>{int(_safe_int(item.get('failed_runs')) or 0)}</td>"
+            f"<td>{_fmt(item.get('mean_mean_iou'))}</td>"
+            f"<td>{_fmt(item.get('mean_macro_f1'))}</td>"
+            f"<td>{_fmt(item.get('quality_score'))}</td>"
+            f"<td>{_fmt(item.get('mean_total_runtime_seconds'), digits=2)}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "<h2>Run Order & Links</h2>",
+            "<table>",
+            "<tr><th>Order</th><th>Model</th><th>Seed</th><th>Family</th><th>Status</th><th>Mean IoU</th><th>Total Runtime (s)</th><th>Inside Page</th><th>Eval Report</th><th>Train Log</th><th>Eval Log</th></tr>",
+        ]
+    )
+    for row in rows_sorted:
+        lines.append(
+            "<tr>"
+            f"<td>{int(_safe_int(row.get('execution_run_index')) or 0)}</td>"
+            f"<td>{html.escape(str(row.get('model', '')))}</td>"
+            f"<td>{html.escape(str(row.get('seed', '')))}</td>"
+            f"<td>{html.escape(str(row.get('execution_family', 'advanced')))}</td>"
+            f"<td>{html.escape(str(row.get('status', '')))}</td>"
+            f"<td>{_fmt(row.get('mean_iou'))}</td>"
+            f"<td>{_fmt(row.get('total_runtime_seconds'), digits=2)}</td>"
+            f"<td>{_artifact_link(row.get('inside_html', ''), label='open run page')}</td>"
+            f"<td>{_artifact_link(row.get('eval_report', ''), label='open report')}</td>"
+            f"<td>{_artifact_link(row.get('train_log', ''), label='open log')}</td>"
+            f"<td>{_artifact_link(row.get('eval_log', ''), label='open log')}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "<details>",
+            "<summary>Extended Aggregate Metrics</summary>",
+            "<table>",
+            "<tr><th>Model</th><th>Cohen Kappa (mean)</th><th>Foreground Dice (mean)</th><th>Hydride Count Abs Error (mean)</th><th>Params (mean)</th><th>Model Size MB (mean)</th><th>GPU Peak MB (mean)</th></tr>",
+        ]
+    )
+    for item in agg_sorted:
+        lines.append(
+            "<tr>"
+            f"<td>{html.escape(str(item.get('model', '')))}</td>"
+            f"<td>{_fmt(item.get('mean_cohen_kappa'))}</td>"
+            f"<td>{_fmt(item.get('mean_foreground_dice'))}</td>"
+            f"<td>{_fmt(item.get('mean_hydride_count_abs_error'))}</td>"
+            f"<td>{_fmt(item.get('mean_model_parameter_count'), digits=0)}</td>"
+            f"<td>{_fmt(item.get('mean_model_artifact_size_mb'), digits=2)}</td>"
+            f"<td>{_fmt(item.get('mean_runtime_gpu_peak_memory_allocated_mb'), digits=2)}</td>"
+            "</tr>"
+        )
+    lines.extend(
+        [
+            "</table>",
+            "<p class='small'>Images are not embedded in this summary; open each run page for retrospective links.</p>",
+            "</details>",
+            "</body></html>",
+        ]
+    )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def run_suite(
+    cfg_path: Path,
+    *,
+    dry_run: bool,
+    strict: bool,
+    skip_train: bool,
+    skip_eval: bool,
+    single_seed: bool,
+    max_parallel_gpus: str,
+    parallel_jobs: str,
+    failure_policy: str,
+) -> int:
+    cfg = _load_yaml(cfg_path)
+    dataset_dir = str(cfg.get("dataset_dir", "")).strip()
+    output_root = Path(str(cfg.get("output_root", "outputs/benchmarks/suite_runs")).strip())
+    eval_config = str(cfg.get("eval_config", "configs/hydride/evaluate.hydride.yml")).strip()
+    eval_split = str(cfg.get("eval_split", "test")).strip()
+    python_exe = str(cfg.get("python_executable", sys.executable)).strip() or sys.executable
+    configured_seeds = [int(v) for v in _ensure_list(cfg.get("seeds", [42]))]
+    if not configured_seeds:
+        raise ValueError("suite config must include at least one seed")
+    single_seed_requested = bool(single_seed) or _as_bool(cfg.get("single_seed_only"), default=False)
+    seeds = [configured_seeds[0]] if single_seed_requested else list(configured_seeds)
+    experiments = _ensure_list(cfg.get("experiments", []))
+    continue_on_failure = _as_bool(cfg.get("continue_on_failure"), default=True)
+    benchmark_mode = bool(cfg.get("benchmark_mode", True))
+    expected_manifest_sha = str(cfg.get("expected_dataset_manifest_sha256", "")).strip().lower()
+    expected_split_id_file = str(cfg.get("expected_split_id_file", "")).strip()
+    idle_timeout_seconds = _safe_positive_seconds(cfg.get("command_idle_timeout_seconds"))
+    wall_timeout_seconds = _safe_positive_seconds(cfg.get("command_wall_timeout_seconds"))
+    terminate_grace_seconds = _safe_positive_seconds(cfg.get("command_terminate_grace_seconds")) or 30.0
+    poll_interval_seconds = _safe_positive_seconds(cfg.get("command_poll_interval_seconds")) or 1.0
+
+    if not dataset_dir:
+        raise ValueError("dataset_dir is required in suite config")
+
+    repo_root = Path(__file__).resolve().parents[1]
+
+    prepared_experiments: list[dict[str, Any]] = []
+    for src_idx, exp in enumerate(experiments):
+        if not isinstance(exp, dict):
+            continue
+        exp_copy = dict(exp)
+        family, priority = _classify_experiment_family(exp_copy, repo_root=repo_root)
+        exp_copy["_execution_family"] = family
+        exp_copy["_execution_priority"] = int(priority)
+        exp_copy["_source_index"] = int(src_idx)
+        prepared_experiments.append(exp_copy)
+
+    def _int_or(value: object, default: int) -> int:
+        parsed = _safe_int(value)
+        return int(parsed) if parsed is not None else int(default)
+
+    prepared_experiments.sort(
+        key=lambda exp: (
+            _int_or(exp.get("_execution_priority"), 999),
+            _int_or(exp.get("_source_index"), 999_999),
+        )
+    )
+
+    dataset_manifest = Path(dataset_dir) / "dataset_manifest.json"
+
+    if benchmark_mode:
+        if not dataset_manifest.exists():
+            dataset_manifest = generate_dataset_split_manifest_from_splits(dataset_dir)
+            print(f"[benchmark-mode] generated missing dataset manifest: {dataset_manifest}")
+        if expected_manifest_sha:
+            observed_sha = _sha256_file(dataset_manifest).lower()
+            if observed_sha != expected_manifest_sha:
+                raise RuntimeError(
+                    "dataset manifest hash mismatch in benchmark mode: "
+                    f"expected={expected_manifest_sha} observed={observed_sha}"
+                )
+        if expected_split_id_file:
+            split_file = Path(expected_split_id_file)
+            if not split_file.exists():
+                raise FileNotFoundError(f"expected_split_id_file missing: {split_file}")
+            expected_ids = [line.strip() for line in split_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+            manifest = _read_json(dataset_manifest)
+            observed_ids = sorted((manifest.get("sample_to_split") or {}).keys())
+            if sorted(expected_ids) != observed_ids:
+                raise RuntimeError("dataset split IDs do not match expected_split_id_file in benchmark_mode")
+
+    if not prepared_experiments:
+        raise ValueError("suite config must include experiments")
+
+    cli = repo_root / "scripts" / "microseg_cli.py"
+    output_root.mkdir(parents=True, exist_ok=True)
+    suite_started_monotonic = time.monotonic()
+    logs_root = output_root / "logs"
+    suite_event_log = logs_root / "suite_events.jsonl"
+
+    def _emit_suite_event(event: str, **payload: Any) -> None:
+        event_payload = {
+            "ts_utc": _utc_now(),
+            "event": str(event),
+            "config_path": str(cfg_path),
+            "dataset_dir": dataset_dir,
+            "output_root": str(output_root),
+            **payload,
+        }
+        _append_jsonl(suite_event_log, event_payload)
+
+    _emit_suite_event(
+        "suite_start",
+        dry_run=bool(dry_run),
+        strict=bool(strict),
+        skip_train=bool(skip_train),
+        skip_eval=bool(skip_eval),
+        continue_on_failure=bool(continue_on_failure),
+        single_seed_override=bool(single_seed_requested),
+        eval_config=eval_config,
+        eval_split=eval_split,
+        python_executable=python_exe,
+        benchmark_mode=bool(benchmark_mode),
+        experiment_count=len(prepared_experiments),
+        configured_seeds=list(configured_seeds),
+        seeds=list(seeds),
+        experiment_execution_order=[
+            {
+                "name": str(exp.get("name", "")).strip(),
+                "family": str(exp.get("_execution_family", "advanced")),
+                "source_index": int(_safe_int(exp.get("_source_index")) or 0),
+                "execution_priority": int(_safe_int(exp.get("_execution_priority")) or 0),
+            }
+            for exp in prepared_experiments
+        ],
+        watchdog={
+            "idle_timeout_seconds": idle_timeout_seconds,
+            "wall_timeout_seconds": wall_timeout_seconds,
+            "terminate_grace_seconds": terminate_grace_seconds,
+            "poll_interval_seconds": poll_interval_seconds,
+        },
+        scheduler_controls={
+            "max_parallel_gpus": max_parallel_gpus,
+            "parallel_jobs": parallel_jobs,
+            "failure_policy": failure_policy,
+        },
+        runtime_environment=_runtime_environment_snapshot(),
+    )
+
+    print(
+        "[suite] execution policy: "
+        f"idle_timeout={idle_timeout_seconds if idle_timeout_seconds is not None else 'off'}s "
+        f"wall_timeout={wall_timeout_seconds if wall_timeout_seconds is not None else 'off'}s "
+        f"terminate_grace={terminate_grace_seconds:.1f}s poll_interval={poll_interval_seconds:.1f}s"
+    )
+    print(
+        "[suite] run selection: "
+        f"configured_seeds={configured_seeds} effective_seeds={seeds} "
+        f"single_seed_override={single_seed_requested} continue_on_failure={continue_on_failure}"
+    )
+
+    rows: list[dict[str, Any]] = []
+    failures = 0
+    preflight_cache: dict[tuple[str, bool], Any] = {}
+
+    max_parallel_gpus = str(max_parallel_gpus).strip() or str(cfg.get("max_parallel_gpus", "auto"))
+    parallel_jobs = str(parallel_jobs).strip() or str(cfg.get("parallel_jobs", "auto"))
+    failure_policy = _resolve_failure_policy(
+        failure_policy if str(failure_policy).strip() else cfg.get("failure_policy"),
+        continue_on_failure=bool(continue_on_failure),
+    )
+    gpu_info = _discover_visible_gpus()
+    worker_count, scheduler_mode = _resolve_parallel_workers(
+        gpu_info,
+        max_parallel_gpus=max_parallel_gpus,
+        parallel_jobs=parallel_jobs,
+    )
+    if failure_policy == "fail-fast":
+        continue_on_failure = False
+
+    units: list[BenchmarkUnit] = []
+    run_counter = 0
+    for exp in prepared_experiments:
+        model_name = str(exp.get("name", "")).strip() or "unnamed_model"
+        train_config = str(exp.get("train_config", "")).strip()
+        if not train_config:
+            raise ValueError(f"experiment '{model_name}' missing train_config")
+        train_overrides = _parse_overrides(exp.get("train_overrides"))
+        eval_overrides = _parse_overrides(exp.get("eval_overrides"))
+        execution_family = str(exp.get("_execution_family", "advanced"))
+        execution_priority = int(_safe_int(exp.get("_execution_priority")) or 999)
+        source_index = int(_safe_int(exp.get("_source_index")) or 0)
+        _emit_suite_event(
+            "experiment_start",
+            model=model_name,
+            train_config=train_config,
+            train_overrides=train_overrides,
+            eval_overrides=eval_overrides,
+            execution_family=execution_family,
+            execution_priority=execution_priority,
+            source_index=source_index,
+        )
+        for seed in seeds:
+            run_counter += 1
+            units.append(
+                BenchmarkUnit(
+                    run_index=run_counter,
+                    model_name=model_name,
+                    seed=int(seed),
+                    train_config=train_config,
+                    train_overrides=list(train_overrides),
+                    eval_overrides=list(eval_overrides),
+                    execution_family=execution_family,
+                    execution_priority=execution_priority,
+                    source_index=source_index,
+                )
+            )
+
+    gpu_assignment_count = {gpu_id: 0 for gpu_id in gpu_info.worker_gpu_ids}
+    failed_unit_ids: list[str] = []
+    rows_lock = threading.Lock()
+
+    _emit_suite_event(
+        "scheduler_configuration",
+        failure_policy=failure_policy,
+        continue_on_failure=bool(continue_on_failure),
+        scheduler_mode=scheduler_mode,
+        worker_count=int(worker_count),
+        visible_gpus=gpu_info.worker_gpu_ids,
+        gpu_discovery_source=gpu_info.source,
+        cuda_visible_devices=gpu_info.cuda_visible_devices,
+        queue=[{"run_index": u.run_index, "run_tag": u.run_tag, "model": u.model_name, "seed": u.seed} for u in units],
+    )
+    print(
+        "[suite] scheduler: "
+        f"mode={scheduler_mode} workers={worker_count} visible_gpus={gpu_info.worker_gpu_ids or ['cpu']} "
+        f"failure_policy={failure_policy}"
+    )
+
+    def _execute_unit(unit: BenchmarkUnit, *, worker_id: int, gpu_id: str | None) -> dict[str, Any]:
+        nonlocal failures
+        run_started_utc = _utc_now()
+        run_started_monotonic = time.monotonic()
+        run_tag = unit.run_tag
+        model_name = unit.model_name
+        seed = unit.seed
+        train_config = unit.train_config
+        train_overrides = unit.train_overrides
+        eval_overrides = unit.eval_overrides
+        execution_family = unit.execution_family
+        execution_priority = unit.execution_priority
+        source_index = unit.source_index
+
+        train_dir = output_root / "runs" / run_tag
+        eval_report = output_root / "eval" / f"{run_tag}_{eval_split}.json"
+        logs_dir = output_root / "logs" / run_tag
+        train_log = logs_dir / "train.log"
+        eval_log = logs_dir / "eval.log"
+        run_events_log = logs_dir / "run_events.jsonl"
+        subjob_dir = output_root / "subjobs" / run_tag
+        subjob_stdout = subjob_dir / "stdout.log"
+        subjob_stderr = subjob_dir / "stderr.log"
+        subjob_metadata = subjob_dir / "metadata.json"
+        subjob_command = subjob_dir / "command.sh"
+        subjob_dir.mkdir(parents=True, exist_ok=True)
+
+        base_env = os.environ.copy()
+        env_overrides: dict[str, str] = {
+            "HYDRIDE_WORKER_ID": str(worker_id),
+            "HYDRIDE_BENCHMARK_UNIT_ID": run_tag,
+        }
+        if gpu_id is not None:
+            env_overrides["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+            env_overrides["HYDRIDE_ASSIGNED_GPU"] = str(gpu_id)
+        base_env.update(env_overrides)
+
+        def _emit_run_event(event: str, **payload: Any) -> None:
+            event_payload = {
+                "ts_utc": _utc_now(),
+                "event": str(event),
+                "run_tag": run_tag,
+                "model": model_name,
+                "seed": int(seed),
+                "execution_run_index": unit.run_index,
+                "execution_family": execution_family,
+                "worker_id": int(worker_id),
+                "assigned_gpu": gpu_id,
+                **payload,
+            }
+            _append_jsonl(run_events_log, event_payload)
+            _emit_suite_event("run_event", run_event=event_payload)
+
+        _emit_run_event(
+            "run_start",
+            train_config=train_config,
+            eval_config=eval_config,
+            eval_split=eval_split,
+            train_log=str(train_log),
+            eval_log=str(eval_log),
+        )
+
+        status = "ok"
+        status_message = ""
+        model_path = None
+        preflight: dict[str, Any] = {}
+        preflight_duration_seconds = 0.0
+        train_cmd_duration_seconds: float | None = None
+        eval_cmd_duration_seconds: float | None = None
+        failure_recorded = False
+        launched_pid: int | None = None
+
+        def mark_failure() -> None:
+            nonlocal failures, failure_recorded
+            if not failure_recorded:
+                failures += 1
+                failure_recorded = True
+
+        try:
+            if not skip_train:
+                preflight_started = time.monotonic()
+                preflight_ok, preflight = preflight_pretrained_train_config(
+                    train_config=train_config,
+                    train_overrides=[f"seed={seed}", *train_overrides],
+                    repo_root=repo_root,
+                    validation_cache=preflight_cache,
+                )
+                preflight_duration_seconds = time.monotonic() - preflight_started
+                _emit_run_event(
+                    "preflight_complete",
+                    ok=bool(preflight_ok),
+                    duration_seconds=float(preflight_duration_seconds),
+                    details=preflight,
+                )
+                if not preflight_ok:
+                    status = "pretrained_missing"
+                    status_message = str(preflight.get("reason", "pretrained artifacts are unavailable"))
+                    mark_failure()
+                    _write_skip_log(
+                        log_path=train_log,
+                        run_tag=run_tag,
+                        reason=status_message,
+                        actions=[str(x) for x in preflight.get("actions", []) if str(x).strip()],
+                        details=preflight,
+                    )
+                train_cmd = [
+                    python_exe,
+                    str(cli),
+                    "train",
+                    "--config",
+                    train_config,
+                    "--dataset-dir",
+                    dataset_dir,
+                    "--output-dir",
+                    str(train_dir),
+                    "--set",
+                    f"seed={seed}",
+                    "--no-auto-prepare-dataset",
+                ]
+                for item in train_overrides:
+                    train_cmd.extend(["--set", item])
+                if status == "ok":
+                    command_text = " ".join(train_cmd)
+                    subjob_command.write_text(command_text + "\n", encoding="utf-8")
+                    _emit_run_event("train_start", command=train_cmd, env_overrides=env_overrides, cwd=str(repo_root))
+                    _emit_suite_event(
+                        "subjob_started",
+                        unit_id=run_tag,
+                        model=model_name,
+                        seed=int(seed),
+                        worker_id=int(worker_id),
+                        assigned_gpu=gpu_id,
+                        command=train_cmd,
+                        cwd=str(repo_root),
+                        stdout_log=str(subjob_stdout),
+                        stderr_log=str(subjob_stderr),
+                        env_overrides=env_overrides,
+                    )
+                    train_cmd_started = time.monotonic()
+                    rc, launched_pid = _run_cmd(
+                        train_cmd,
+                        subjob_stdout,
+                        stderr_log_path=subjob_stderr,
+                        dry_run=dry_run,
+                        run_label=f"{run_tag}:train",
+                        idle_timeout_seconds=idle_timeout_seconds,
+                        wall_timeout_seconds=wall_timeout_seconds,
+                        terminate_grace_seconds=terminate_grace_seconds,
+                        poll_interval_seconds=poll_interval_seconds,
+                        env=base_env,
+                        cwd=repo_root,
+                    )
+                    train_cmd_duration_seconds = time.monotonic() - train_cmd_started
+                    _emit_run_event(
+                        "train_end",
+                        rc=int(rc),
+                        pid=launched_pid,
+                        duration_seconds=float(train_cmd_duration_seconds),
+                        dry_run=bool(dry_run),
+                    )
+                    if rc != 0:
+                        status = f"train_failed({rc})"
+                        if rc == 124:
+                            status_message = (
+                                "training command timed out by suite watchdog; "
+                                "see train.log for timeout reason and partial output"
+                            )
+                        else:
+                            status_message = f"training command failed with exit code {rc}"
+                        mark_failure()
+            if status == "ok" and not skip_eval:
+                try:
+                    model_path = _resolve_model_path(train_dir)
+                except Exception:
+                    if dry_run:
+                        model_path = train_dir / "best_checkpoint.pt"
+                    else:
+                        status = "model_missing"
+                        status_message = "training did not produce a model checkpoint"
+                        _emit_run_event("model_missing", train_dir=str(train_dir))
+                        mark_failure()
+                if status == "ok":
+                    eval_cmd = [
+                        python_exe,
+                        str(cli),
+                        "evaluate",
+                        "--config",
+                        eval_config,
+                        "--dataset-dir",
+                        dataset_dir,
+                        "--model-path",
+                        str(model_path),
+                        "--split",
+                        eval_split,
+                        "--output-path",
+                        str(eval_report),
+                        "--no-auto-prepare-dataset",
+                    ]
+                    for item in eval_overrides:
+                        eval_cmd.extend(["--set", item])
+                    _emit_run_event("eval_start", command=eval_cmd, model_artifact=str(model_path))
+                    eval_cmd_started = time.monotonic()
+                    rc, _ = _run_cmd(
+                        eval_cmd,
+                        eval_log,
+                        dry_run=dry_run,
+                        run_label=f"{run_tag}:eval",
+                        idle_timeout_seconds=idle_timeout_seconds,
+                        wall_timeout_seconds=wall_timeout_seconds,
+                        terminate_grace_seconds=terminate_grace_seconds,
+                        poll_interval_seconds=poll_interval_seconds,
+                        env=base_env,
+                        cwd=repo_root,
+                    )
+                    eval_cmd_duration_seconds = time.monotonic() - eval_cmd_started
+                    _emit_run_event(
+                        "eval_end",
+                        rc=int(rc),
+                        duration_seconds=float(eval_cmd_duration_seconds),
+                        dry_run=bool(dry_run),
+                    )
+                    if rc != 0:
+                        status = f"eval_failed({rc})"
+                        if rc == 124:
+                            status_message = (
+                                "evaluation command timed out by suite watchdog; "
+                                "see eval.log for timeout reason and partial output"
+                            )
+                        else:
+                            status_message = f"evaluation command failed with exit code {rc}"
+                        mark_failure()
+
+            if status != "ok" and not skip_eval and not eval_log.exists():
+                _write_skip_log(
+                    log_path=eval_log,
+                    run_tag=run_tag,
+                    reason=f"evaluation skipped due to status={status}: {status_message or 'no details'}",
+                    actions=[],
+                    details={"status": status},
+                )
+
+            eval_payload = _read_json(eval_report)
+            metrics = eval_payload.get("metrics", {}) if isinstance(eval_payload, dict) else {}
+            scientific_metrics = eval_payload.get("scientific_metrics", {}) if isinstance(eval_payload, dict) else {}
+            train_resolved = _read_json(train_dir / "resolved_config.json")
+            try:
+                train_meta = _read_training_metadata(train_dir, run_tag, output_root)
+            except Exception as exc:
+                mark_failure()
+                if status == "ok":
+                    status = "metadata_failed"
+                    status_message = f"failed to collect training metadata: {type(exc).__name__}: {exc}"
+                tb = traceback.format_exc()
+                _emit_run_event(
+                    "metadata_error",
+                    error=f"{type(exc).__name__}: {exc}",
+                    traceback=tb,
+                )
+                _write_skip_log(
+                    log_path=logs_dir / "metadata_error.log",
+                    run_tag=run_tag,
+                    reason=f"metadata extraction failed: {type(exc).__name__}: {exc}",
+                    actions=["inspect train/eval artifacts and rerun if needed"],
+                    details={"traceback": tb},
+                )
+                train_meta = {}
+            checkpoint_stats = _checkpoint_state_stats(model_path) if isinstance(model_path, Path) else {}
+            model_param_count = _safe_int(train_meta.get("model_parameter_count_report"))
+            if model_param_count is None:
+                model_param_count = _safe_int(checkpoint_stats.get("parameter_count"))
+            model_trainable_param_count = _safe_int(train_meta.get("model_trainable_parameter_count"))
+            model_artifact_bytes = model_path.stat().st_size if isinstance(model_path, Path) and model_path.exists() else None
+            model_weight_mean = _safe_float(train_meta.get("model_weight_mean"))
+            model_weight_std = _safe_float(train_meta.get("model_weight_std"))
+            model_weight_min = _safe_float(train_meta.get("model_weight_min"))
+            model_weight_max = _safe_float(train_meta.get("model_weight_max"))
+            if model_weight_mean is None:
+                model_weight_mean = _safe_float(checkpoint_stats.get("weight_mean"))
+            if model_weight_std is None:
+                model_weight_std = _safe_float(checkpoint_stats.get("weight_std"))
+            if model_weight_min is None:
+                model_weight_min = _safe_float(checkpoint_stats.get("weight_min"))
+            if model_weight_max is None:
+                model_weight_max = _safe_float(checkpoint_stats.get("weight_max"))
+            eval_runtime_seconds = eval_payload.get("runtime_seconds") if isinstance(eval_payload, dict) else None
+            train_runtime_seconds = train_meta.get("training_runtime_seconds")
+            total_runtime_seconds = None
+            if _safe_float(train_runtime_seconds) is not None or _safe_float(eval_runtime_seconds) is not None:
+                total_runtime_seconds = float(_safe_float(train_runtime_seconds) or 0.0) + float(
+                    _safe_float(eval_runtime_seconds) or 0.0
+                )
+
+            row = {
+                "execution_run_index": unit.run_index,
+                "execution_family": execution_family,
+                "execution_priority": execution_priority,
+                "execution_source_index": source_index,
+                "model": model_name,
+                "seed": seed,
+                "status": status,
+                "status_message": status_message,
+                "dataset_dir": dataset_dir,
+                "train_config": train_config,
+                "eval_config": eval_config,
+                "train_dir": str(train_dir),
+                "eval_report": str(eval_report),
+                "pixel_accuracy": metrics.get("pixel_accuracy"),
+                "macro_f1": metrics.get("macro_f1"),
+                "mean_iou": metrics.get("mean_iou"),
+                "macro_precision": metrics.get("macro_precision"),
+                "macro_recall": metrics.get("macro_recall"),
+                "weighted_f1": metrics.get("weighted_f1"),
+                "balanced_accuracy": metrics.get("balanced_accuracy"),
+                "cohen_kappa": metrics.get("cohen_kappa"),
+                "frequency_weighted_iou": metrics.get("frequency_weighted_iou"),
+                "foreground_precision": metrics.get("foreground_precision"),
+                "foreground_recall": metrics.get("foreground_recall"),
+                "foreground_specificity": metrics.get("foreground_specificity"),
+                "foreground_iou": metrics.get("foreground_iou"),
+                "foreground_dice": metrics.get("foreground_dice"),
+                "false_positive_rate": metrics.get("false_positive_rate"),
+                "false_negative_rate": metrics.get("false_negative_rate"),
+                "matthews_corrcoef": metrics.get("matthews_corrcoef"),
+                "runtime_seconds": eval_runtime_seconds,
+                "training_runtime_seconds": train_runtime_seconds,
+                "total_runtime_seconds": total_runtime_seconds,
+                "training_status": train_meta.get("training_status", ""),
+                "training_runtime_human": train_meta.get("training_runtime_human", ""),
+                "training_epochs_total": train_meta.get("training_epochs_total"),
+                "training_epochs_completed": train_meta.get("training_epochs_completed"),
+                "training_history_points": train_meta.get("training_history_points"),
+                "best_val_loss_train": train_meta.get("best_val_loss_train"),
+                "last_train_loss": train_meta.get("last_train_loss"),
+                "last_val_loss": train_meta.get("last_val_loss"),
+                "last_train_accuracy": train_meta.get("last_train_accuracy"),
+                "last_val_accuracy": train_meta.get("last_val_accuracy"),
+                "last_train_iou": train_meta.get("last_train_iou"),
+                "last_val_iou": train_meta.get("last_val_iou"),
+                "avg_epoch_runtime_seconds": train_meta.get("avg_epoch_runtime_seconds"),
+                "mean_epoch_runtime_seconds": train_meta.get("mean_epoch_runtime_seconds"),
+                "mean_train_epoch_seconds": train_meta.get("mean_train_epoch_seconds"),
+                "mean_validation_epoch_seconds": train_meta.get("mean_validation_epoch_seconds"),
+                "loss_curve_png": train_meta.get("loss_curve_png"),
+                "accuracy_curve_png": train_meta.get("accuracy_curve_png"),
+                "iou_curve_png": train_meta.get("iou_curve_png"),
+                "tracked_samples_count": train_meta.get("tracked_samples_count"),
+                "tracked_samples_mean_iou": train_meta.get("tracked_samples_mean_iou"),
+                "tracked_samples_min_iou": train_meta.get("tracked_samples_min_iou"),
+                "tracked_samples_max_iou": train_meta.get("tracked_samples_max_iou"),
+                "tracked_samples": train_meta.get("tracked_samples"),
+                "tracked_sample_evolution_count": train_meta.get("tracked_sample_evolution_count"),
+                "tracked_sample_evolution": train_meta.get("tracked_sample_evolution"),
+                "best_tracked_sample_delta_iou": train_meta.get("best_tracked_sample_delta_iou"),
+                "worst_tracked_sample_delta_iou": train_meta.get("worst_tracked_sample_delta_iou"),
+                "compute_train_samples_processed": train_meta.get("compute_train_samples_processed"),
+                "compute_val_samples_processed": train_meta.get("compute_val_samples_processed"),
+                "compute_tracking_samples_processed": train_meta.get("compute_tracking_samples_processed"),
+                "compute_estimated_forward_flops_per_sample": train_meta.get("compute_estimated_forward_flops_per_sample"),
+                "compute_estimated_total_flops": train_meta.get("compute_estimated_total_flops"),
+                "compute_estimated_total_tflops": train_meta.get("compute_estimated_total_tflops"),
+                "compute_flops_estimate_method": train_meta.get("compute_flops_estimate_method"),
+                "run_started_utc": run_started_utc,
+                "run_duration_seconds": float(time.monotonic() - run_started_monotonic),
+                "preflight_duration_seconds": float(preflight_duration_seconds),
+                "train_cmd_duration_seconds": train_cmd_duration_seconds,
+                "eval_cmd_duration_seconds": eval_cmd_duration_seconds,
+                "preflight_required": bool(preflight.get("required", False)),
+                "preflight_mode": str(preflight.get("mode", "")),
+                "preflight_model_id": str(preflight.get("model_id", "")),
+                "preflight_reason": str(preflight.get("reason", "")),
+                "train_log": str(train_log),
+                "eval_log": str(eval_log),
+                "run_events_log": str(run_events_log),
+                "inside_html": str(train_dir / "inside.html"),
+                "train_overrides": "|".join(train_overrides),
+                "eval_overrides": "|".join(eval_overrides),
+                "subjob_dir": str(subjob_dir),
+                "subjob_stdout": str(subjob_stdout),
+                "subjob_stderr": str(subjob_stderr),
+                "worker_id": int(worker_id),
+                "assigned_gpu": gpu_id if gpu_id is not None else "cpu",
+            }
+            row.update(
+                {
+                    "mask_area_fraction_abs_error": scientific_metrics.get("mask_area_fraction_abs_error"),
+                    "hydride_count_abs_error": scientific_metrics.get("hydride_count_abs_error"),
+                    "hydride_size_wasserstein": scientific_metrics.get("hydride_size_wasserstein"),
+                    "hydride_orientation_wasserstein": scientific_metrics.get("hydride_orientation_wasserstein"),
+                    "resolved_backend": train_resolved.get("backend", ""),
+                    "resolved_model_architecture": train_resolved.get("model_architecture", ""),
+                    "resolved_epochs": train_resolved.get("epochs"),
+                    "resolved_batch_size": train_resolved.get("batch_size"),
+                    "resolved_learning_rate": train_resolved.get("learning_rate"),
+                    "resolved_weight_decay": train_resolved.get("weight_decay"),
+                    "resolved_model_base_channels": train_resolved.get("model_base_channels"),
+                    "resolved_transformer_depth": train_resolved.get("transformer_depth"),
+                    "resolved_transformer_num_heads": train_resolved.get("transformer_num_heads"),
+                    "resolved_transformer_mlp_ratio": train_resolved.get("transformer_mlp_ratio"),
+                    "resolved_transformer_dropout": train_resolved.get("transformer_dropout"),
+                    "resolved_segformer_patch_size": train_resolved.get("segformer_patch_size"),
+                    "runtime_device": train_meta.get("runtime_device", ""),
+                    "runtime_gpu_name": train_meta.get("runtime_gpu_name", ""),
+                    "runtime_gpu_peak_memory_allocated_mb": train_meta.get("runtime_gpu_peak_memory_allocated_mb", 0.0),
+                    "model_parameter_count": model_param_count,
+                    "model_trainable_parameter_count": model_trainable_param_count,
+                    "model_artifact_path": str(model_path) if isinstance(model_path, Path) else "",
+                    "model_artifact_size_bytes": model_artifact_bytes,
+                    "model_artifact_size_mb": _bytes_to_mb(model_artifact_bytes),
+                    "model_weight_mean": model_weight_mean,
+                    "model_weight_std": model_weight_std,
+                    "model_weight_min": model_weight_min,
+                    "model_weight_max": model_weight_max,
+                }
+            )
+            subjob_metadata.write_text(json.dumps({
+                "schema_version": "microseg.hydride_benchmark_subjob.v1",
+                "unit_id": run_tag,
+                "status": status,
+                "status_message": status_message,
+                "model": model_name,
+                "seed": int(seed),
+                "worker_id": int(worker_id),
+                "assigned_gpu": gpu_id,
+                "pid": launched_pid,
+                "stdout_log": str(subjob_stdout),
+                "stderr_log": str(subjob_stderr),
+                "train_log": str(train_log),
+                "eval_log": str(eval_log),
+                "started_utc": run_started_utc,
+                "ended_utc": _utc_now(),
+                "duration_seconds": float(row.get("run_duration_seconds") or 0.0),
+                "return_status": status,
+            }, indent=2), encoding="utf-8")
+
+            _emit_run_event(
+                "run_complete",
+                status=status,
+                status_message=status_message,
+                train_dir=str(train_dir),
+                eval_report=str(eval_report),
+                run_duration_seconds=row.get("run_duration_seconds"),
+            )
+            _emit_suite_event(
+                "subjob_finished",
+                unit_id=run_tag,
+                status=status,
+                status_message=status_message,
+                worker_id=int(worker_id),
+                assigned_gpu=gpu_id,
+                duration_seconds=float(row.get("run_duration_seconds") or 0.0),
+                stdout_log=str(subjob_stdout),
+                stderr_log=str(subjob_stderr),
+                stderr_tail=_tail_text(subjob_stderr) if status != "ok" else "",
+            )
+            if status != "ok":
+                failed_unit_ids.append(run_tag)
+            return row
+        except Exception as exc:
+            mark_failure()
+            tb = traceback.format_exc()
+            _append_jsonl(
+                suite_event_log,
+                {
+                    "ts_utc": _utc_now(),
+                    "event": "scheduler_exception",
+                    "unit_id": run_tag,
+                    "worker_id": int(worker_id),
+                    "assigned_gpu": gpu_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "traceback": tb,
+                },
+            )
+            subjob_metadata.write_text(json.dumps({
+                "schema_version": "microseg.hydride_benchmark_subjob.v1",
+                "unit_id": run_tag,
+                "status": "scheduler_exception",
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": tb,
+                "worker_id": int(worker_id),
+                "assigned_gpu": gpu_id,
+                "started_utc": run_started_utc,
+                "ended_utc": _utc_now(),
+            }, indent=2), encoding="utf-8")
+            failed_unit_ids.append(run_tag)
+            return {
+                "execution_run_index": unit.run_index,
+                "model": model_name,
+                "seed": seed,
+                "status": "scheduler_exception",
+                "status_message": f"{type(exc).__name__}: {exc}",
+                "run_duration_seconds": float(time.monotonic() - run_started_monotonic),
+                "train_config": train_config,
+                "eval_config": eval_config,
+                "train_log": str(train_log),
+                "eval_log": str(eval_log),
+                "run_events_log": str(run_events_log),
+                "assigned_gpu": gpu_id if gpu_id is not None else "cpu",
+                "worker_id": int(worker_id),
+            }
+
+    if worker_count <= 1:
+        assigned_gpu = gpu_info.worker_gpu_ids[0] if gpu_info.worker_gpu_ids else None
+        for unit in units:
+            row = _execute_unit(unit, worker_id=0, gpu_id=assigned_gpu)
+            rows.append(row)
+            if assigned_gpu is not None:
+                gpu_assignment_count[assigned_gpu] = gpu_assignment_count.get(assigned_gpu, 0) + 1
+            if row.get("status") != "ok" and failure_policy == "fail-fast":
+                break
+    else:
+        queue: Queue[BenchmarkUnit] = Queue()
+        for unit in units:
+            queue.put(unit)
+        fail_fast_event = threading.Event()
+
+        def _worker(worker_id: int, gpu_id: str) -> None:
+            while True:
+                if failure_policy == "fail-fast" and fail_fast_event.is_set():
+                    break
+                try:
+                    unit = queue.get_nowait()
+                except Empty:
+                    break
+                row = _execute_unit(unit, worker_id=worker_id, gpu_id=gpu_id)
+                with rows_lock:
+                    rows.append(row)
+                    gpu_assignment_count[gpu_id] = gpu_assignment_count.get(gpu_id, 0) + 1
+                if row.get("status") != "ok" and failure_policy == "fail-fast":
+                    fail_fast_event.set()
+                queue.task_done()
+
+        threads: list[threading.Thread] = []
+        for idx, gpu_id in enumerate(gpu_info.worker_gpu_ids[:worker_count]):
+            thread = threading.Thread(target=_worker, args=(idx, gpu_id), daemon=True)
+            thread.start()
+            threads.append(thread)
+        for thread in threads:
+            thread.join()
+
+    rows.sort(key=lambda r: int(_safe_int(r.get("execution_run_index")) or 0))
+
+    agg = _aggregate(rows)
+    summary_json = output_root / "benchmark_summary.json"
+    summary_csv = output_root / "benchmark_summary.csv"
+    aggregate_csv = output_root / "benchmark_aggregate.csv"
+    dashboard_html = output_root / "benchmark_dashboard.html"
+    canonical_summary_json = output_root / "summary.json"
+    canonical_summary_html = output_root / "summary.html"
+
+    summary_payload = {
+        "schema_version": "microseg.hydride_benchmark_suite.v4",
+        "config_path": str(cfg_path),
+        "dataset_dir": dataset_dir,
+        "output_root": str(output_root),
+        "suite_event_log": str(suite_event_log),
+        "eval_split": eval_split,
+        "benchmark_mode": benchmark_mode,
+        "configured_seeds": list(configured_seeds),
+        "effective_seeds": list(seeds),
+        "single_seed_override": bool(single_seed_requested),
+        "continue_on_failure": bool(continue_on_failure),
+        "failure_policy": failure_policy,
+        "scheduler_mode": scheduler_mode,
+        "worker_count": int(worker_count),
+        "max_parallel_gpus": max_parallel_gpus,
+        "parallel_jobs": parallel_jobs,
+        "visible_gpus": gpu_info.worker_gpu_ids,
+        "gpu_discovery_source": gpu_info.source,
+        "expected_dataset_manifest_sha256": expected_manifest_sha,
+        "run_count": len(rows),
+        "failure_count": failures,
+        "failed_unit_ids": failed_unit_ids,
+        "gpu_assignment_count": gpu_assignment_count,
+        "suite_runtime_seconds": float(time.monotonic() - suite_started_monotonic),
+        "rows": rows,
+        "aggregate": agg,
+    }
+    summary_json.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+
+    _write_csv(
+        summary_csv,
+        rows,
+        [
+            "execution_run_index",
+            "execution_family",
+            "execution_priority",
+            "execution_source_index",
+            "model",
+            "seed",
+            "status",
+            "status_message",
+            "backend",
+            "model_initialization",
+            "runtime_device",
+            "runtime_gpu_name",
+            "pixel_accuracy",
+            "macro_f1",
+            "mean_iou",
+            "macro_precision",
+            "macro_recall",
+            "weighted_f1",
+            "balanced_accuracy",
+            "cohen_kappa",
+            "frequency_weighted_iou",
+            "foreground_precision",
+            "foreground_recall",
+            "foreground_specificity",
+            "foreground_iou",
+            "foreground_dice",
+            "false_positive_rate",
+            "false_negative_rate",
+            "matthews_corrcoef",
+            "mask_area_fraction_abs_error",
+            "hydride_count_abs_error",
+            "hydride_size_wasserstein",
+            "hydride_orientation_wasserstein",
+            "runtime_seconds",
+            "training_runtime_seconds",
+            "total_runtime_seconds",
+            "run_duration_seconds",
+            "preflight_duration_seconds",
+            "train_cmd_duration_seconds",
+            "eval_cmd_duration_seconds",
+            "training_status",
+            "training_runtime_human",
+            "training_epochs_total",
+            "training_epochs_completed",
+            "training_history_points",
+            "best_val_loss_train",
+            "last_train_loss",
+            "last_val_loss",
+            "last_train_accuracy",
+            "last_val_accuracy",
+            "last_train_iou",
+            "last_val_iou",
+            "avg_epoch_runtime_seconds",
+            "mean_epoch_runtime_seconds",
+            "mean_train_epoch_seconds",
+            "mean_validation_epoch_seconds",
+            "tracked_samples_count",
+            "tracked_samples_mean_iou",
+            "tracked_samples_min_iou",
+            "tracked_samples_max_iou",
+            "tracked_sample_evolution_count",
+            "best_tracked_sample_delta_iou",
+            "worst_tracked_sample_delta_iou",
+            "model_artifact_path",
+            "model_artifact_size_bytes",
+            "model_artifact_size_mb",
+            "model_parameter_count",
+            "model_trainable_parameter_count",
+            "model_weight_mean",
+            "model_weight_std",
+            "model_weight_min",
+            "model_weight_max",
+            "compute_estimated_total_flops",
+            "compute_estimated_total_tflops",
+            "runtime_gpu_peak_memory_allocated_mb",
+            "loss_curve_png",
+            "accuracy_curve_png",
+            "iou_curve_png",
+            "train_config",
+            "eval_config",
+            "train_dir",
+            "eval_report",
+            "train_log",
+            "eval_log",
+            "run_events_log",
+            "assigned_gpu",
+            "worker_id",
+            "subjob_dir",
+            "subjob_stdout",
+            "subjob_stderr",
+            "inside_html",
+            "preflight_required",
+            "preflight_mode",
+            "preflight_model_id",
+            "preflight_reason",
+            "run_started_utc",
+            "resolved_backend",
+            "resolved_model_architecture",
+            "resolved_epochs",
+            "resolved_batch_size",
+            "resolved_learning_rate",
+            "resolved_weight_decay",
+            "resolved_model_base_channels",
+            "resolved_transformer_depth",
+            "resolved_transformer_num_heads",
+            "resolved_transformer_mlp_ratio",
+            "resolved_transformer_dropout",
+            "resolved_segformer_patch_size",
+            "train_overrides",
+            "eval_overrides",
+        ],
+    )
+    _write_csv(
+        aggregate_csv,
+        agg,
+        [
+            "model",
+            "runs",
+            "ok_runs",
+            "failed_runs",
+            "mean_pixel_accuracy",
+            "std_pixel_accuracy",
+            "mean_macro_f1",
+            "std_macro_f1",
+            "mean_mean_iou",
+            "std_mean_iou",
+            "mean_macro_precision",
+            "std_macro_precision",
+            "mean_macro_recall",
+            "std_macro_recall",
+            "mean_weighted_f1",
+            "std_weighted_f1",
+            "mean_balanced_accuracy",
+            "std_balanced_accuracy",
+            "mean_cohen_kappa",
+            "std_cohen_kappa",
+            "mean_frequency_weighted_iou",
+            "std_frequency_weighted_iou",
+            "mean_foreground_dice",
+            "std_foreground_dice",
+            "mean_foreground_iou",
+            "std_foreground_iou",
+            "mean_foreground_precision",
+            "mean_foreground_recall",
+            "mean_foreground_specificity",
+            "mean_false_positive_rate",
+            "mean_false_negative_rate",
+            "mean_matthews_corrcoef",
+            "mean_eval_runtime_seconds",
+            "std_eval_runtime_seconds",
+            "mean_training_runtime_seconds",
+            "std_training_runtime_seconds",
+            "mean_total_runtime_seconds",
+            "std_total_runtime_seconds",
+            "mean_train_epoch_seconds",
+            "std_train_epoch_seconds",
+            "mean_validation_epoch_seconds",
+            "std_validation_epoch_seconds",
+            "mean_epoch_runtime_seconds",
+            "std_epoch_runtime_seconds",
+            "mean_model_parameter_count",
+            "mean_model_trainable_parameter_count",
+            "mean_model_artifact_size_mb",
+            "mean_model_weight_mean",
+            "mean_model_weight_std",
+            "mean_model_weight_min",
+            "mean_model_weight_max",
+            "mean_compute_estimated_total_tflops",
+            "mean_runtime_gpu_peak_memory_allocated_mb",
+            "mean_mask_area_fraction_abs_error",
+            "mean_hydride_count_abs_error",
+            "mean_hydride_size_wasserstein",
+            "mean_hydride_orientation_wasserstein",
+            "mean_last_train_loss",
+            "mean_last_val_loss",
+            "mean_last_train_accuracy",
+            "mean_last_val_accuracy",
+            "mean_last_train_iou",
+            "mean_last_val_iou",
+            "mean_tracked_samples_iou",
+            "mean_tracked_iou_span",
+            "mean_best_tracked_sample_delta_iou",
+            "mean_worst_tracked_sample_delta_iou",
+            "mean_overfit_iou_gap",
+            "quality_score",
+            "efficiency_score",
+            "robustness_score",
+            "rank_quality",
+            "rank_efficiency",
+            "rank_runtime",
+            "rank_robustness",
+        ],
+    )
+    _write_dashboard(dashboard_html, rows, agg)
+    canonical_summary_json.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+    _write_dashboard(canonical_summary_html, rows, agg)
+
+    print(f"suite summary json: {summary_json}")
+    print(f"suite canonical summary json: {canonical_summary_json}")
+    print(f"suite summary csv: {summary_csv}")
+    print(f"suite aggregate csv: {aggregate_csv}")
+    print(f"suite dashboard html: {dashboard_html}")
+    print(f"suite canonical summary html: {canonical_summary_html}")
+    print(f"suite event log jsonl: {suite_event_log}")
+    print(f"runs: {len(rows)} failures: {failures}")
+    print(f"scheduler mode: {scheduler_mode} workers: {worker_count} failure_policy: {failure_policy}")
+    print(f"gpu assignment count: {gpu_assignment_count}")
+
+    _emit_suite_event(
+        "suite_complete",
+        run_count=len(rows),
+        failure_count=failures,
+        failed_unit_ids=failed_unit_ids,
+        strict=bool(strict),
+        failure_policy=failure_policy,
+        scheduler_mode=scheduler_mode,
+        worker_count=int(worker_count),
+        gpu_assignment_count=gpu_assignment_count,
+        suite_runtime_seconds=float(time.monotonic() - suite_started_monotonic),
+        summary_json=str(summary_json),
+        aggregate_csv=str(aggregate_csv),
+        dashboard_html=str(dashboard_html),
+    )
+
+    if strict and failures > 0:
+        return 2
+    return 0
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Hydride benchmark suite runner and summarizer")
+    parser.add_argument("--config", required=True, help="Path to benchmark suite YAML")
+    parser.add_argument("--dry-run", action="store_true", help="Write planned commands but do not execute train/eval")
+    parser.add_argument("--strict", action="store_true", help="Exit non-zero when any run fails")
+    parser.add_argument("--skip-train", action="store_true", help="Skip training stage")
+    parser.add_argument("--skip-eval", action="store_true", help="Skip evaluation stage")
+    parser.add_argument(
+        "--single-seed",
+        action="store_true",
+        help="Override suite seeds and run only the first configured seed",
+    )
+    parser.add_argument(
+        "--max-parallel-gpus",
+        default="",
+        help="Maximum GPUs to use in suite scheduler (auto or integer)",
+    )
+    parser.add_argument(
+        "--parallel-jobs",
+        default="",
+        help="Maximum concurrent benchmark units (auto or integer)",
+    )
+    parser.add_argument(
+        "--failure-policy",
+        default="",
+        choices=["", "continue", "fail-fast"],
+        help="Suite failure handling policy (continue or fail-fast)",
+    )
+    args = parser.parse_args()
+    rc = run_suite(
+        Path(args.config),
+        dry_run=bool(args.dry_run),
+        strict=bool(args.strict),
+        skip_train=bool(args.skip_train),
+        skip_eval=bool(args.skip_eval),
+        single_seed=bool(args.single_seed),
+        max_parallel_gpus=str(args.max_parallel_gpus),
+        parallel_jobs=str(args.parallel_jobs),
+        failure_policy=str(args.failure_policy),
+    )
+    raise SystemExit(rc)
+
+
+if __name__ == "__main__":
+    main()

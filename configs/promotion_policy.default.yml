@@ -1,0 +1,10 @@
+min_runs: 3
+min_ok_runs: 3
+min_mean_iou: 0.60
+min_macro_f1: 0.75
+min_foreground_dice: 0.70
+min_cohen_kappa: 0.50
+max_mean_false_positive_rate: 0.20
+max_mean_false_negative_rate: 0.20
+max_mean_total_runtime_seconds: 0.0
+require_no_failed_runs: true

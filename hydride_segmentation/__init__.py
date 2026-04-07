@@ -1,10 +1,16 @@
 """Hydride segmentation package."""
 
-"""Hydride segmentation package."""
-
 from .core.analysis import orientation_analysis, combined_figure
-from .core.gui_app import HydrideSegmentationGUI
 from .api import create_blueprint
+from .version import __version__
+
+
+def __getattr__(name):
+    """Lazy-load optional GUI symbols to avoid hard dependency at import time."""
+    if name == "HydrideSegmentationGUI":
+        from .core.gui_app import HydrideSegmentationGUI as _GUI
+        return _GUI
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def run_model(*args, **kwargs):
@@ -31,6 +37,18 @@ def segment_hydride_image(*args, **kwargs):
     return _seg(*args, **kwargs)
 
 
+def run_microseg_pipeline(*args, **kwargs):
+    """Wrapper for phase-1 microseg orchestration adapter."""
+    from .microseg_adapter import run_pipeline as _run
+    return _run(*args, **kwargs)
+
+
+def launch_qt_gui(*args, **kwargs):
+    """Wrapper for Qt GUI launcher."""
+    from .qt_gui import launch_qt_gui as _launch
+    return _launch(*args, **kwargs)
+
+
 __all__ = [
     "orientation_analysis",
     "combined_figure",
@@ -39,5 +57,8 @@ __all__ = [
     "run_model",
     "run_ml_model",
     "segment_hydride_image",
+    "run_microseg_pipeline",
+    "launch_qt_gui",
     "create_blueprint",
+    "__version__",
 ]

@@ -1,0 +1,17 @@
+# Reproducible CPU-first environment baseline (pinned)
+numpy==1.26.4
+matplotlib==3.8.4
+opencv-python-headless==4.10.0.84
+scikit-image==0.24.0
+scikit-learn==1.5.1
+pillow==10.4.0
+albumentations==1.4.13
+tqdm==4.66.5
+scipy==1.14.0
+torch==2.4.0
+segmentation-models-pytorch==0.3.4
+transformers==4.44.0
+huggingface_hub==0.24.5
+flask==3.0.3
+pydantic==2.8.2
+PyYAML==6.0.2

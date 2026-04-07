@@ -1,0 +1,157 @@
+:root {
+  --microseg-accent: #b07d2a;
+  --microseg-accent-strong: #6f4e17;
+  --microseg-surface: #fbf8ef;
+  --microseg-surface-alt: #f2ead8;
+  --microseg-border: #d7c89f;
+  --microseg-border-strong: #a98845;
+  --microseg-text: #24313d;
+  --microseg-sidebar: #12324c;
+  --microseg-sidebar-hover: #1a4667;
+  --microseg-sidebar-current: #1d4a6f;
+  --microseg-sidebar-link: #eef4fa;
+}
+
+body {
+  letter-spacing: 0.01em;
+  background:
+    radial-gradient(circle at top right, rgba(176, 125, 42, 0.08), transparent 32%),
+    linear-gradient(180deg, #fcfbf6 0%, #f7f1df 100%);
+}
+
+.sidebar-drawer {
+  border-right: 1px solid #0b2031;
+  background:
+    linear-gradient(180deg, rgba(18, 50, 76, 0.98), rgba(15, 39, 64, 0.98));
+}
+
+.sidebar-container {
+  background: linear-gradient(180deg, rgba(18, 50, 76, 0.98), rgba(15, 39, 64, 0.98));
+}
+
+.sidebar-sticky {
+  padding-right: 0.5rem;
+}
+
+.sidebar-brand-text,
+.sidebar-tree .caption-text,
+.sidebar-tree .reference,
+.sidebar-tree a {
+  color: var(--microseg-sidebar-link);
+}
+
+.sidebar-tree .caption-text {
+  opacity: 0.88;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar-tree .reference {
+  border-radius: 8px;
+  margin: 0.12rem 0.35rem;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.sidebar-tree .reference:hover {
+  transform: translateX(2px);
+  background-color: var(--microseg-sidebar-hover);
+}
+
+.sidebar-tree .current > .reference {
+  background-color: var(--microseg-sidebar-current);
+  box-shadow: inset 0 0 0 1px rgba(255, 232, 179, 0.25);
+}
+
+.hero-panel,
+.doc-card,
+.admonition,
+table.docutils,
+figure {
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(38, 46, 56, 0.08);
+}
+
+.hero-panel {
+  background:
+    linear-gradient(135deg, rgba(176, 125, 42, 0.16), rgba(176, 125, 42, 0)),
+    linear-gradient(180deg, #fffaf0 0%, #f6ebcf 100%);
+  border: 1px solid var(--microseg-border);
+  padding: 1.25rem 1.5rem;
+  margin: 1rem 0 1.5rem 0;
+}
+
+.hero-panel h1 {
+  margin-bottom: 0.25rem;
+}
+
+.hero-panel p,
+.hero-panel li {
+  color: var(--microseg-text);
+}
+
+.doc-card {
+  border: 1px solid var(--microseg-border);
+  background: #fffdf7;
+  padding: 1rem;
+}
+
+.doc-card strong {
+  color: var(--microseg-accent-strong);
+}
+
+.highlight pre {
+  border-radius: 12px;
+  background: #f5f0df;
+  border: 1px solid #dbc88e;
+}
+
+figure img {
+  border-radius: 12px;
+}
+
+table.docutils thead th {
+  background: var(--microseg-surface-alt);
+}
+
+.sidebar-brand-text {
+  font-weight: 700;
+}
+
+.content {
+  max-width: 100%;
+  background: rgba(255, 253, 246, 0.92);
+  border-left: 1px solid rgba(215, 200, 159, 0.7);
+  border-right: 1px solid rgba(215, 200, 159, 0.7);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6), 0 12px 40px rgba(38, 46, 56, 0.04);
+}
+
+.content h1,
+.content h2,
+.content h3 {
+  color: #19324a;
+}
+
+.content h1 {
+  border-bottom: 2px solid rgba(176, 125, 42, 0.35);
+  padding-bottom: 0.25rem;
+}
+
+.toctree-wrapper.compound,
+.toctree-wrapper {
+  background: rgba(255, 250, 240, 0.86);
+  border: 1px solid rgba(215, 200, 159, 0.7);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+}
+
+a {
+  text-underline-offset: 0.15em;
+}
+
+img,
+svg {
+  max-width: 100%;
+}

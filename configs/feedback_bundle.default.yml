@@ -1,0 +1,7 @@
+feedback_root: outputs/feedback_records
+output_dir: outputs/feedback_bundles
+deployment_id: deployment_local
+max_records: 200
+state_path: outputs/feedback_records/.bundle_state.json
+cadence_days: 7
+cadence_record_count: 200

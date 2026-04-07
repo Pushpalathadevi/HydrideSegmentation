@@ -1,0 +1,77 @@
+# Default configuration for `prep-dataset` (src.microseg.data_preparation).
+# input_dir and output_dir are provided from CLI flags (--input/--output).
+
+strict_pairing: true
+
+image_extensions:
+  - .jpg
+  - .jpeg
+  - .png
+  - .tif
+  - .tiff
+mask_extensions:
+  - .png
+  - .tif
+  - .tiff
+  - .jpg
+  - .jpeg
+mask_name_patterns:
+  - "{stem}_mask.png"
+  - "{stem}.png"
+  - "{stem}_mask.tif"
+  - "{stem}.tif"
+  - "{stem}_mask.tiff"
+  - "{stem}.tiff"
+
+binarization_mode: nonzero
+threshold: 127
+threshold_strict: false
+foreground_values:
+  - 255
+percentile: 90.0
+invert_mask: false
+
+rgb_mask_mode: false
+mask_r_min: 200
+mask_g_max: 60
+mask_b_max: 60
+enforce_gb_thresholds: true
+allow_red_dominance_fallback: true
+mask_red_min_fallback: 16
+mask_red_dominance_margin: 8
+mask_red_dominance_ratio: 1.5
+auto_otsu_for_noisy_grayscale: true
+noisy_grayscale_low_max: 5
+noisy_grayscale_high_min: 200
+noisy_grayscale_min_extreme_ratio: 0.98
+
+morphology:
+  open_kernel: 0
+  close_kernel: 0
+  remove_small_components: 0
+  fill_holes: false
+
+target_size:
+  - 512
+  - 512
+resize_policy: letterbox_pad
+crop_mode_train: random
+crop_mode_eval: center
+max_val_examples: null
+max_test_examples: null
+empty_mask_action: warn
+progress_log_interval: 20
+qa_report_name: dataset_qa_report.json
+html_report_name: dataset_qa_report.html
+image_pad_mode: constant
+image_pad_value: 0
+image_interpolation: area
+
+image_ext: .png
+mask_ext: .png
+debug_ext: .png
+mask_foreground_value: 255
+expected_raw_binary_values:
+  - 0
+  - 255
+path_mode: relative

@@ -1,0 +1,71 @@
+# GA-driven HPC bundle defaults for the canonical top-5 hydride benchmark (local-pretrained init).
+
+experiment_name: microseg_hpc_ga_top5_airgap_pretrained
+dataset_dir: outputs/prepared_dataset_hydride_v1
+output_dir: outputs/hpc_ga_bundle_top5_airgap_pretrained
+
+base_train_config: configs/train.default.yml
+base_eval_config: configs/evaluate.default.yml
+run_mode: train_eval
+eval_split: val
+
+architectures: unet_binary,smp_deeplabv3plus_resnet101,smp_unetplusplus_resnet101,smp_pspnet_resnet101,smp_fpn_resnet101,hf_segformer_b0,hf_segformer_b2,hf_upernet_swin_large,transunet_tiny,segformer_mini
+num_candidates: 10
+population_size: 30
+generations: 10
+mutation_rate: 0.20
+crossover_rate: 0.70
+seed: 42
+
+learning_rate_min: 0.0001
+learning_rate_max: 0.01
+batch_size_choices: 4,8,16,32
+epochs_min: 8
+epochs_max: 40
+weight_decay_min: 0.000001
+weight_decay_max: 0.001
+max_samples_min: 50000
+max_samples_max: 250000
+
+fitness_mode: novelty
+feedback_sources: ""
+feedback_min_samples: 3
+feedback_k: 5
+exploration_weight: 0.55
+fitness_weight_mean_iou: 0.50
+fitness_weight_macro_f1: 0.30
+fitness_weight_pixel_accuracy: 0.20
+fitness_weight_runtime: 0.05
+
+enable_gpu: true
+device_policy: auto
+
+scheduler: slurm
+queue: ""
+account: ""
+qos: ""
+gpus_per_job: 1
+cpus_per_task: 8
+mem_gb: 32
+time_limit: 08:00:00
+job_prefix: microseg
+
+python_executable: python
+microseg_cli_path: scripts/microseg_cli.py
+
+pretrained_init_mode: auto
+pretrained_registry_path: pre_trained_weights/registry.json
+pretrained_model_map:
+  unet_binary: unet_binary_resnet18_imagenet_partial
+  smp_deeplabv3plus_resnet101: smp_deeplabv3plus_resnet101_imagenet
+  smp_unetplusplus_resnet101: smp_unetplusplus_resnet101_imagenet
+  smp_pspnet_resnet101: smp_pspnet_resnet101_imagenet
+  smp_fpn_resnet101: smp_fpn_resnet101_imagenet
+  hf_segformer_b0: hf_segformer_b0_ade20k
+  hf_segformer_b2: hf_segformer_b2_ade20k
+  hf_upernet_swin_large: hf_upernet_swin_large_ade20k
+  transunet_tiny: transunet_tiny_vit_tiny_patch16_imagenet
+  segformer_mini: segformer_mini_vit_tiny_patch16_imagenet
+pretrained_verify_sha256: true
+pretrained_ignore_mismatched_sizes: true
+pretrained_strict: false

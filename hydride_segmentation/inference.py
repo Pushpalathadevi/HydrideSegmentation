@@ -1,59 +1,85 @@
+import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 import numpy as np
-from PIL import Image
-import torch
-import segmentation_models_pytorch as smp
 
-# Default directory for model weights
+from src.microseg.core import resolve_torch_device
+from src.microseg.inference.trained_model_loader import (
+    InferenceModelReference,
+    load_reference_from_registry,
+    load_reference_from_run_dir,
+    run_reference_inference,
+)
+
 DEFAULT_MODEL_DIR = os.getenv("HYDRIDE_MODEL_PATH", "/opt/models/hydride_segmentation/")
 DEFAULT_WEIGHTS = os.path.join(DEFAULT_MODEL_DIR, "model.pt")
+DEFAULT_ENABLE_GPU = os.getenv("MICROSEG_ENABLE_GPU", "0").strip().lower() in {"1", "true", "yes", "on"}
+DEFAULT_DEVICE_POLICY = os.getenv("MICROSEG_DEVICE_POLICY", "cpu")
 
-_model = None
+_logger = logging.getLogger(__name__)
 
-def _load_model(weights_path: str = DEFAULT_WEIGHTS) -> torch.nn.Module:
-    """Load the segmentation model with CPU-only torch."""
-    model = smp.Unet(encoder_name="resnet18", encoder_weights=None,
-                     in_channels=3, classes=1)
-    state = torch.load(weights_path, map_location="cpu")
-    model.load_state_dict(state)
-    model.eval()
-    return model
 
-def get_model(weights_path: str = DEFAULT_WEIGHTS) -> torch.nn.Module:
-    """Return a cached model instance."""
-    global _model
-    if _model is None:
-        _model = _load_model(weights_path)
-    return _model
+def _resolve_device(params: dict | None = None) -> tuple[bool, str]:
+    cfg = params or {}
+    enable_gpu = bool(cfg.get("enable_gpu", DEFAULT_ENABLE_GPU))
+    policy = str(cfg.get("device_policy", DEFAULT_DEVICE_POLICY))
+    resolved = resolve_torch_device(enable_gpu=enable_gpu, policy=policy)
+    if resolved.fallback_used:
+        _logger.info(resolved.reason)
+    return enable_gpu, policy
 
-def run_model(image_path: str, params: dict | None = None,
-              weights_path: str = DEFAULT_WEIGHTS) -> Tuple[np.ndarray, np.ndarray]:
-    """Run hydride segmentation on an image.
 
-    Parameters
-    ----------
-    image_path:
-        Path to the input image.
-    params:
-        Unused placeholder for compatibility with the GUI.
-    weights_path:
-        Optional path to model weights. Defaults to ``HYDRIDE_MODEL_PATH``.
+def _reference_from_params(params: dict | None = None, weights_path: str = "") -> InferenceModelReference:
+    cfg = dict(params or {})
+    if str(cfg.get("run_dir", "")).strip():
+        return load_reference_from_run_dir(str(cfg["run_dir"]).strip())
+    if str(cfg.get("registry_model_id", "")).strip():
+        return load_reference_from_registry(str(cfg["registry_model_id"]).strip())
+    if str(cfg.get("checkpoint_path", "")).strip() or str(weights_path).strip():
+        ckpt = str(cfg.get("checkpoint_path") or weights_path).strip()
+        if not ckpt:
+            raise ValueError("checkpoint path resolved empty")
+        return InferenceModelReference(
+            reference_id=f"checkpoint::{Path(ckpt).name}",
+            display_name=f"Checkpoint: {Path(ckpt).name}",
+            source="checkpoint_path",
+            checkpoint_path=ckpt,
+            architecture=str(cfg.get("model_architecture", "")).strip().lower() or "unknown",
+            backend_label=str(cfg.get("backend", "")).strip().lower() or "custom",
+        )
+    return InferenceModelReference(
+        reference_id="checkpoint::default",
+        display_name="Checkpoint: default",
+        source="checkpoint_path",
+        checkpoint_path=DEFAULT_WEIGHTS,
+        architecture="unknown",
+        backend_label="legacy_default",
+    )
 
-    Returns
-    -------
-    tuple
-        Tuple of ``(image, mask)`` numpy arrays where ``mask`` is ``uint8``.
-    """
-    model = get_model(weights_path)
-    rgb = Image.open(image_path).convert("RGB")
-    arr = np.asarray(rgb, dtype=np.float32) / 255.0
-    tensor = torch.from_numpy(arr.transpose(2, 0, 1)).unsqueeze(0)
 
-    with torch.no_grad():
-        out = model(tensor)[0, 0]
-        mask = torch.sigmoid(out).cpu().numpy()
+def run_model(
+    image_path: str,
+    params: dict | None = None,
+    weights_path: str = DEFAULT_WEIGHTS,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Run architecture-aware segmentation on an image."""
 
-    mask_bin = (mask > 0.5).astype(np.uint8) * 255
-    return np.array(rgb), mask_bin
+    runtime_params = params or {}
+    enable_gpu, policy = _resolve_device(runtime_params)
+    reference = _reference_from_params(runtime_params, weights_path)
+    image, mask, manifest = run_reference_inference(
+        image_path,
+        reference,
+        enable_gpu=enable_gpu,
+        device_policy=policy,
+    )
+    _logger.info(
+        "ML inference complete: source=%s reference=%s architecture=%s checkpoint=%s",
+        manifest.get("source"),
+        manifest.get("reference_id"),
+        manifest.get("architecture"),
+        manifest.get("checkpoint_path"),
+    )
+    return image, mask

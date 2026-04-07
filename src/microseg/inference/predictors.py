@@ -1,0 +1,161 @@
+"""Predictor adapters backed by conventional and unified trained-model inference loaders."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+
+from hydride_segmentation.legacy_api import DEFAULT_CONVENTIONAL_PARAMS
+from hydride_segmentation.segmentation_mask_creation import run_model as run_conv_model
+
+from src.microseg.domain import ModelSpec, SegmentationOutput
+from src.microseg.inference.trained_model_loader import (
+    InferenceModelReference,
+    discover_inference_references,
+    load_reference_from_registry,
+    load_reference_from_run_dir,
+    run_reference_inference,
+)
+from src.microseg.plugins import ModelRegistry
+
+
+@dataclass(frozen=True)
+class _DynamicModelBinding:
+    model_id: str
+    display_name: str
+    description: str
+    details: str
+    reference: InferenceModelReference
+
+
+class HydrideConventionalPredictor:
+    """Adapter for conventional hydride segmentation path."""
+
+    model_id = "hydride_conventional"
+
+    def predict(self, image_path: str, params: dict | None = None) -> SegmentationOutput:
+        cfg = deepcopy(DEFAULT_CONVENTIONAL_PARAMS)
+        if params:
+            cfg.update(params)
+        image, mask = run_conv_model(image_path, cfg)
+        return SegmentationOutput(image=image, mask=mask)
+
+
+class HydrideMLPredictor:
+    """Legacy ML adapter now routed through unified architecture-aware loader."""
+
+    model_id = "hydride_ml"
+
+    def predict(self, image_path: str, params: dict | None = None) -> SegmentationOutput:
+        cfg = dict(params or {})
+        run_dir = str(cfg.get("run_dir", "")).strip()
+        registry_model_id = str(cfg.get("registry_model_id", "")).strip()
+        checkpoint_path = str(cfg.get("checkpoint_path", cfg.get("weights_path", ""))).strip()
+
+        if run_dir:
+            ref = load_reference_from_run_dir(run_dir)
+        elif registry_model_id:
+            ref = load_reference_from_registry(registry_model_id)
+        elif checkpoint_path:
+            ref = InferenceModelReference(
+                reference_id=f"checkpoint::{checkpoint_path}",
+                display_name="Direct checkpoint",
+                source="checkpoint_path",
+                checkpoint_path=checkpoint_path,
+                architecture=str(cfg.get("model_architecture", "")).strip().lower() or "unknown",
+                backend_label=str(cfg.get("backend", "")).strip().lower() or "custom",
+            )
+        else:
+            raise ValueError(
+                "hydride_ml requires one of: params.run_dir, params.registry_model_id, or params.checkpoint_path"
+            )
+
+        image, mask, _ = run_reference_inference(
+            image_path,
+            ref,
+            enable_gpu=bool(cfg.get("enable_gpu", False)),
+            device_policy=str(cfg.get("device_policy", "cpu")),
+        )
+        return SegmentationOutput(image=image, mask=mask)
+
+
+class ReferencePredictor:
+    """Predictor bound to a resolved inference reference."""
+
+    def __init__(self, reference: InferenceModelReference) -> None:
+        self.reference = reference
+
+    def predict(self, image_path: str, params: dict | None = None) -> SegmentationOutput:
+        cfg = dict(params or {})
+        image, mask, _ = run_reference_inference(
+            image_path,
+            self.reference,
+            enable_gpu=bool(cfg.get("enable_gpu", False)),
+            device_policy=str(cfg.get("device_policy", "cpu")),
+        )
+        return SegmentationOutput(image=image, mask=mask)
+
+
+def discover_dynamic_ml_model_bindings() -> tuple[list[_DynamicModelBinding], list[str]]:
+    """Discover inference-ready run/registry models for GUI and pipeline registry."""
+
+    refs, warnings = discover_inference_references(include_registry=True)
+    bindings: list[_DynamicModelBinding] = []
+    for ref in refs:
+        model_id = f"hydride_trained::{ref.reference_id}"
+        bindings.append(
+            _DynamicModelBinding(
+                model_id=model_id,
+                display_name=ref.display_name,
+                description=f"Trained {ref.architecture} model ({ref.source})",
+                details=(
+                    f"Architecture={ref.architecture}, backend={ref.backend_label}, "
+                    f"checkpoint={ref.checkpoint_path}"
+                ),
+                reference=ref,
+            )
+        )
+    return bindings, warnings
+
+
+def build_hydride_registry(registry: ModelRegistry | None = None) -> ModelRegistry:
+    """Register hydride predictors into a model registry."""
+
+    reg = registry or ModelRegistry()
+    reg.register(
+        ModelSpec(
+            model_id="hydride_conventional",
+            display_name="Hydride Conventional",
+            feature_family="hydride",
+            description="CLAHE + adaptive threshold + morphology",
+            details=(
+                "Classical CPU-first pipeline for hydride-like contrast patterns. "
+                "Includes CLAHE normalization, adaptive thresholding, and morphology."
+            ),
+        ),
+        factory=HydrideConventionalPredictor,
+    )
+    reg.register(
+        ModelSpec(
+            model_id="hydride_ml",
+            display_name="Hydride ML (legacy adapter)",
+            feature_family="hydride",
+            description="Legacy adapter redirected to unified trained-model loader",
+            details="Use run_dir/registry_model_id/checkpoint_path params for architecture-aware loading.",
+        ),
+        factory=HydrideMLPredictor,
+    )
+
+    bindings, _warnings = discover_dynamic_ml_model_bindings()
+    for binding in bindings:
+        reg.register(
+            ModelSpec(
+                model_id=binding.model_id,
+                display_name=binding.display_name,
+                feature_family="hydride",
+                description=binding.description,
+                details=binding.details,
+            ),
+            factory=lambda ref=binding.reference: ReferencePredictor(ref),
+        )
+    return reg

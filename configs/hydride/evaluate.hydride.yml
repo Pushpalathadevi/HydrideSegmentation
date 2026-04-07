@@ -1,0 +1,10 @@
+dataset_dir: outputs/prepared_dataset_hydride_v1
+split: test
+binary_mask_normalization: nonzero_foreground
+auto_prepare_dataset: false
+output_path: outputs/eval/model_seed_test.json
+write_html_report: true
+tracking_samples: 12
+tracking_seed: 17
+enable_gpu: true
+device_policy: auto

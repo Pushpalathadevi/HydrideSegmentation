@@ -1,0 +1,40 @@
+# Copy this file and edit only the marked fields for a real-data run.
+# This template assumes the dataset already exists in train/val/test split layout.
+
+dataset_dir: /path/to/real_dataset_root
+output_root: /path/to/hpc_outputs/top5_suite_scratch
+
+eval_config: configs/hydride/evaluate.hydride.yml
+eval_split: test
+python_executable: python
+
+# Start with one seed for first HPC validation run; expand to [42, 43, 44] for full study.
+seeds: [42]
+command_idle_timeout_seconds: 10800
+command_wall_timeout_seconds: 10800
+
+# Recommended true for reproducibility checks.
+# If dataset_manifest.json is missing, it is auto-generated from train/val/test folders.
+benchmark_mode: true
+
+experiments:
+  - name: unet_binary_scratch
+    train_config: configs/hydride/train.unet_binary.baseline.yml
+  - name: smp_deeplabv3plus_resnet101_scratch
+    train_config: configs/hydride/train.smp_deeplabv3plus_resnet101_scratch.yml
+  - name: smp_unetplusplus_resnet101_scratch
+    train_config: configs/hydride/train.smp_unetplusplus_resnet101_scratch.yml
+  - name: smp_pspnet_resnet101_scratch
+    train_config: configs/hydride/train.smp_pspnet_resnet101_scratch.yml
+  - name: smp_fpn_resnet101_scratch
+    train_config: configs/hydride/train.smp_fpn_resnet101_scratch.yml
+  - name: hf_segformer_b0_scratch
+    train_config: configs/hydride/train.hf_segformer_b0_scratch.yml
+  - name: hf_segformer_b2_scratch
+    train_config: configs/hydride/train.hf_segformer_b2_scratch.yml
+  - name: hf_upernet_swin_large_scratch
+    train_config: configs/hydride/train.hf_upernet_swin_large_scratch.yml
+  - name: transunet_tiny_scratch
+    train_config: configs/hydride/train.transunet_tiny.yml
+  - name: segformer_mini_scratch
+    train_config: configs/hydride/train.segformer_mini.yml

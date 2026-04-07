@@ -8,21 +8,19 @@ EXTRA_PATH = os.getenv("HYDRIDE_EXTRA_PATH")
 if EXTRA_PATH and EXTRA_PATH not in sys.path:
     sys.path.append(EXTRA_PATH)
 
-# Now you can import inference
-
 import tkinter as tk
 from tkinter import filedialog, messagebox, Menu, Scrollbar, Canvas, PanedWindow, ttk, Text
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from PIL import Image, ImageTk, ImageGrab
-import os
 import threading
 import numpy as np
 import logging
 from .analysis import orientation_analysis, combined_figure
-from .image_processing import run_segmentation, MODEL_BACKENDS
+from .image_processing import model_uses_manual_params
+from src.microseg.app.desktop_workflow import DesktopWorkflowManager
 
 
-MAX_HISTORY = 10
+MAX_HISTORY = 100
 
 class HydrideSegmentationGUI:
     """Tkinter front-end for running segmentation and viewing results."""
@@ -39,16 +37,20 @@ class HydrideSegmentationGUI:
         master.drop_target_register(DND_FILES)
         master.dnd_bind('<<Drop>>', self.drop_file)
 
+        self.workflow = DesktopWorkflowManager(max_history=MAX_HISTORY)
+        self.current_run = None
+
         model_frame = tk.Frame(master)
         model_frame.pack(pady=5)
         tk.Label(model_frame, text="Select Model:").pack(side=tk.LEFT)
 
-
-        self.model_var = tk.StringVar(value="ML Model")
+        model_options = self.workflow.model_options()
+        default_model = model_options[0] if model_options else "Hydride Conventional"
+        self.model_var = tk.StringVar(value=default_model)
         self.model_menu = ttk.Combobox(
             model_frame,
             textvariable=self.model_var,
-            values=list(MODEL_BACKENDS.keys()),
+            values=model_options,
             state="readonly",
         )
         self.model_menu.pack(side=tk.LEFT, padx=5)
@@ -119,8 +121,18 @@ class HydrideSegmentationGUI:
         button_frame.pack(pady=10)
 
         tk.Button(button_frame, text="Run Segmentation", command=self.run_segmentation).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Run Batch", command=self.run_batch).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Reset Zoom", command=self.reset_zoom).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Clear", command=self.clear_all).pack(side=tk.LEFT, padx=5)
+
+        self.history_frame = tk.LabelFrame(master, text="Run History")
+        self.history_frame.pack(fill="both", expand=False, padx=10, pady=5)
+        self.history_list = tk.Listbox(self.history_frame, height=6)
+        history_scroll = Scrollbar(self.history_frame, orient="vertical", command=self.history_list.yview)
+        self.history_list.configure(yscrollcommand=history_scroll.set)
+        self.history_list.pack(side=tk.LEFT, fill="both", expand=True)
+        history_scroll.pack(side=tk.RIGHT, fill="y")
+        self.history_list.bind("<<ListboxSelect>>", self.on_history_select)
 
         self.log_frame = tk.LabelFrame(master, text="Logger")
         self.log_frame.pack(fill="both", expand=False, padx=10, pady=5)
@@ -153,13 +165,14 @@ class HydrideSegmentationGUI:
         self.context_menu = Menu(master, tearoff=0)
         self.context_menu.add_command(label="Save Image", command=self.save_context_image)
 
+        self.on_model_change()
         self.show_placeholder()
 
         self.undo_stack: list[tuple[Image.Image, Image.Image, Image.Image]] = []
         self.redo_stack: list[tuple[Image.Image, Image.Image, Image.Image]] = []
 
     def on_model_change(self, event=None):
-        if self.model_var.get() == "Conventional Model":
+        if model_uses_manual_params(self.model_var.get()):
             if not self.param_frame.winfo_ismapped():
                 # pack *before* the logger frame
                 self.param_frame.pack(
@@ -200,6 +213,7 @@ class HydrideSegmentationGUI:
         file_menu = Menu(menu_bar, tearoff=0)
         menu_bar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Open", command=self.browse_file)
+        file_menu.add_command(label="Open Batch", command=self.run_batch)
         file_menu.add_command(label="Save Results", command=self.save_results)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.master.quit)
@@ -266,6 +280,7 @@ class HydrideSegmentationGUI:
         for canvas in self.image_panels.values():
             canvas.delete("all")
         self.last_mask = None
+        self.current_run = None
         self.show_placeholder()
         self.logger.info("Cleared all panels")
 
@@ -280,7 +295,7 @@ class HydrideSegmentationGUI:
             self.logger.error("Invalid image path")
             return None
 
-        if self.model_var.get() != "Conventional Model":
+        if not model_uses_manual_params(self.model_var.get()):
             return {"image_path": image_path}
 
 
@@ -410,6 +425,40 @@ class HydrideSegmentationGUI:
     def run_segmentation_event(self, event=None):
         self.run_segmentation()
 
+    def refresh_history_list(self):
+        self.history_list.delete(0, tk.END)
+        for record in self.workflow.history():
+            self.history_list.insert(tk.END, record.history_label)
+
+    def apply_run_record(self, record, push_undo=True):
+        self.current_run = record
+        self.last_mask = np.array(record.mask_image)
+        self.last_mask_filename = record.image_path
+        self.current_input = record.input_image
+        self.current_mask = record.mask_image
+        self.current_overlay = record.overlay_image
+        if push_undo:
+            self.undo_stack.append((record.input_image, record.mask_image, record.overlay_image))
+            if len(self.undo_stack) > MAX_HISTORY:
+                self.undo_stack.pop(0)
+            self.redo_stack.clear()
+        self.update_panels(record.input_image, record.mask_image, record.overlay_image)
+        if record.metrics:
+            self.logger.info(f"Run metrics: {record.metrics}")
+
+    def on_history_select(self, event=None):
+        sel = self.history_list.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        try:
+            record = self.workflow.get(idx)
+        except IndexError:
+            return
+        self.file_entry.delete(0, tk.END)
+        self.file_entry.insert(0, record.image_path)
+        self.apply_run_record(record, push_undo=False)
+
     def run_segmentation(self):
         params = self.collect_parameters()
         if not params:
@@ -418,25 +467,76 @@ class HydrideSegmentationGUI:
         def process():
             try:
                 self.logger.info("Running segmentation...")
-                input_img, mask_img, overlay_img = run_segmentation(params, model_name)
-                self.last_mask = np.array(mask_img)
-                self.last_mask_filename = params['image_path']
+                record = self.workflow.run_single(
+                    params["image_path"],
+                    model_name=model_name,
+                    params=params,
+                    include_analysis=False,
+                )
             except Exception as e:
                 messagebox.showerror("Backend Error", str(e))
                 self.logger.error(f"Segmentation failed: {e}")
                 return
 
-            self.current_input, self.current_mask, self.current_overlay = (
-                input_img, mask_img, overlay_img
-            )
-            self.undo_stack.append((input_img, mask_img, overlay_img))
-            if len(self.undo_stack) > MAX_HISTORY:
-                self.undo_stack.pop(0)
-            self.redo_stack.clear()
-            self.master.after(0, self.update_panels, input_img, mask_img, overlay_img)
+            self.master.after(0, self.refresh_history_list)
+            self.master.after(0, self.apply_run_record, record, True)
             self.logger.info("Segmentation completed")
 
         threading.Thread(target=process).start()
+
+    def run_batch(self):
+        image_paths = filedialog.askopenfilenames(
+            title="Select images for batch segmentation",
+            filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp")],
+        )
+        if not image_paths:
+            return
+
+        first_path = image_paths[0]
+        self.file_entry.delete(0, tk.END)
+        self.file_entry.insert(0, first_path)
+        params = self.collect_parameters()
+        if not params:
+            return
+        model_name = self.model_var.get()
+
+        def process_batch():
+            completed = []
+            total = len(image_paths)
+            for idx, path in enumerate(image_paths, start=1):
+                try:
+                    run_params = dict(params)
+                    run_params["image_path"] = path
+                    record = self.workflow.run_single(
+                        path,
+                        model_name=model_name,
+                        params=run_params,
+                        include_analysis=False,
+                    )
+                    completed.append(record)
+                    self.logger.info(f"Batch progress {idx}/{total}: {path}")
+                except Exception as exc:
+                    self.logger.error(f"Batch failed for {path}: {exc}")
+            if completed:
+                self.master.after(0, self.refresh_history_list)
+                self.master.after(0, self.apply_run_record, completed[-1], True)
+                self.master.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Batch Completed",
+                        f"Processed {len(completed)} of {total} images.",
+                    ),
+                )
+            else:
+                self.master.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "Batch Failed",
+                        "No images were processed successfully.",
+                    ),
+                )
+
+        threading.Thread(target=process_batch).start()
 
     def update_panels(self, input_img, mask_img, overlay_img):
         for label, img in zip(["Input Image", "Mask", "Overlay"], [input_img, mask_img, overlay_img]):
@@ -556,7 +656,7 @@ class HydrideSegmentationGUI:
             messagebox.showerror("Error", f"Unable to load image: {e}")
 
     def save_results(self):
-        if self.last_mask is None or self.last_mask_filename is None:
+        if self.current_run is None:
             messagebox.showwarning("No Results", "Please run segmentation first.")
             self.logger.warning("Save attempted without results")
             return
@@ -565,31 +665,23 @@ class HydrideSegmentationGUI:
         if not save_dir:
             return
 
-        base_name = os.path.splitext(os.path.basename(self.last_mask_filename))[0]
-
-        # Save the composite panel as PNG
-        composite_path = os.path.join(save_dir, f"{base_name}_results.png")
-        self.master.update()
-        x = self.output_frame.winfo_rootx()
-        y = self.output_frame.winfo_rooty()
-        w = self.output_frame.winfo_width()
-        h = self.output_frame.winfo_height()
-        img = ImageGrab.grab(bbox=(x, y, x + w, y + h))
-        img.save(composite_path)
-        self.logger.info(f"Saved composite image to {composite_path}")
-
-        # Save input, mask, and overlay images
         try:
-            self.current_input.save(os.path.join(save_dir, f"{base_name}_input.png"))
-            self.current_mask.save(os.path.join(save_dir, f"{base_name}_prediction.png"))
-            self.current_overlay.save(os.path.join(save_dir, f"{base_name}_overlay.png"))
-            self.logger.info("Saved individual images (input, prediction, overlay)")
+            run_dir = self.workflow.export_run(self.current_run, save_dir)
+            self.master.update()
+            x = self.output_frame.winfo_rootx()
+            y = self.output_frame.winfo_rooty()
+            w = self.output_frame.winfo_width()
+            h = self.output_frame.winfo_height()
+            composite = ImageGrab.grab(bbox=(x, y, x + w, y + h))
+            composite_path = run_dir / "results_panel.png"
+            composite.save(composite_path)
+            self.logger.info(f"Saved run package to {run_dir}")
         except Exception as e:
-            self.logger.error(f"Failed to save individual images: {e}")
-            messagebox.showerror("Save Error", f"Could not save individual images:\n{e}")
+            self.logger.error(f"Failed to export run package: {e}")
+            messagebox.showerror("Save Error", f"Could not export results:\n{e}")
             return
 
-        messagebox.showinfo("Saved", f"Results saved in {save_dir}")
+        messagebox.showinfo("Saved", f"Results saved in {run_dir}")
 
     def undo(self, event=None):
         if not self.undo_stack:
@@ -644,4 +736,3 @@ class HydrideSegmentationGUI:
             if file_path:
                 canvas.original_img.save(file_path)
                 self.logger.info(f"{label} image saved to {file_path}")
-
