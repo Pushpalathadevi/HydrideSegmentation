@@ -59,14 +59,37 @@ AUDIT_METRIC_KEYS = (
 class DesktopAppearanceConfig:
     """Qt desktop visual style defaults."""
 
-    base_font_size: int = 14
-    heading_font_size: int = 16
-    monospace_font_size: int = 13
-    control_padding_px: int = 6
-    panel_spacing_px: int = 8
-    table_row_padding_px: int = 8
-    table_min_row_height_px: int = 24
+    base_font_size: int = 18
+    heading_font_size: int = 20
+    monospace_font_size: int = 16
+    menu_font_size: int = 18
+    tab_font_size: int = 18
+    toolbar_font_size: int = 18
+    status_font_size: int = 17
+    control_padding_px: int = 8
+    panel_spacing_px: int = 10
+    table_row_padding_px: int = 9
+    table_min_row_height_px: int = 28
     high_contrast: bool = False
+
+
+@dataclass(frozen=True)
+class DesktopWindowConfig:
+    """Desktop window sizing and geometry behavior defaults."""
+
+    initial_width: int = 1580
+    initial_height: int = 980
+    minimum_width: int = 1280
+    minimum_height: int = 800
+    left_dock_width: int = 320
+    right_dock_width: int = 360
+    workflow_dock_width: int = 1180
+    remember_geometry: bool = True
+    clamp_to_screen: bool = True
+    start_maximized: bool = False
+    start_fullscreen: bool = False
+    show_workflow_dock_on_start: bool = False
+    show_log_dock_on_start: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,6 +114,7 @@ class DesktopUIConfig:
 
     schema_version: str = SCHEMA_VERSION
     appearance: DesktopAppearanceConfig = DesktopAppearanceConfig()
+    window: DesktopWindowConfig = DesktopWindowConfig()
     export_defaults: DesktopExportDefaultsConfig = DesktopExportDefaultsConfig()
 
     def as_dict(self) -> dict[str, Any]:
@@ -220,7 +244,7 @@ def _sanitize_appearance(payload: dict[str, Any], *, base: DesktopAppearanceConf
             payload.get("base_font_size", base.base_font_size),
             default=base.base_font_size,
             minimum=10,
-            maximum=28,
+            maximum=30,
             key="appearance.base_font_size",
             warnings=warnings,
         ),
@@ -238,6 +262,38 @@ def _sanitize_appearance(payload: dict[str, Any], *, base: DesktopAppearanceConf
             minimum=9,
             maximum=28,
             key="appearance.monospace_font_size",
+            warnings=warnings,
+        ),
+        menu_font_size=_clamp_int(
+            payload.get("menu_font_size", base.menu_font_size),
+            default=base.menu_font_size,
+            minimum=10,
+            maximum=30,
+            key="appearance.menu_font_size",
+            warnings=warnings,
+        ),
+        tab_font_size=_clamp_int(
+            payload.get("tab_font_size", base.tab_font_size),
+            default=base.tab_font_size,
+            minimum=10,
+            maximum=30,
+            key="appearance.tab_font_size",
+            warnings=warnings,
+        ),
+        toolbar_font_size=_clamp_int(
+            payload.get("toolbar_font_size", base.toolbar_font_size),
+            default=base.toolbar_font_size,
+            minimum=10,
+            maximum=30,
+            key="appearance.toolbar_font_size",
+            warnings=warnings,
+        ),
+        status_font_size=_clamp_int(
+            payload.get("status_font_size", base.status_font_size),
+            default=base.status_font_size,
+            minimum=10,
+            maximum=30,
+            key="appearance.status_font_size",
             warnings=warnings,
         ),
         control_padding_px=_clamp_int(
@@ -273,6 +329,79 @@ def _sanitize_appearance(payload: dict[str, Any], *, base: DesktopAppearanceConf
             warnings=warnings,
         ),
         high_contrast=_as_bool(payload.get("high_contrast", base.high_contrast), base.high_contrast),
+    )
+
+
+def _sanitize_window(payload: dict[str, Any], *, base: DesktopWindowConfig, warnings: list[str]) -> DesktopWindowConfig:
+    return DesktopWindowConfig(
+        initial_width=_clamp_int(
+            payload.get("initial_width", base.initial_width),
+            default=base.initial_width,
+            minimum=1024,
+            maximum=5120,
+            key="window.initial_width",
+            warnings=warnings,
+        ),
+        initial_height=_clamp_int(
+            payload.get("initial_height", base.initial_height),
+            default=base.initial_height,
+            minimum=768,
+            maximum=4320,
+            key="window.initial_height",
+            warnings=warnings,
+        ),
+        minimum_width=_clamp_int(
+            payload.get("minimum_width", base.minimum_width),
+            default=base.minimum_width,
+            minimum=800,
+            maximum=3840,
+            key="window.minimum_width",
+            warnings=warnings,
+        ),
+        minimum_height=_clamp_int(
+            payload.get("minimum_height", base.minimum_height),
+            default=base.minimum_height,
+            minimum=600,
+            maximum=2160,
+            key="window.minimum_height",
+            warnings=warnings,
+        ),
+        left_dock_width=_clamp_int(
+            payload.get("left_dock_width", base.left_dock_width),
+            default=base.left_dock_width,
+            minimum=220,
+            maximum=700,
+            key="window.left_dock_width",
+            warnings=warnings,
+        ),
+        right_dock_width=_clamp_int(
+            payload.get("right_dock_width", base.right_dock_width),
+            default=base.right_dock_width,
+            minimum=240,
+            maximum=800,
+            key="window.right_dock_width",
+            warnings=warnings,
+        ),
+        workflow_dock_width=_clamp_int(
+            payload.get("workflow_dock_width", base.workflow_dock_width),
+            default=base.workflow_dock_width,
+            minimum=600,
+            maximum=2400,
+            key="window.workflow_dock_width",
+            warnings=warnings,
+        ),
+        remember_geometry=_as_bool(payload.get("remember_geometry", base.remember_geometry), base.remember_geometry),
+        clamp_to_screen=_as_bool(payload.get("clamp_to_screen", base.clamp_to_screen), base.clamp_to_screen),
+        start_maximized=_as_bool(payload.get("start_maximized", base.start_maximized), base.start_maximized),
+        start_fullscreen=_as_bool(payload.get("start_fullscreen", base.start_fullscreen), base.start_fullscreen),
+        show_workflow_dock_on_start=_as_bool(
+            payload.get("show_workflow_dock_on_start", base.show_workflow_dock_on_start),
+            base.show_workflow_dock_on_start,
+        ),
+        show_log_dock_on_start=_as_bool(
+            payload.get("show_log_dock_on_start", base.show_log_dock_on_start),
+            base.show_log_dock_on_start,
+        ),
     )
 
 
@@ -333,17 +462,26 @@ def load_desktop_ui_config(path: str | Path | None = None) -> tuple[DesktopUICon
         warnings.append(f"desktop ui config schema mismatch {schema!r}; expected {SCHEMA_VERSION!r}; applying tolerant parse")
 
     appearance_payload = payload.get("appearance", {})
+    window_payload = payload.get("window", {})
     export_payload = payload.get("export_defaults", {})
     if not isinstance(appearance_payload, dict):
         warnings.append("appearance payload must be a mapping; using defaults")
         appearance_payload = {}
+    if not isinstance(window_payload, dict):
+        warnings.append("window payload must be a mapping; using defaults")
+        window_payload = {}
     if not isinstance(export_payload, dict):
         warnings.append("export_defaults payload must be a mapping; using defaults")
         export_payload = {}
 
     appearance = _sanitize_appearance(appearance_payload, base=base.appearance, warnings=warnings)
+    window = _sanitize_window(window_payload, base=base.window, warnings=warnings)
     export_defaults = _sanitize_export_defaults(export_payload, base=base.export_defaults, warnings=warnings)
-    return DesktopUIConfig(schema_version=SCHEMA_VERSION, appearance=appearance, export_defaults=export_defaults), warnings, source_path
+    return (
+        DesktopUIConfig(schema_version=SCHEMA_VERSION, appearance=appearance, window=window, export_defaults=export_defaults),
+        warnings,
+        source_path,
+    )
 
 
 def build_qt_stylesheet(config: DesktopUIConfig) -> str:
@@ -356,21 +494,23 @@ def build_qt_stylesheet(config: DesktopUIConfig) -> str:
         fg = "#E7EEF7"
         border = "#2E3B49"
         input_bg = "#0F151D"
+        accent = "#5FA8FF"
     else:
         main_bg = "#F2F5F8"
         panel_bg = "#FFFFFF"
         fg = "#162029"
         border = "#D6DEE7"
         input_bg = "#FFFFFF"
+        accent = "#2563EB"
 
     button_pad_y = max(2, int(a.control_padding_px))
     button_pad_x = max(4, int(a.control_padding_px + 4))
     return (
-        "QWidget {{"
+        "QWidget {"
         f" font-size: {int(a.base_font_size)}px;"
         f" color: {fg};"
         "}"
-        "QMainWindow {{"
+        "QMainWindow {"
         f" background: {main_bg};"
         "}"
         "QGroupBox {"
@@ -390,6 +530,9 @@ def build_qt_stylesheet(config: DesktopUIConfig) -> str:
         f" background: {panel_bg};"
         f" border-radius: {int(max(2, a.control_padding_px // 2))}px;"
         "}"
+        "QPushButton:hover {"
+        f" border-color: {accent};"
+        "}"
         "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {"
         f" padding: {int(a.control_padding_px)}px;"
         f" border: 1px solid {border};"
@@ -398,6 +541,23 @@ def build_qt_stylesheet(config: DesktopUIConfig) -> str:
         "QPlainTextEdit {"
         " font-family: Menlo, Monaco, monospace;"
         f" font-size: {int(a.monospace_font_size)}px;"
+        "}"
+        "QMenuBar, QMenu {"
+        f" font-size: {int(a.menu_font_size)}px;"
+        "}"
+        "QToolBar, QToolButton {"
+        f" font-size: {int(a.toolbar_font_size)}px;"
+        "}"
+        "QTabBar::tab {"
+        f" font-size: {int(a.tab_font_size)}px;"
+        f" padding: {int(max(4, a.control_padding_px // 2))}px {int(max(6, a.control_padding_px))}px;"
+        "}"
+        "QStatusBar {"
+        f" font-size: {int(a.status_font_size)}px;"
+        "}"
+        "QDockWidget::title {"
+        f" font-size: {int(a.menu_font_size)}px;"
+        f" padding: {int(max(4, a.control_padding_px))}px;"
         "}"
         "QListWidget, QTableWidget, QTabWidget::pane {"
         f" background: {panel_bg};"
@@ -412,5 +572,8 @@ def build_qt_stylesheet(config: DesktopUIConfig) -> str:
         f" background: {panel_bg};"
         f" border: 1px solid {border};"
         "}"
+        "QTabBar::tab:selected {"
+        f" background: {panel_bg};"
+        f" border-bottom: 2px solid {accent};"
+        "}"
     )
-

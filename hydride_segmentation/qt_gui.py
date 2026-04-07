@@ -16,6 +16,8 @@ def launch_qt_gui(*, ui_config_path: str | None = None) -> None:
     from hydride_segmentation.qt.main_window import QtSegmentationMainWindow
 
     app = QApplication.instance() or QApplication([])
+    app.setOrganizationName("MicroSeg")
+    app.setApplicationName("MicroSegDesktop")
     win = QtSegmentationMainWindow(ui_config_path=ui_config_path)
     win.show()
     app.exec()

@@ -22,6 +22,8 @@ See `docs/mission_statement.md`.
 - Qt desktop GUI (`hydride-gui`) with:
   - file/edit/view/help desktop-style menus
   - bundled sample image onboarding (`Load Sample` / `File -> Open Sample`)
+  - workspace-first layout with a large central visual area and compact side controls
+  - in-view zoom, pan, fit-to-view, and 100% controls on each image canvas
   - brush/polygon/lasso tools
   - connected-feature delete/relabel
   - class index + color map editing
@@ -33,7 +35,8 @@ See `docs/mission_statement.md`.
   - full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`, `results_metrics.csv`, `artifacts_manifest.json`)
   - configurable report profiles (`balanced`/`full`/`audit`) with section + metric selection
   - multi-image batch summary export (`batch_results_summary.json`, `batch_results_report.html`, `batch_results_report.pdf`, `batch_metrics.csv`)
-  - YAML-driven desktop appearance settings (font sizes, contrast, spacing) with in-app settings dialog
+  - YAML-driven desktop appearance settings (font sizes, contrast, spacing, startup geometry) with in-app settings dialog
+  - gear menu for secondary panels so the workspace stays image-first
   - project/session save-load
   - always-visible thumbs-up/thumbs-down result feedback with optional comment (auto-saved, non-blocking)
   - Dataset Prep + QA workspace (preview, prepare, QA, training gate)

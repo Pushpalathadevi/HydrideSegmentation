@@ -80,12 +80,17 @@ Batch export:
 
 - Use `Settings -> Appearance & Export Settings` to adjust readability and defaults:
   - base/heading/monospace font size
+  - menu, tab, toolbar, and status-bar font size
   - control padding, panel spacing, table row density
   - high-contrast mode
+  - startup window geometry and screen clamping
   - default export profile and output toggles
 - Load/save YAML from the dialog.
 - Default config file: `configs/app/desktop_ui.default.yml`
 - Startup override: `hydride-gui --ui-config configs/app/desktop_ui.default.yml`
+- The main workspace now keeps advanced panels behind the gear button near the top controls.
+- Each image viewport includes its own zoom controls, plus Ctrl+mouse-wheel zoom and drag-based scrolling.
+- The application restores or clamps its window size so it stays on-screen on single or dual-monitor setups.
 
 ## Results Dashboard
 
@@ -225,4 +230,3 @@ When troubleshooting model loading:
 2. confirm checkpoint file exists at declared `model_path`
 3. confirm architecture is one of the supported trainable families
 4. verify required backend dependencies are installed (for example `transformers` for HF backends)
-

@@ -44,6 +44,7 @@ A local installable desktop application for microstructural segmentation workflo
 - `--set` runtime overrides for reproducible command-line runs
 - GUI config entries mapping to same config semantics
 - dataset onboarding workspace with split preview, optional RGB colormap conversion, and QA checks
+- image-first desktop shell with a gear-driven secondary settings surface, larger default UI fonts, and screen-safe startup geometry
 
 ## Non-Functional Requirements
 
@@ -81,7 +82,8 @@ Implemented now:
 - Results-package export customization via profile + metric/section selection
 - Full results-package export now includes CSV + artifact manifest (`results_metrics.csv`, `artifacts_manifest.json`)
 - Batch history summary export (`batch_results_summary.json`, `batch_results_report.html/.pdf`, `batch_metrics.csv`)
-- YAML-driven UI appearance configuration (font sizes, density, contrast) with in-app settings dialog
+- YAML-driven UI appearance configuration (font sizes, menu/tab/toolbar/status typography, density, contrast, startup geometry) with in-app settings dialog
+- per-viewer zoom/pan controls embedded directly in the image windows
 - Conventional-model parameter controls in GUI (CLAHE, adaptive threshold, morphology, area, crop)
 - Bundled sample images with direct `Load Sample` and `File -> Open Sample` flows
 - Persistent desktop file logging (`outputs/logs/desktop/`)

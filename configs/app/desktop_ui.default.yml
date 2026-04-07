@@ -1,14 +1,33 @@
 schema_version: microseg.desktop_ui_config.v1
 
 appearance:
-  base_font_size: 14
-  heading_font_size: 16
-  monospace_font_size: 13
-  control_padding_px: 6
-  panel_spacing_px: 8
-  table_row_padding_px: 8
-  table_min_row_height_px: 24
+  base_font_size: 18
+  heading_font_size: 20
+  monospace_font_size: 16
+  menu_font_size: 18
+  tab_font_size: 18
+  toolbar_font_size: 18
+  status_font_size: 17
+  control_padding_px: 8
+  panel_spacing_px: 10
+  table_row_padding_px: 9
+  table_min_row_height_px: 28
   high_contrast: false
+
+window:
+  initial_width: 1580
+  initial_height: 980
+  minimum_width: 1280
+  minimum_height: 800
+  left_dock_width: 320
+  right_dock_width: 360
+  workflow_dock_width: 1180
+  remember_geometry: true
+  clamp_to_screen: true
+  start_maximized: false
+  start_fullscreen: false
+  show_workflow_dock_on_start: false
+  show_log_dock_on_start: false
 
 export_defaults:
   report_profile: balanced

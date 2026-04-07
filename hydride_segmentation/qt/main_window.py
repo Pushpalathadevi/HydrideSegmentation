@@ -15,23 +15,27 @@ import numpy as np
 from PIL import Image
 from skimage.draw import disk, line
 
-from PySide6.QtCore import QProcess, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
+from PySide6.QtCore import QEvent, QProcess, QSettings, QTimer, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QFont, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QDockWidget,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
@@ -40,6 +44,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QTextEdit,
     QScrollArea,
+    QToolBar,
+    QToolButton,
     QSlider,
     QSpinBox,
     QSplitter,
@@ -69,7 +75,7 @@ from src.microseg.app import (
     summarize_run_report,
     write_workflow_profile,
 )
-from src.microseg.app.desktop_ui_config import DesktopAppearanceConfig, DesktopExportDefaultsConfig
+from src.microseg.app.desktop_ui_config import DesktopAppearanceConfig, DesktopExportDefaultsConfig, DesktopWindowConfig
 from src.microseg.app.desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
 from src.microseg.corrections import (
     DEFAULT_CLASS_MAP,
@@ -174,6 +180,142 @@ class _UiLogHandler(logging.Handler):
     def emit(self, record):  # noqa: D401
         msg = self.format(record)
         self.emit_callback(msg)
+
+
+class ZoomableImageViewport(QWidget):
+    """Compact image viewport with in-panel zoom controls and scroll-based panning."""
+
+    zoom_changed = Signal(float)
+
+    def __init__(self, title: str, parent=None) -> None:
+        super().__init__(parent)
+        self._title = title
+        self._base_pixmap: QPixmap | None = None
+        self._zoom = 1.0
+        self._fit_mode = True
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
+
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.setSpacing(4)
+        self.title_label = QLabel(title)
+        self.title_label.setProperty("class", "viewport-title")
+        toolbar.addWidget(self.title_label)
+        toolbar.addStretch(1)
+
+        self.btn_fit = QToolButton()
+        self.btn_fit.setText("Fit")
+        self.btn_fit.setToolTip("Fit image to view")
+        self.btn_fit.clicked.connect(self.fit_to_view)
+        toolbar.addWidget(self.btn_fit)
+
+        self.btn_reset = QToolButton()
+        self.btn_reset.setText("100%")
+        self.btn_reset.setToolTip("Reset to 100%")
+        self.btn_reset.clicked.connect(self.zoom_reset)
+        toolbar.addWidget(self.btn_reset)
+
+        self.btn_zoom_out = QToolButton()
+        self.btn_zoom_out.setText("−")
+        self.btn_zoom_out.setToolTip("Zoom out")
+        self.btn_zoom_out.clicked.connect(self.zoom_out)
+        toolbar.addWidget(self.btn_zoom_out)
+
+        self.btn_zoom_in = QToolButton()
+        self.btn_zoom_in.setText("+")
+        self.btn_zoom_in.setToolTip("Zoom in")
+        self.btn_zoom_in.clicked.connect(self.zoom_in)
+        toolbar.addWidget(self.btn_zoom_in)
+
+        self.zoom_label = QLabel("100%")
+        toolbar.addWidget(self.zoom_label)
+        root.addLayout(toolbar)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(False)
+        self.scroll_area.setFrameShape(QFrame.StyledPanel)
+        self.scroll_area.viewport().installEventFilter(self)
+
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.image_label.setFrameShape(QFrame.NoFrame)
+        self.image_label.setSizePolicy(self.sizePolicy())
+        self.scroll_area.setWidget(self.image_label)
+        root.addWidget(self.scroll_area, stretch=1)
+
+    def eventFilter(self, obj, event):  # noqa: D401, N802
+        if obj is self.scroll_area.viewport() and event.type() == QEvent.Wheel:
+            if event.modifiers() & Qt.ControlModifier:
+                if event.angleDelta().y() > 0:
+                    self.zoom_in()
+                else:
+                    self.zoom_out()
+                return True
+        return super().eventFilter(obj, event)
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        if self._fit_mode:
+            self._apply_fit_zoom()
+
+    def set_image(self, image: np.ndarray | QPixmap) -> None:
+        if isinstance(image, QPixmap):
+            pix = image
+        else:
+            pix = _rgb_to_pixmap(np.asarray(image))
+        self._base_pixmap = pix
+        self._fit_mode = True
+        self.fit_to_view()
+
+    def current_zoom(self) -> float:
+        return float(self._zoom)
+
+    def set_zoom(self, value: float) -> None:
+        self._fit_mode = False
+        self._zoom = max(0.05, min(20.0, float(value)))
+        self._refresh()
+        self.zoom_changed.emit(self._zoom)
+
+    def zoom_in(self) -> None:
+        self.set_zoom(self._zoom * 1.15)
+
+    def zoom_out(self) -> None:
+        self.set_zoom(self._zoom / 1.15)
+
+    def zoom_reset(self) -> None:
+        self._fit_mode = False
+        self.set_zoom(1.0)
+
+    def fit_to_view(self) -> None:
+        self._fit_mode = True
+        self._apply_fit_zoom()
+
+    def _apply_fit_zoom(self) -> None:
+        if self._base_pixmap is None or self._base_pixmap.isNull():
+            return
+        viewport = self.scroll_area.viewport().size()
+        if viewport.width() <= 0 or viewport.height() <= 0:
+            return
+        zoom = min(
+            viewport.width() / max(1, self._base_pixmap.width()),
+            viewport.height() / max(1, self._base_pixmap.height()),
+        )
+        self._zoom = max(0.05, min(20.0, float(zoom)))
+        self._refresh()
+        self.zoom_changed.emit(self._zoom)
+
+    def _refresh(self) -> None:
+        if self._base_pixmap is None or self._base_pixmap.isNull():
+            self.image_label.clear()
+            self.zoom_label.setText("0%")
+            return
+        pix = _scale_pixmap(self._base_pixmap, self._zoom)
+        self.image_label.setPixmap(pix)
+        self.image_label.setFixedSize(pix.size())
+        self.zoom_label.setText(f"{int(round(self._zoom * 100))}%")
 
 
 class CalibrationLineCanvas(QLabel):
@@ -545,6 +687,18 @@ class AppearanceExportSettingsDialog(QDialog):
         self.mono_font_spin = QSpinBox()
         self.mono_font_spin.setRange(9, 28)
         appearance_form.addRow("Monospace font", self.mono_font_spin)
+        self.menu_font_spin = QSpinBox()
+        self.menu_font_spin.setRange(10, 30)
+        appearance_form.addRow("Menu font", self.menu_font_spin)
+        self.tab_font_spin = QSpinBox()
+        self.tab_font_spin.setRange(10, 30)
+        appearance_form.addRow("Tab font", self.tab_font_spin)
+        self.toolbar_font_spin = QSpinBox()
+        self.toolbar_font_spin.setRange(10, 30)
+        appearance_form.addRow("Toolbar font", self.toolbar_font_spin)
+        self.status_font_spin = QSpinBox()
+        self.status_font_spin.setRange(10, 30)
+        appearance_form.addRow("Status font", self.status_font_spin)
         self.control_pad_spin = QSpinBox()
         self.control_pad_spin.setRange(2, 20)
         appearance_form.addRow("Control padding", self.control_pad_spin)
@@ -560,6 +714,39 @@ class AppearanceExportSettingsDialog(QDialog):
         self.high_contrast_check = QCheckBox("High contrast")
         appearance_form.addRow(self.high_contrast_check)
         layout.addWidget(appearance_box)
+
+        window_box = QGroupBox("Window")
+        window_form = QFormLayout(window_box)
+        self.window_width_spin = QSpinBox()
+        self.window_width_spin.setRange(1024, 5120)
+        window_form.addRow("Initial width", self.window_width_spin)
+        self.window_height_spin = QSpinBox()
+        self.window_height_spin.setRange(768, 4320)
+        window_form.addRow("Initial height", self.window_height_spin)
+        self.window_min_width_spin = QSpinBox()
+        self.window_min_width_spin.setRange(800, 3840)
+        window_form.addRow("Minimum width", self.window_min_width_spin)
+        self.window_min_height_spin = QSpinBox()
+        self.window_min_height_spin.setRange(600, 2160)
+        window_form.addRow("Minimum height", self.window_min_height_spin)
+        self.left_dock_width_spin = QSpinBox()
+        self.left_dock_width_spin.setRange(220, 700)
+        window_form.addRow("Left dock width", self.left_dock_width_spin)
+        self.right_dock_width_spin = QSpinBox()
+        self.right_dock_width_spin.setRange(240, 800)
+        window_form.addRow("Right dock width", self.right_dock_width_spin)
+        self.workflow_dock_width_spin = QSpinBox()
+        self.workflow_dock_width_spin.setRange(600, 2400)
+        window_form.addRow("Workflow dock width", self.workflow_dock_width_spin)
+        self.remember_geometry_check = QCheckBox("Remember geometry")
+        window_form.addRow(self.remember_geometry_check)
+        self.clamp_to_screen_check = QCheckBox("Clamp to active screen")
+        window_form.addRow(self.clamp_to_screen_check)
+        self.start_maximized_check = QCheckBox("Start maximized")
+        window_form.addRow(self.start_maximized_check)
+        self.start_fullscreen_check = QCheckBox("Start fullscreen")
+        window_form.addRow(self.start_fullscreen_check)
+        layout.addWidget(window_box)
 
         export_box = QGroupBox("Export Defaults")
         export_form = QFormLayout(export_box)
@@ -589,15 +776,31 @@ class AppearanceExportSettingsDialog(QDialog):
     def _populate_from_config(self, config: DesktopUIConfig) -> None:
         self._config = config
         app = config.appearance
+        win = config.window
         exp = config.export_defaults
         self.base_font_spin.setValue(int(app.base_font_size))
         self.heading_font_spin.setValue(int(app.heading_font_size))
         self.mono_font_spin.setValue(int(app.monospace_font_size))
+        self.menu_font_spin.setValue(int(app.menu_font_size))
+        self.tab_font_spin.setValue(int(app.tab_font_size))
+        self.toolbar_font_spin.setValue(int(app.toolbar_font_size))
+        self.status_font_spin.setValue(int(app.status_font_size))
         self.control_pad_spin.setValue(int(app.control_padding_px))
         self.panel_spacing_spin.setValue(int(app.panel_spacing_px))
         self.table_row_padding_spin.setValue(int(app.table_row_padding_px))
         self.table_row_min_height_spin.setValue(int(app.table_min_row_height_px))
         self.high_contrast_check.setChecked(bool(app.high_contrast))
+        self.window_width_spin.setValue(int(win.initial_width))
+        self.window_height_spin.setValue(int(win.initial_height))
+        self.window_min_width_spin.setValue(int(win.minimum_width))
+        self.window_min_height_spin.setValue(int(win.minimum_height))
+        self.left_dock_width_spin.setValue(int(win.left_dock_width))
+        self.right_dock_width_spin.setValue(int(win.right_dock_width))
+        self.workflow_dock_width_spin.setValue(int(win.workflow_dock_width))
+        self.remember_geometry_check.setChecked(bool(win.remember_geometry))
+        self.clamp_to_screen_check.setChecked(bool(win.clamp_to_screen))
+        self.start_maximized_check.setChecked(bool(win.start_maximized))
+        self.start_fullscreen_check.setChecked(bool(win.start_fullscreen))
         self.profile_combo.setCurrentText(str(exp.report_profile))
         self.top_k_spin.setValue(int(exp.top_k_key_metrics))
         self.write_html_check.setChecked(bool(exp.write_html_report))
@@ -610,11 +813,30 @@ class AppearanceExportSettingsDialog(QDialog):
             base_font_size=int(self.base_font_spin.value()),
             heading_font_size=int(self.heading_font_spin.value()),
             monospace_font_size=int(self.mono_font_spin.value()),
+            menu_font_size=int(self.menu_font_spin.value()),
+            tab_font_size=int(self.tab_font_spin.value()),
+            toolbar_font_size=int(self.toolbar_font_spin.value()),
+            status_font_size=int(self.status_font_spin.value()),
             control_padding_px=int(self.control_pad_spin.value()),
             panel_spacing_px=int(self.panel_spacing_spin.value()),
             table_row_padding_px=int(self.table_row_padding_spin.value()),
             table_min_row_height_px=int(self.table_row_min_height_spin.value()),
             high_contrast=bool(self.high_contrast_check.isChecked()),
+        )
+        window = DesktopWindowConfig(
+            initial_width=int(self.window_width_spin.value()),
+            initial_height=int(self.window_height_spin.value()),
+            minimum_width=int(self.window_min_width_spin.value()),
+            minimum_height=int(self.window_min_height_spin.value()),
+            left_dock_width=int(self.left_dock_width_spin.value()),
+            right_dock_width=int(self.right_dock_width_spin.value()),
+            workflow_dock_width=int(self.workflow_dock_width_spin.value()),
+            remember_geometry=bool(self.remember_geometry_check.isChecked()),
+            clamp_to_screen=bool(self.clamp_to_screen_check.isChecked()),
+            start_maximized=bool(self.start_maximized_check.isChecked()),
+            start_fullscreen=bool(self.start_fullscreen_check.isChecked()),
+            show_workflow_dock_on_start=bool(self._config.window.show_workflow_dock_on_start),
+            show_log_dock_on_start=bool(self._config.window.show_log_dock_on_start),
         )
         exp_base = self._config.export_defaults
         export_defaults = DesktopExportDefaultsConfig(
@@ -632,6 +854,7 @@ class AppearanceExportSettingsDialog(QDialog):
         return DesktopUIConfig(
             schema_version="microseg.desktop_ui_config.v1",
             appearance=appearance,
+            window=window,
             export_defaults=export_defaults,
         )
 
@@ -759,6 +982,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self._configure_menu()
         self._bind_shortcuts()
         self._apply_style()
+        self._apply_application_fonts()
+        self._apply_window_geometry()
 
         self._ui_handler = _UiLogHandler(self._log)
         self._ui_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
@@ -784,6 +1009,69 @@ class QtSegmentationMainWindow(QMainWindow):
 
     def _apply_style(self) -> None:
         self.setStyleSheet(build_qt_stylesheet(self._ui_config))
+
+    def _apply_application_fonts(self) -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        base_font = QFont(app.font())
+        base_font.setPointSize(int(self._ui_config.appearance.base_font_size))
+        app.setFont(base_font)
+
+    def _apply_window_geometry(self) -> None:
+        window_cfg = self._ui_config.window
+        self.resize(int(window_cfg.initial_width), int(window_cfg.initial_height))
+
+        if window_cfg.start_fullscreen:
+            self.showFullScreen()
+            return
+        if window_cfg.start_maximized:
+            self.showMaximized()
+            return
+
+        settings = QSettings()
+        restored = False
+        if window_cfg.remember_geometry:
+            geometry = settings.value("desktop/window_geometry")
+            state = settings.value("desktop/window_state")
+            if geometry is not None:
+                try:
+                    restored = bool(self.restoreGeometry(geometry))
+                except Exception:
+                    restored = False
+            if state is not None:
+                try:
+                    self.restoreState(state)
+                except Exception:
+                    pass
+
+        screen = QApplication.primaryScreen() or self.screen()
+        available = screen.availableGeometry() if screen is not None else None
+        max_width = max(200, (available.width() - 40) if available is not None else int(window_cfg.initial_width))
+        max_height = max(200, (available.height() - 40) if available is not None else int(window_cfg.initial_height))
+        min_width = int(window_cfg.minimum_width)
+        min_height = int(window_cfg.minimum_height)
+        if available is not None and window_cfg.clamp_to_screen:
+            min_width = min(min_width, max_width)
+            min_height = min(min_height, max_height)
+        self.setMinimumSize(min_width, min_height)
+
+        if not restored and window_cfg.clamp_to_screen:
+            if available is not None:
+                width = min(max(int(window_cfg.initial_width), int(window_cfg.minimum_width)), max_width)
+                height = min(max(int(window_cfg.initial_height), int(window_cfg.minimum_height)), max_height)
+                self.resize(width, height)
+                frame = self.frameGeometry()
+                frame.moveCenter(available.center())
+                self.move(frame.topLeft())
+
+    def closeEvent(self, event):  # noqa: N802
+        window_cfg = self._ui_config.window
+        if window_cfg.remember_geometry:
+            settings = QSettings()
+            settings.setValue("desktop/window_geometry", self.saveGeometry())
+            settings.setValue("desktop/window_state", self.saveState())
+        super().closeEvent(event)
 
     def _configure_menu(self) -> None:
         menu = self.menuBar()
@@ -901,6 +1189,12 @@ class QtSegmentationMainWindow(QMainWindow):
         self.btn_batch = QPushButton("Run Batch")
         self.btn_batch.clicked.connect(self.on_run_batch)
         controls.addWidget(self.btn_batch)
+
+        self.btn_workspace_gear = QToolButton()
+        self.btn_workspace_gear.setText("⚙")
+        self.btn_workspace_gear.setToolTip("Show or hide advanced panels")
+        self.btn_workspace_gear.setPopupMode(QToolButton.InstantPopup)
+        controls.addWidget(self.btn_workspace_gear)
 
         self.model_desc = QLabel("")
         self.model_desc.setWordWrap(True)
@@ -1228,13 +1522,13 @@ class QtSegmentationMainWindow(QMainWindow):
         self.tabs = QTabWidget()
         body.addWidget(self.tabs, stretch=6)
 
-        self.input_label = QLabel("Input")
-        self.mask_label = QLabel("Prediction")
-        self.overlay_label = QLabel("Overlay")
+        self.input_view = ZoomableImageViewport("Input")
+        self.mask_view = ZoomableImageViewport("Predicted Mask")
+        self.overlay_view = ZoomableImageViewport("Overlay")
 
-        self.tabs.addTab(self._in_scroll(self.input_label), "Input")
-        self.tabs.addTab(self._in_scroll(self.mask_label), "Predicted Mask")
-        self.tabs.addTab(self._in_scroll(self.overlay_label), "Overlay")
+        self.tabs.addTab(self.input_view, "Input")
+        self.tabs.addTab(self.mask_view, "Predicted Mask")
+        self.tabs.addTab(self.overlay_view, "Overlay")
 
         self.split_widget = QWidget()
         split_layout = QHBoxLayout(self.split_widget)
@@ -1243,9 +1537,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Horizontal)
         split_layout.addWidget(self.splitter)
 
-        self.raw_corr_label = QLabel("Raw")
-        self.raw_corr_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.raw_corr_scroll = self._in_scroll(self.raw_corr_label)
+        self.raw_corr_view = ZoomableImageViewport("Raw Input")
+        self.raw_corr_scroll = self.raw_corr_view.scroll_area
         self.corrected_scroll = self._in_scroll(self.corrected_canvas)
 
         self.splitter.addWidget(self.raw_corr_scroll)
@@ -1314,22 +1607,22 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.results_pred_widget = QWidget()
         pred_layout = QHBoxLayout(self.results_pred_widget)
-        self.results_pred_orientation_label = QLabel("Orientation map")
-        self.results_pred_size_label = QLabel("Size distribution")
-        self.results_pred_angle_label = QLabel("Orientation distribution")
-        pred_layout.addWidget(self._in_scroll(self.results_pred_orientation_label), stretch=1)
-        pred_layout.addWidget(self._in_scroll(self.results_pred_size_label), stretch=1)
-        pred_layout.addWidget(self._in_scroll(self.results_pred_angle_label), stretch=1)
+        self.results_pred_orientation_view = ZoomableImageViewport("Orientation map")
+        self.results_pred_size_view = ZoomableImageViewport("Size distribution")
+        self.results_pred_angle_view = ZoomableImageViewport("Orientation distribution")
+        pred_layout.addWidget(self.results_pred_orientation_view, stretch=1)
+        pred_layout.addWidget(self.results_pred_size_view, stretch=1)
+        pred_layout.addWidget(self.results_pred_angle_view, stretch=1)
         self.results_plot_tabs.addTab(self.results_pred_widget, "Predicted")
 
         self.results_corr_widget = QWidget()
         corr_layout = QHBoxLayout(self.results_corr_widget)
-        self.results_corr_orientation_label = QLabel("Orientation map")
-        self.results_corr_size_label = QLabel("Size distribution")
-        self.results_corr_angle_label = QLabel("Orientation distribution")
-        corr_layout.addWidget(self._in_scroll(self.results_corr_orientation_label), stretch=1)
-        corr_layout.addWidget(self._in_scroll(self.results_corr_size_label), stretch=1)
-        corr_layout.addWidget(self._in_scroll(self.results_corr_angle_label), stretch=1)
+        self.results_corr_orientation_view = ZoomableImageViewport("Orientation map")
+        self.results_corr_size_view = ZoomableImageViewport("Size distribution")
+        self.results_corr_angle_view = ZoomableImageViewport("Orientation distribution")
+        corr_layout.addWidget(self.results_corr_orientation_view, stretch=1)
+        corr_layout.addWidget(self.results_corr_size_view, stretch=1)
+        corr_layout.addWidget(self.results_corr_angle_view, stretch=1)
         self.results_plot_tabs.addTab(self.results_corr_widget, "Corrected")
 
         self.tabs.addTab(self.results_widget, "Results Dashboard")
@@ -1959,6 +2252,81 @@ class QtSegmentationMainWindow(QMainWindow):
         self.log_box.setMaximumBlockCount(1200)
         layout.addWidget(self.log_box, stretch=0)
 
+        self.model_desc.hide()
+        for widget in [
+            self.config_path_edit,
+            self.btn_config_browse,
+            self.config_overrides_edit,
+            self.calibration_status_label,
+            self.btn_scan_metadata_calibration,
+            self.btn_calibrate_line,
+            self.btn_clear_calibration,
+            self.chk_fmt_indexed,
+            self.chk_fmt_color,
+            self.chk_fmt_npy,
+            self.chk_report_html,
+            self.chk_report_pdf,
+            self.chk_report_csv,
+            self.report_profile_combo,
+            self.report_top_k_spin,
+            self.chk_artifact_manifest,
+            self.btn_export_batch,
+            self.btn_save_project,
+            self.btn_load_project,
+            self.report_advanced_group,
+            self.log_box,
+        ]:
+            widget.hide()
+
+        if bool(self._ui_config.window.show_log_dock_on_start):
+            self.log_box.show()
+        if bool(self._ui_config.window.show_workflow_dock_on_start):
+            self.tabs.setCurrentWidget(self.workflow_widget)
+
+        workspace_menu = QMenu(self)
+        workspace_menu.addAction("Appearance & Export Settings", self.on_open_appearance_settings)
+        workspace_menu.addSeparator()
+
+        def _add_toggle_action(title: str, widgets: list[QWidget], *, checked: bool = False) -> None:
+            action = QAction(title, self)
+            action.setCheckable(True)
+            action.setChecked(checked)
+            action.triggered.connect(lambda state, ws=widgets: [w.setVisible(bool(state)) for w in ws])
+            workspace_menu.addAction(action)
+
+        _add_toggle_action("Model summary", [self.model_desc], checked=False)
+        _add_toggle_action("Config row", [self.config_path_edit, self.btn_config_browse, self.config_overrides_edit], checked=False)
+        _add_toggle_action(
+            "Calibration row",
+            [self.calibration_status_label, self.btn_scan_metadata_calibration, self.btn_calibrate_line, self.btn_clear_calibration],
+            checked=False,
+        )
+        _add_toggle_action("Conventional controls", [self.conventional_row_widget], checked=False)
+        _add_toggle_action(
+            "Advanced report options",
+            [
+                self.chk_fmt_indexed,
+                self.chk_fmt_color,
+                self.chk_fmt_npy,
+                self.chk_report_html,
+                self.chk_report_pdf,
+                self.chk_report_csv,
+                self.report_profile_combo,
+                self.report_top_k_spin,
+                self.chk_artifact_manifest,
+                self.btn_export_batch,
+                self.btn_save_project,
+                self.btn_load_project,
+                self.report_advanced_group,
+            ],
+            checked=False,
+        )
+        _add_toggle_action("Desktop log", [self.log_box], checked=False)
+        workspace_menu.addSeparator()
+        workspace_menu.addAction("Workflow Hub", self.on_open_workflow_hub)
+        workspace_menu.addAction("Results Dashboard", self.on_open_results_dashboard)
+        self.btn_workspace_gear.setMenu(workspace_menu)
+
     @staticmethod
     def _in_scroll(widget: QWidget) -> QScrollArea:
         area = QScrollArea()
@@ -1975,8 +2343,8 @@ class QtSegmentationMainWindow(QMainWindow):
                 lambda val: self._sync_scroll(a.verticalScrollBar(), b.verticalScrollBar(), val)
             )
 
-        bind_pair(self.raw_corr_scroll, self.corrected_scroll)
-        bind_pair(self.corrected_scroll, self.raw_corr_scroll)
+        bind_pair(self.raw_corr_view.scroll_area, self.corrected_scroll)
+        bind_pair(self.corrected_scroll, self.raw_corr_view.scroll_area)
 
     def _sync_scroll(self, src, dst, value: int) -> None:
         if self._sync_scroll_guard:
@@ -2008,6 +2376,14 @@ class QtSegmentationMainWindow(QMainWindow):
         self.log_box.appendPlainText(message)
 
     def _set_image_preview(self, label: QLabel, arr: np.ndarray | QPixmap, *, zoom: float = 1.0) -> None:
+        if hasattr(label, "set_image"):
+            pix = arr if isinstance(arr, QPixmap) else _rgb_to_pixmap(arr)
+            if zoom != 1.0 and hasattr(label, "set_zoom"):
+                label.set_image(pix)
+                label.set_zoom(zoom)
+                return
+            label.set_image(pix)
+            return
         pix = arr if isinstance(arr, QPixmap) else _rgb_to_pixmap(arr)
         pix = _scale_pixmap(pix, zoom)
         label.setPixmap(pix)
@@ -2339,12 +2715,12 @@ class QtSegmentationMainWindow(QMainWindow):
             pred_visuals = render_hydride_visualizations(pred_stats, cfg)
             corr_visuals = render_hydride_visualizations(corr_stats, cfg)
 
-            self._set_image_preview(self.results_pred_orientation_label, pred_visuals["orientation_map_rgb"])
-            self._set_image_preview(self.results_pred_size_label, pred_visuals["size_distribution_rgb"])
-            self._set_image_preview(self.results_pred_angle_label, pred_visuals["orientation_distribution_rgb"])
-            self._set_image_preview(self.results_corr_orientation_label, corr_visuals["orientation_map_rgb"])
-            self._set_image_preview(self.results_corr_size_label, corr_visuals["size_distribution_rgb"])
-            self._set_image_preview(self.results_corr_angle_label, corr_visuals["orientation_distribution_rgb"])
+            self._set_image_preview(self.results_pred_orientation_view, pred_visuals["orientation_map_rgb"])
+            self._set_image_preview(self.results_pred_size_view, pred_visuals["size_distribution_rgb"])
+            self._set_image_preview(self.results_pred_angle_view, pred_visuals["orientation_distribution_rgb"])
+            self._set_image_preview(self.results_corr_orientation_view, corr_visuals["orientation_map_rgb"])
+            self._set_image_preview(self.results_corr_size_view, corr_visuals["size_distribution_rgb"])
+            self._set_image_preview(self.results_corr_angle_view, corr_visuals["orientation_distribution_rgb"])
 
             pred_metrics = dict(pred_stats.scalar_metrics)
             corr_metrics = dict(corr_stats.scalar_metrics)
@@ -3392,7 +3768,7 @@ class QtSegmentationMainWindow(QMainWindow):
         run = self.state.current_run
         if run is None:
             return
-        self._set_image_preview(self.raw_corr_label, np.array(run.input_image), zoom=self.corrected_canvas.zoom_value())
+        self._set_image_preview(self.raw_corr_view, np.array(run.input_image), zoom=self.corrected_canvas.zoom_value())
 
     def _update_action_label(self) -> None:
         sess = self.state.correction_session
@@ -3637,8 +4013,8 @@ class QtSegmentationMainWindow(QMainWindow):
         try:
             with Image.open(path) as img:
                 arr = np.array(img)
-            self._set_image_preview(self.input_label, arr)
-            self._set_image_preview(self.raw_corr_label, arr, zoom=self.corrected_canvas.zoom_value())
+            self._set_image_preview(self.input_view, arr)
+            self._set_image_preview(self.raw_corr_view, arr, zoom=self.corrected_canvas.zoom_value())
         except Exception as exc:
             self.logger.warning("Failed to preview input image: %s", exc)
 
@@ -3877,9 +4253,9 @@ class QtSegmentationMainWindow(QMainWindow):
         if corrected_mask is not None:
             self.state.correction_session.current_mask = to_index_mask(corrected_mask)
 
-        self._set_image_preview(self.input_label, base)
-        self._set_image_preview(self.mask_label, _mask_to_pixmap(pred_mask, self.state.class_map))
-        self._set_image_preview(self.overlay_label, np.array(record.overlay_image))
+        self._set_image_preview(self.input_view, base)
+        self._set_image_preview(self.mask_view, _mask_to_pixmap(pred_mask, self.state.class_map))
+        self._set_image_preview(self.overlay_view, np.array(record.overlay_image))
 
         self.corrected_canvas.bind(base, pred_mask, self.state.correction_session, self.state.class_map)
         self.corrected_canvas.update_layer_settings(self._layer_settings())
@@ -4059,6 +4435,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._ui_config = dialog.selected_config()
         self._ui_config_source = dialog.selected_path()
         self._apply_style()
+        self._apply_application_fonts()
         self.chk_report_html.setChecked(bool(self._ui_config.export_defaults.write_html_report))
         self.chk_report_pdf.setChecked(bool(self._ui_config.export_defaults.write_pdf_report))
         self.chk_report_csv.setChecked(bool(self._ui_config.export_defaults.write_csv_report))
@@ -4136,11 +4513,26 @@ class QtSegmentationMainWindow(QMainWindow):
                     "ui_base_font_size": int(self._ui_config.appearance.base_font_size),
                     "ui_heading_font_size": int(self._ui_config.appearance.heading_font_size),
                     "ui_monospace_font_size": int(self._ui_config.appearance.monospace_font_size),
+                    "ui_menu_font_size": int(self._ui_config.appearance.menu_font_size),
+                    "ui_tab_font_size": int(self._ui_config.appearance.tab_font_size),
+                    "ui_toolbar_font_size": int(self._ui_config.appearance.toolbar_font_size),
+                    "ui_status_font_size": int(self._ui_config.appearance.status_font_size),
                     "ui_control_padding_px": int(self._ui_config.appearance.control_padding_px),
                     "ui_panel_spacing_px": int(self._ui_config.appearance.panel_spacing_px),
                     "ui_table_row_padding_px": int(self._ui_config.appearance.table_row_padding_px),
                     "ui_table_min_row_height_px": int(self._ui_config.appearance.table_min_row_height_px),
                     "ui_high_contrast": bool(self._ui_config.appearance.high_contrast),
+                    "ui_window_initial_width": int(self._ui_config.window.initial_width),
+                    "ui_window_initial_height": int(self._ui_config.window.initial_height),
+                    "ui_window_minimum_width": int(self._ui_config.window.minimum_width),
+                    "ui_window_minimum_height": int(self._ui_config.window.minimum_height),
+                    "ui_window_left_dock_width": int(self._ui_config.window.left_dock_width),
+                    "ui_window_right_dock_width": int(self._ui_config.window.right_dock_width),
+                    "ui_window_workflow_dock_width": int(self._ui_config.window.workflow_dock_width),
+                    "ui_window_remember_geometry": bool(self._ui_config.window.remember_geometry),
+                    "ui_window_clamp_to_screen": bool(self._ui_config.window.clamp_to_screen),
+                    "ui_window_start_maximized": bool(self._ui_config.window.start_maximized),
+                    "ui_window_start_fullscreen": bool(self._ui_config.window.start_fullscreen),
                     "calibration": (
                         None if self.state.spatial_calibration is None else self.state.spatial_calibration.as_dict()
                     ),
@@ -4237,6 +4629,14 @@ class QtSegmentationMainWindow(QMainWindow):
                         monospace_font_size=int(
                             loaded.ui_state.get("ui_monospace_font_size", self._ui_config.appearance.monospace_font_size)
                         ),
+                        menu_font_size=int(loaded.ui_state.get("ui_menu_font_size", self._ui_config.appearance.menu_font_size)),
+                        tab_font_size=int(loaded.ui_state.get("ui_tab_font_size", self._ui_config.appearance.tab_font_size)),
+                        toolbar_font_size=int(
+                            loaded.ui_state.get("ui_toolbar_font_size", self._ui_config.appearance.toolbar_font_size)
+                        ),
+                        status_font_size=int(
+                            loaded.ui_state.get("ui_status_font_size", self._ui_config.appearance.status_font_size)
+                        ),
                         control_padding_px=int(
                             loaded.ui_state.get("ui_control_padding_px", self._ui_config.appearance.control_padding_px)
                         ),
@@ -4254,9 +4654,35 @@ class QtSegmentationMainWindow(QMainWindow):
                         ),
                         high_contrast=bool(loaded.ui_state.get("ui_high_contrast", self._ui_config.appearance.high_contrast)),
                     ),
+                    window=DesktopWindowConfig(
+                        initial_width=int(loaded.ui_state.get("ui_window_initial_width", self._ui_config.window.initial_width)),
+                        initial_height=int(loaded.ui_state.get("ui_window_initial_height", self._ui_config.window.initial_height)),
+                        minimum_width=int(loaded.ui_state.get("ui_window_minimum_width", self._ui_config.window.minimum_width)),
+                        minimum_height=int(loaded.ui_state.get("ui_window_minimum_height", self._ui_config.window.minimum_height)),
+                        left_dock_width=int(loaded.ui_state.get("ui_window_left_dock_width", self._ui_config.window.left_dock_width)),
+                        right_dock_width=int(loaded.ui_state.get("ui_window_right_dock_width", self._ui_config.window.right_dock_width)),
+                        workflow_dock_width=int(
+                            loaded.ui_state.get("ui_window_workflow_dock_width", self._ui_config.window.workflow_dock_width)
+                        ),
+                        remember_geometry=bool(
+                            loaded.ui_state.get("ui_window_remember_geometry", self._ui_config.window.remember_geometry)
+                        ),
+                        clamp_to_screen=bool(
+                            loaded.ui_state.get("ui_window_clamp_to_screen", self._ui_config.window.clamp_to_screen)
+                        ),
+                        start_maximized=bool(
+                            loaded.ui_state.get("ui_window_start_maximized", self._ui_config.window.start_maximized)
+                        ),
+                        start_fullscreen=bool(
+                            loaded.ui_state.get("ui_window_start_fullscreen", self._ui_config.window.start_fullscreen)
+                        ),
+                        show_workflow_dock_on_start=bool(self._ui_config.window.show_workflow_dock_on_start),
+                        show_log_dock_on_start=bool(self._ui_config.window.show_log_dock_on_start),
+                    ),
                     export_defaults=exp_defaults,
                 )
                 self._apply_style()
+                self._apply_application_fonts()
             self._ui_config_source = str(loaded.ui_state.get("ui_config_source", self._ui_config_source or ""))
             cal_payload = loaded.ui_state.get("calibration")
             cal_obj = None
