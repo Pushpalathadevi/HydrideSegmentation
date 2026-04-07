@@ -43,6 +43,7 @@ See `docs/mission_statement.md`.
   - Run Review workspace for report summary + metric-delta comparison
   - HPC GA Planner for scheduler-ready multi-candidate bundle generation and feedback analysis
   - persistent desktop logs under `outputs/logs/desktop/`
+- Student notebook labs under `docs/student_notebooks.md` and `docs/notebooks/*.ipynb` for preprocessing, training, correction, and evaluation walkthroughs
 - Correction export schema `microseg.correction.v1`
 - Per-inference feedback evidence schema `microseg.feedback_record.v1` (GUI + CLI + deployment worker)
 - Deterministic correction dataset packaging

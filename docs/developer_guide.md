@@ -47,6 +47,11 @@ If the workflow has a GUI representation, add:
 - a results-path description
 - a short operator checklist
 
+If the workflow is meant for students or hands-on learning, add:
+
+- a notebook tutorial that uses sample data
+- a docs landing page that links the notebook back to the canonical workflow pages
+
 ## Documentation Build Discipline
 
 The docs are built with Sphinx and MyST Markdown from the repository sources.
@@ -70,3 +75,4 @@ The generated HTML lives under `docs/_build/html/`.
 - GUI model integration updates must be documented alongside registry, loader, and smoke-test changes
 - New math is explained clearly
 - SVG diagrams are updated when architecture or UX changes
+- Notebook tutorials are updated when workflow behavior or teaching examples change

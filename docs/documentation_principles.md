@@ -18,6 +18,7 @@ This repository treats documentation as a product surface, not an afterthought.
 12. Internal model variants must be labeled as internal variants, not as canonical reproductions of an external paper unless they truly are.
 13. New user-facing workflows should have a beginner or on-ramp page that points to the shortest safe reading path.
 14. When defaults differ between legacy and modern code paths, the docs must name both and explain which one is canonical.
+15. When a workflow is best learned hands-on, provide a runnable notebook tutorial that uses sample data and links back to the canonical docs.
 
 ## Required Documentation Layers
 
@@ -28,6 +29,7 @@ This repository treats documentation as a product surface, not an afterthought.
 - Developer notes: extension points, contracts, and migration rules.
 - Status notes: current progress, known gaps, and phase-specific constraints.
 - Learning notes: recommended reading order, glossary terms, and first-run guidance for students.
+- Learning labs: runnable notebook tutorials that exercise the repo on sample data.
 
 ## Build Targets
 

@@ -28,6 +28,20 @@ Launch the Qt entry point directly:
 hydride-gui-qt --ui-config configs/app/desktop_ui.default.yml
 ```
 
+## Student Notebooks
+
+Open the hands-on tutorial notebooks in JupyterLab:
+
+```bash
+jupyter lab docs/notebooks/01_data_preparation_and_dataset_planning.ipynb
+```
+
+Or open the notebook directory as a workspace:
+
+```bash
+jupyter lab docs/notebooks/
+```
+
 ## Model Discovery
 
 Inspect available GUI/CLI models and frozen-checkpoint hints:

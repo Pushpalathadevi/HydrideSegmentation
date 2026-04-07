@@ -15,8 +15,9 @@ If you are new to the project, read these in order:
 5. [`docs/model_architecture_manuscript_foundation.md`](model_architecture_manuscript_foundation.md)
 6. [`docs/model_selection_decision_tree.md`](model_selection_decision_tree.md)
 7. [`docs/usage_commands.md`](usage_commands.md)
-8. [`docs/results_analysis.md`](results_analysis.md)
-9. [`docs/scientific_validation.md`](scientific_validation.md)
+8. [`docs/student_notebooks.md`](student_notebooks.md)
+9. [`docs/results_analysis.md`](results_analysis.md)
+10. [`docs/scientific_validation.md`](scientific_validation.md)
 
 That sequence goes from purpose, to method, to implementation, to interpretation.
 
@@ -33,6 +34,7 @@ Use this sequence when you want your first successful run:
 7. Only then change hyperparameters or switch architectures.
 
 This order prevents the common mistake of tuning a complex model before you understand the baseline.
+If you want a lower-risk sandbox before opening the GUI, start with the student notebooks and work through the sample data there first.
 
 ## What Students Should Look For
 

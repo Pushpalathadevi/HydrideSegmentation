@@ -17,6 +17,7 @@
 - Classical segmentation flow sheets with parameter meaning and tuning guidance
 - Model-family architecture comparison with citations and performance trade-offs
 - Beginner-friendly reading paths and glossary support for students
+- Hands-on notebook labs that walk through preprocessing, training, correction, and evaluation
 - A GUI integration guide for bringing trained models into desktop inference
 - A worked comparison example for conventional vs ML outputs
 - A decision tree for choosing a starting model
@@ -48,6 +49,7 @@ python -m http.server 8000 -d docs/_build/html
 - Qt desktop workflows, correction export, and result packaging are implemented.
 - Config-driven CLI and GUI orchestration share the same core contracts.
 - Training, evaluation, deployment, and feedback loops emit structured reports.
+- Student notebook tutorials now cover the hydride sample workflow from dataset prep to evaluation.
 - The docs system itself is now a first-class build artifact.
 
 ## Primary Entry Points
@@ -108,4 +110,11 @@ hpc_ga_user_guide
 hydride_research_workflow
 development_workflow
 README
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Hands-On Tutorials
+
+student_notebooks
 ```

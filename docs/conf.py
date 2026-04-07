@@ -52,6 +52,7 @@ html_theme = "furo"
 html_title = "MicroSeg Documentation"
 html_baseurl = os.environ.get("MICROSEG_DOCS_BASEURL", "")
 html_static_path = ["_static"]
+html_extra_path = ["notebooks"]
 html_css_files = ["custom.css"]
 html_favicon = ""
 html_show_sourcelink = True

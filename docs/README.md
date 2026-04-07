@@ -10,6 +10,7 @@ Start here:
 - [`mission_statement.md`](mission_statement.md) for project direction
 - [`current_state_gap_analysis.md`](current_state_gap_analysis.md) for current status and gaps
 - [`usage_commands.md`](usage_commands.md) for exact command recipes
+- [`student_notebooks.md`](student_notebooks.md) for runnable sample-data tutorials
 - [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) for the classical algorithm flow sheet and parameter guide
 - [`results_analysis.md`](results_analysis.md) for output locations and report inspection
 - [`algorithms.md`](algorithms.md) for the mathematics behind the metrics and trainers
@@ -61,6 +62,7 @@ Core planning and governance docs:
 - Hydride end-to-end research workflow: `hydride_research_workflow.md`
 - Training data requirements: `training_data_requirements.md`
 - GUI usage guide: `gui_user_guide.md`
+- Student notebook tutorials: `student_notebooks.md`
 - Windows offline installer workflow: `windows_offline_installer.md`
 - Configuration workflow: `configuration_workflow.md`
 - Input size policy and DataLoader sizing controls: `input_size_policy.md`
