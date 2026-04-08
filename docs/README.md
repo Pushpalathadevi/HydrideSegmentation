@@ -4,17 +4,19 @@ This directory is both the human-readable documentation library and the source t
 
 Start here:
 
-- [`student_onramp.md`](student_onramp.md) for a beginner-friendly entry path
 - [`index.md`](index.md) for the rendered landing page
+- [`learning_path.md`](learning_path.md) for the beginner route through the repo
+- [`student_onramp.md`](student_onramp.md) for the study guide and reading order
+- [`glossary.md`](glossary.md) for beginner-friendly terminology
+- [`student_notebooks.md`](student_notebooks.md) for runnable sample-data tutorials
+- [`tutorials/index.md`](tutorials/index.md) for the searchable transcript versions of the notebook curriculum
+- [`usage_commands.md`](usage_commands.md) for exact command recipes
+- [`why_tradeoffs.md`](why_tradeoffs.md) for principles, alternatives, and design choices
 - [`documentation_principles.md`](documentation_principles.md) for the normative docs contract
 - [`mission_statement.md`](mission_statement.md) for project direction
-- [`current_state_gap_analysis.md`](current_state_gap_analysis.md) for current status and gaps
-- [`usage_commands.md`](usage_commands.md) for exact command recipes
-- [`student_notebooks.md`](student_notebooks.md) for runnable sample-data tutorials
-- [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) for the classical algorithm flow sheet and parameter guide
 - [`results_analysis.md`](results_analysis.md) for output locations and report inspection
 - [`algorithms.md`](algorithms.md) for the mathematics behind the metrics and trainers
-- [`model_architecture_manuscript_foundation.md`](model_architecture_manuscript_foundation.md) for model-family comparison and citations
+- [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) for the classical algorithm flow sheet and parameter guide
 - [`model_selection_decision_tree.md`](model_selection_decision_tree.md) for a simple model choice guide
 - [`worked_example_conventional_vs_ml.md`](worked_example_conventional_vs_ml.md) for a side-by-side comparison workflow
 - [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for adding a trained model to desktop inference
@@ -25,66 +27,13 @@ Core planning and governance docs:
 - Mission: `mission_statement.md`
 - Baseline audit: `base_zero_audit.md`
 - Target architecture: `target_architecture.md`
-- Code architecture and data flow map (Mermaid): `code_architecture_map.md`
+- Code architecture and data flow map: `code_architecture_map.md`
 - Product specification: `local_desktop_product_spec.md`
 - Scientific validation protocol: `scientific_validation.md`
 - Development workflow: `development_workflow.md`
-- Phase roadmap: `development_roadmap.md`
-- Deployment + productization master roadmap: `deployment_productization_master_roadmap.md`
-- Current state gaps: `current_state_gap_analysis.md`
-- Foundation standards strategy: `foundation_strategy.md`
-- Phase 2 desktop implementation status: `phase2_desktop_refactor.md`
-- Phase 3 correction/export implementation status: `phase3_correction_loop.md`
-- Phase 3 correction GUI feature plan: `phase3_correction_gui_features.md`
-- Phase 4 orchestration pane status: `phase4_orchestration_pane.md`
-- Phase 5 GPU runtime status: `phase5_gpu_runtime.md`
-- Phase 6 UNet backend status: `phase6_unet_backend.md`
-- Phase 7 observability + registry status: `phase7_observability_and_registry.md`
-- Phase 8 phase-gate quality status: `phase8_phase_gate_quality.md`
-- Phase 9 model lifecycle + dataset ops status: `phase9_model_lifecycle_dataops.md`
-- Phase 10 training dataset auto-prepare status: `phase10_training_dataset_autoprepare.md`
-- Phase 11 dataset policy alignment status: `phase11_dataset_policy_alignment.md`
-- Phase 12 GUI dataset workspace status: `phase12_gui_dataset_workspace.md`
-- Phase 13 run review and e2e QA status: `phase13_run_review_and_e2e_qa.md`
-- Phase 14 checkpoint lifecycle and smoke artifact status: `phase14_checkpoint_lifecycle_and_smoke.md`
-- Phase 15 GA-based HPC orchestration status: `phase15_hpc_ga_hpc_bundle.md`
-- Phase 17 HPC GA feedback-hybrid status: `phase17_hpc_ga_feedback.md`
-- Phase 18 transformer backend status: `phase18_transformer_backends.md`
-- Phase 19 SOTA HF transformer integration status: `phase19_hf_sota_transformers.md`
-- Phase 20 benchmark suite orchestration status: `phase20_benchmark_suite_orchestration.md`
-- Phase 21 benchmark analytics hardening status: `phase21_benchmark_analytics_hardening.md`
-- Phase 23 enterprise desktop deployment readiness status: `phase23_enterprise_desktop_readiness.md`
-- Phase 26 deployment runtime modes status: `phase26_deployment_runtime_modes.md`
 - Repository health audit: `repo_health_audit.md`
-- Frozen checkpoint registry guide: `frozen_checkpoint_registry.md`
-- HPC GA user guide: `hpc_ga_user_guide.md`
-- HPC GA developer guide: `hpc_ga_developer_guide.md`
-- Hydride end-to-end research workflow: `hydride_research_workflow.md`
-- Training data requirements: `training_data_requirements.md`
-- GUI usage guide: `gui_user_guide.md`
-- Student notebook tutorials: `student_notebooks.md`
-- Windows offline installer workflow: `windows_offline_installer.md`
-- Configuration workflow: `configuration_workflow.md`
-- Input size policy and DataLoader sizing controls: `input_size_policy.md`
-- Offline pretrained transfer workflow: `offline_pretrained_transfer_workflow.md`
-- HPC air-gapped top-10 real-data runbook (scratch + local-pretrained): `hpc_airgap_top5_realdata_runbook.md`
-- Benchmark metrics and dashboard reference: `benchmark_metrics_reference.md`
-- Conventional segmentation flow sheet and tuning guide: `conventional_segmentation_pipeline.md`
-- Pretrained model catalog + provenance metadata: `pretrained_model_catalog.md`
-- Model architecture manuscript foundation (diagrams + critical comparison): `model_architecture_manuscript_foundation.md`
-- Beginner on-ramp and glossary: `student_onramp.md`
-- Model decision tree: `model_selection_decision_tree.md`
-- Conventional vs ML worked example: `worked_example_conventional_vs_ml.md`
-- GUI model integration guide: `gui_model_integration_guide.md`
-- Documentation upgrade plan: `documentation_upgrade_plan.md`
-- Pretrained citation BibTeX: `pretrained_model_citations.bib`
-- Pretrained model catalog JSON: `pretrained_model_catalog.json`
-- Versioning and release policy: `versioning_and_release_policy.md`
-- Deployment operations workflow (preflight/package/promote/support): `deployment_ops_workflow.md`
-- Failure taxonomy and machine-readable error codes: `failure_taxonomy.md`
-- Migration strategy: `migration_strategy.md`
-- Repository blueprint: `repository_blueprint.md`
-- Architecture decisions process: `adr/README.md`
+- Deployment and productization roadmap: `deployment_productization_master_roadmap.md`
+- Archive and phase history: `archive_index.md`
 
 Build the docs with:
 

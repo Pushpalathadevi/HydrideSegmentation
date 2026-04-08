@@ -11,13 +11,12 @@
 ## What This Site Covers
 
 - Project mission, non-negotiable principles, and current delivery status
+- Beginner-friendly reading paths, glossary support, and a clear notebook ladder
 - Exact GUI and CLI commands for day-to-day use
 - Output locations, report structures, and analysis workflows
 - Algorithms, mathematics, metrics, and scientific validation logic
 - Classical segmentation flow sheets with parameter meaning and tuning guidance
 - Model-family architecture comparison with citations and performance trade-offs
-- Beginner-friendly reading paths and glossary support for students
-- Hands-on notebook labs that walk through preprocessing, training, correction, and evaluation
 - A GUI integration guide for bringing trained models into desktop inference
 - A worked comparison example for conventional vs ML outputs
 - A decision tree for choosing a starting model
@@ -49,8 +48,8 @@ python -m http.server 8000 -d docs/_build/html
 - Qt desktop workflows, correction export, and result packaging are implemented.
 - Config-driven CLI and GUI orchestration share the same core contracts.
 - Training, evaluation, deployment, and feedback loops emit structured reports.
-- Student notebook tutorials now cover the hydride sample workflow from dataset prep to evaluation.
-- The docs system itself is now a first-class build artifact.
+- Student notebook tutorials cover the hydride sample workflow from dataset prep to evaluation.
+- The docs system itself is a first-class build artifact with searchable notebook pages.
 
 ## Primary Entry Points
 
@@ -79,42 +78,52 @@ Schematic view of the desktop results workspace and export surfaces.
 
 ```{toctree}
 :maxdepth: 1
-:caption: Core
+:caption: Start Here
 
+learning_path
 student_onramp
 documentation_principles
 mission_statement
-current_state_gap_analysis
-code_architecture_map
-usage_commands
-results_analysis
-algorithms
-conventional_segmentation_pipeline
-model_selection_decision_tree
-worked_example_conventional_vs_ml
-gui_model_integration_guide
-developer_guide
-documentation_upgrade_plan
+glossary
 ```
 
 ```{toctree}
 :maxdepth: 1
-:caption: Existing Reference Docs
+:caption: Tutorials
 
+student_notebooks
+tutorials/index
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Why / Tradeoffs
+
+why_tradeoffs
+algorithms
+conventional_segmentation_pipeline
+model_selection_decision_tree
+worked_example_conventional_vs_ml
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Reference
+
+usage_commands
+results_analysis
 gui_user_guide
 configuration_workflow
 scientific_validation
 model_architecture_manuscript_foundation
-deployment_ops_workflow
-hpc_ga_user_guide
-hydride_research_workflow
-development_workflow
+gui_model_integration_guide
+developer_guide
 README
 ```
 
 ```{toctree}
 :maxdepth: 1
-:caption: Hands-On Tutorials
+:caption: Archive
 
-student_notebooks
+archive_index
 ```

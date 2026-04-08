@@ -43,7 +43,7 @@ See `docs/mission_statement.md`.
   - Run Review workspace for report summary + metric-delta comparison
   - HPC GA Planner for scheduler-ready multi-candidate bundle generation and feedback analysis
   - persistent desktop logs under `outputs/logs/desktop/`
-- Student notebook labs under `docs/student_notebooks.md` and `docs/notebooks/*.ipynb` for preprocessing, training, correction, and evaluation walkthroughs
+- Student notebook labs under `docs/student_notebooks.md`, `docs/tutorials/*.md`, and `docs/notebooks/*.ipynb` for preprocessing, training, correction, evaluation, and inference-loop walkthroughs
 - Correction export schema `microseg.correction.v1`
 - Per-inference feedback evidence schema `microseg.feedback_record.v1` (GUI + CLI + deployment worker)
 - Deterministic correction dataset packaging
@@ -127,6 +127,8 @@ microseg-cli infer --config configs/inference.default.yml --set params.area_thre
 ## Documentation
 
 The canonical documentation landing page is [`docs/index.md`](docs/index.md).
+For students and new contributors, start with [`docs/learning_path.md`](docs/learning_path.md) and [`docs/student_notebooks.md`](docs/student_notebooks.md).
+For core terminology, use [`docs/glossary.md`](docs/glossary.md).
 
 Build the docs locally:
 
@@ -151,6 +153,8 @@ The docs site includes:
 - a classical segmentation flow sheet with parameter meaning and tuning guidance
 - model-family architecture comparisons with original citations
 - a beginner on-ramp for students and new contributors
+- a beginner learning path and glossary
+- rendered notebook tutorials for preprocessing, training, inference, correction, and evaluation
 - repository policy updates that make documentation part of the change contract
 
 

@@ -7,6 +7,13 @@ Target test groups:
 
 Legacy tests at repository root will be migrated incrementally.
 
+Documentation and notebook expectations:
+
+- beginner-facing docs should be linked from the Sphinx landing page
+- notebook tutorials should stay listed in `docs/student_notebooks.md`
+- docs builds should continue to recognize notebook source pages
+- new beginner workflows should include a smoke test or regression test when practical
+
 Current phase coverage includes:
 - `test_phase0_regression.py` baseline non-regression snapshots
 - `test_phase1_microseg_core.py` registry/pipeline compatibility

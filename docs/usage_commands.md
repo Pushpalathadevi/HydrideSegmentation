@@ -2,6 +2,22 @@
 
 This page is intentionally exact. Commands here should be copy-pastable.
 
+## Beginner Path
+
+If you are new to the repo, run these first:
+
+```bash
+python scripts/build_docs.py --html-only
+jupyter lab docs/notebooks/
+hydride-gui --ui-config configs/app/desktop_ui.default.yml
+```
+
+Then read:
+
+- [`docs/learning_path.md`](learning_path.md)
+- [`docs/student_notebooks.md`](student_notebooks.md)
+- [`docs/why_tradeoffs.md`](why_tradeoffs.md)
+
 ## Desktop GUI
 
 Launch the Qt desktop app:
@@ -41,6 +57,8 @@ Or open the notebook directory as a workspace:
 ```bash
 jupyter lab docs/notebooks/
 ```
+
+The rendered notebook pages are also part of the Sphinx site under the Tutorials section.
 
 ## Model Discovery
 

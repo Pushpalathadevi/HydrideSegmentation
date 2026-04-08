@@ -10,27 +10,26 @@ If you are new to the project, read these in order:
 
 1. [`docs/mission_statement.md`](mission_statement.md)
 2. [`docs/documentation_principles.md`](documentation_principles.md)
-3. [`docs/conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md)
-4. [`docs/algorithms.md`](algorithms.md)
-5. [`docs/model_architecture_manuscript_foundation.md`](model_architecture_manuscript_foundation.md)
-6. [`docs/model_selection_decision_tree.md`](model_selection_decision_tree.md)
-7. [`docs/usage_commands.md`](usage_commands.md)
-8. [`docs/student_notebooks.md`](student_notebooks.md)
-9. [`docs/results_analysis.md`](results_analysis.md)
-10. [`docs/scientific_validation.md`](scientific_validation.md)
+3. [`docs/learning_path.md`](learning_path.md)
+4. [`docs/glossary.md`](glossary.md)
+5. [`docs/student_notebooks.md`](student_notebooks.md)
+6. [`docs/usage_commands.md`](usage_commands.md)
+7. [`docs/why_tradeoffs.md`](why_tradeoffs.md)
+8. [`docs/results_analysis.md`](results_analysis.md)
+9. [`docs/scientific_validation.md`](scientific_validation.md)
 
-That sequence goes from purpose, to method, to implementation, to interpretation.
+That sequence goes from purpose, to vocabulary, to guided practice, to method choice, to interpretation.
 
 ## First Practical Workflow
 
 Use this sequence when you want your first successful run:
 
-1. Open the sample image or a small local dataset.
-2. Run the conventional baseline first.
+1. Open the sample image or the bundled notebook tutorial data.
+2. Run the classical baseline or preprocessing step first.
 3. Inspect the mask and overlay visually.
-4. Compare the baseline with one ML backend.
-5. Read the metrics together with the image outputs.
-6. Record what improved and what got worse.
+4. Train or load the lightweight ML baseline.
+5. Compare the baseline with the ML result.
+6. Read the metrics together with the image outputs.
 7. Only then change hyperparameters or switch architectures.
 
 This order prevents the common mistake of tuning a complex model before you understand the baseline.
@@ -47,24 +46,11 @@ Also ask:
 - Did it merge nearby features?
 - Did the size distribution become physically plausible?
 - Did the orientation statistics remain sensible?
-- Did the improvement hold across multiple seeds or only one run?
+- Did the improvement hold across multiple runs or only one run?
 
-## Common Jargon
+## Use The Glossary
 
-| Term | Meaning |
-|---|---|
-| CLAHE | Local contrast enhancement that makes weak structure easier to separate |
-| Thresholding | Turning a grayscale image into foreground/background based on intensity |
-| Morphological closing | A binary cleanup step that fills small gaps |
-| Connected component | One contiguous object in a binary mask |
-| Skip connection | A path that forwards encoder features to the decoder |
-| Encoder | The part of a network that compresses and abstracts the image |
-| Decoder | The part of a network that reconstructs a pixel-level mask |
-| Pretrained weights | Parameters learned on another dataset and reused here |
-| Scratch training | Training from random initialization |
-| Warm start | Starting from an existing checkpoint or partial weight mapping |
-| Overfit | When training improves but generalization worsens |
-| Leakage | Information from test/validation data accidentally entering training |
+The short glossary now lives in [`glossary.md`](glossary.md) so this page can stay focused on the learning path and the first practical workflow.
 
 ## How To Critically Analyze A Model
 
@@ -103,10 +89,10 @@ Use this checklist when comparing models:
 Read:
 
 - the mission statement,
-- the conventional pipeline guide,
-- the model selection decision tree,
-- the model architecture foundation page,
-- the GUI integration guide if you are loading a trained model into the desktop app,
-- the usage commands page.
+- the learning path,
+- the glossary,
+- the student notebooks,
+- the usage commands page,
+- the tradeoffs page.
 
 That is enough to start using the repository responsibly.

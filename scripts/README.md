@@ -10,6 +10,7 @@ Current scripts:
 - `build_docs.py` builds the Sphinx HTML site and browser-rendered PDF archive from the repository docs.
   - use `microseg-docs` after installing package entry points
   - use `python scripts/build_docs.py` for a direct local build
+  - the docs build renders the notebook curriculum into searchable transcript pages under `tutorials/` and also copies the raw `.ipynb` files into the HTML output root
 - `package_corrections_dataset.py` packages exported correction samples into train/val/test layout.
 - `microseg_cli.py` unified CLI for inference, training, evaluation, model listing, and correction-dataset packaging with YAML + `--set` overrides.
   - supports optional GPU runtime selection for inference/training/evaluation with CPU fallback.
