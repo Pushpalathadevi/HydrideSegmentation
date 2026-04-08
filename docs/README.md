@@ -41,3 +41,5 @@ Build the docs with:
 pip install -r requirements-docs.txt
 python scripts/build_docs.py
 ```
+
+Math rendering is configured for offline-first reproducibility: the repository vendors the minimal MathJax v3 bundle at `docs/_static/mathjax/es5/tex-mml-chtml.js`. Sphinx uses that local asset when present and only falls back to the CDN if the local file is missing.

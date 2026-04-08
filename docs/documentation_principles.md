@@ -13,12 +13,13 @@ This repository treats documentation as a product surface, not an afterthought.
 7. New workflows should explain how to run, how to validate, and how to interpret results.
 8. When GUI features are introduced, they need schematic visuals or equivalent structure diagrams.
 9. The docs system itself must stay reproducible through source-controlled build commands.
-10. Classical segmentation docs must include a flow sheet, parameter table, typical values, and failure modes.
-11. Model-family docs must include the original publication citation, architecture summary, comparison notes, and performance factors.
-12. Internal model variants must be labeled as internal variants, not as canonical reproductions of an external paper unless they truly are.
-13. New user-facing workflows should have a beginner or on-ramp page that points to the shortest safe reading path.
-14. When defaults differ between legacy and modern code paths, the docs must name both and explain which one is canonical.
-15. When a workflow is best learned hands-on, provide a runnable notebook tutorial that uses sample data and links back to the canonical docs.
+10. Documentation builds must not require internet for core rendering features; required frontend assets (for example MathJax) should be vendored minimally and versioned in-repo with explicit fallback behavior.
+11. Classical segmentation docs must include a flow sheet, parameter table, typical values, and failure modes.
+12. Model-family docs must include the original publication citation, architecture summary, comparison notes, and performance factors.
+13. Internal model variants must be labeled as internal variants, not as canonical reproductions of an external paper unless they truly are.
+14. New user-facing workflows should have a beginner or on-ramp page that points to the shortest safe reading path.
+15. When defaults differ between legacy and modern code paths, the docs must name both and explain which one is canonical.
+16. When a workflow is best learned hands-on, provide a runnable notebook tutorial that uses sample data and links back to the canonical docs.
 
 ## Required Documentation Layers
 

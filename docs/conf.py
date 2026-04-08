@@ -90,8 +90,17 @@ html_context = {
     "current_year": _dt.datetime.now().year,
 }
 
+mathjax_local_path = DOCS / "_static" / "mathjax" / "es5" / "tex-mml-chtml.js"
+
+if mathjax_local_path.exists():
+    mathjax_path = "mathjax/es5/tex-mml-chtml.js"
+else:
+    mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+
 mathjax3_config = {
     "tex": {
+        "inlineMath": [["\\(", "\\)"]],
+        "displayMath": [["\\[", "\\]"]],
         "packages": {"[+]": ["ams"]},
     }
 }
