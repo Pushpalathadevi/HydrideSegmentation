@@ -35,75 +35,13 @@ Important interpretation note:
 
 ## Architecture Overview
 
-```mermaid
-flowchart TB
-    I["Input image"]
+![Model architecture overview and family flows](diagrams/model_architecture_manuscript_foundation.svg)
 
-    subgraph CNN["CNN encoder-decoder family"]
-        U["unet_binary"]
-        S1["smp_unet_resnet18"]
-        S2["smp_deeplabv3plus_resnet101"]
-        S3["smp_unetplusplus_resnet101"]
-        S4["smp_pspnet_resnet101"]
-        S5["smp_fpn_resnet101"]
-    end
-
-    subgraph TF["Transformer family"]
-        F1["hf_segformer_b0"]
-        F2["hf_segformer_b2"]
-        F3["hf_segformer_b5"]
-        UPN["hf_upernet_swin_large"]
-    end
-
-    subgraph HY["Hybrid internal variants"]
-        T["transunet_tiny"]
-        M["segformer_mini"]
-    end
-
-    I --> CNN
-    I --> TF
-    I --> HY
-```
+The composite SVG contains the overview plus the family-specific flow sheets.
 
 ### U-Net-Style Decoder Flow
 
-```mermaid
-flowchart LR
-    I["Input"] --> E1["Encoder stage 1"]
-    E1 --> E2["Encoder stage 2"]
-    E2 --> B["Bottleneck / high-level features"]
-    B --> D2["Decoder stage 2"]
-    D2 --> D1["Decoder stage 1"]
-    D1 --> H["1x1 segmentation head"]
-    H --> O["Binary mask logits"]
-
-    E2 -. skip .-> D2
-    E1 -. skip .-> D1
-```
-
-### SegFormer-Style Flow
-
-```mermaid
-flowchart LR
-    I["Input"] --> P["Patch embedding / hierarchical tokenization"]
-    P --> M1["Stage 1"]
-    M1 --> M2["Stage 2"]
-    M2 --> M3["Stage 3"]
-    M3 --> M4["Stage 4"]
-    M4 --> D["Lightweight MLP decode head"]
-    D --> O["Binary logits"]
-```
-
-### Hybrid Flow
-
-```mermaid
-flowchart LR
-    I["Input"] --> C["Convolutional stem"]
-    C --> T["Transformer block(s)"]
-    T --> R["Reshape to feature map"]
-    R --> D["Decoder"]
-    D --> O["Binary logits"]
-```
+The figure above includes the U-Net, SegFormer, and hybrid flow sheets in one stacked composite.
 
 ## Model Family Overview
 
@@ -571,4 +509,3 @@ The complementary provenance table for pretrained bundles lives in [`docs/pretra
 - [`docs/hydride_research_workflow.md`](hydride_research_workflow.md)
 - [`docs/benchmark_metrics_reference.md`](benchmark_metrics_reference.md)
 - [`docs/scientific_validation.md`](scientific_validation.md)
-

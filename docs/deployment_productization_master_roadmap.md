@@ -45,16 +45,9 @@ It covers:
 
 ## 4. Target Operating Architecture
 
-```mermaid
-flowchart LR
-    A["Dataset Contract\n(train/val/test + manifest)"] --> B["Train/Eval Orchestration\n(microseg-cli + suite runner)"]
-    B --> C["Benchmark Artifacts\nsummary.json/html, CSV, curves, logs"]
-    C --> D["Model Promotion Gate\nquality + robustness + runtime + reproducibility"]
-    D --> E["Deployment Package\nmodel + resolved_config + preprocess/postprocess + schema"]
-    E --> F["Runtime Inference App\nGUI/CLI/API mode"]
-    F --> G["Ops Feedback\nlogs, failures, drift, patch inputs"]
-    G --> B
-```
+![Deployment and productization roadmap](diagrams/deployment_productization_master_roadmap.svg)
+
+The roadmap is rendered as a static SVG so the flow stays legible in the PDF build as well.
 
 ## 5. Workstreams
 
@@ -101,55 +94,55 @@ Completed P0 implementations aligned to this roadmap:
 
 ## Stage 0: Governance And Baseline Freeze
 
-### Objective
+### Stage 0 Objective
 
 Lock baseline behavior and establish objective promotion standards.
 
-### Deliverables
+### Stage 0 Deliverables
 
 1. Baseline benchmark snapshot committed (config + summary artifacts metadata pointers).
 2. Promotion metric policy file with threshold placeholders.
 3. Ownership matrix for release manager, model approver, and ops approver.
 
-### Success criteria
+### Stage 0 Success Criteria
 
 1. Baseline run is reproducible from committed config and documented dataset manifest hash.
 2. Promotion decision template is used in every model-review PR.
 
-### Required tests
+### Stage 0 Required Tests
 
 1. `PYTHONPATH=. pytest -q`
 2. `microseg-cli phase-gate --phase-label "Stage0 Governance" --strict`
 
-### Cross-check evidence
+### Stage 0 Cross-Check Evidence
 
 - `outputs/phase_gates/*`
 - benchmark summary with immutable config hash
 
 ## Stage 1: Deployment Contract Standardization
 
-### Objective
+### Stage 1 Objective
 
 Introduce one canonical deployment package format for all approved models.
 
-### Deliverables
+### Stage 1 Deliverables
 
 1. Deployment package schema doc (`model artifact`, `resolved config`, `pre/post policy`, `schema version`, `checksums`).
 2. CLI export/import contract (`microseg-cli` command extension or package helper script).
 3. Validation command to verify package completeness before deployment.
 
-### Success criteria
+### Stage 1 Success Criteria
 
 1. Any of the 10 benchmarked models can be packaged and loaded by the same runtime interface.
 2. Package validation catches missing files or schema mismatches before run start.
 
-### Required tests
+### Stage 1 Required Tests
 
 1. Unit tests for package schema validation.
 2. Integration tests: package -> load -> one inference roundtrip on synthetic image.
 3. Regression tests for backward compatibility with existing checkpoint loading.
 
-### Cross-check evidence
+### Stage 1 Cross-Check Evidence
 
 - package manifest JSON
 - validation report
@@ -157,56 +150,56 @@ Introduce one canonical deployment package format for all approved models.
 
 ## Stage 2: UX Preflight And Operator Guardrails
 
-### Objective
+### Stage 2 Objective
 
 Reduce operator mistakes and improve first-run success.
 
-### Deliverables
+### Stage 2 Deliverables
 
 1. Unified preflight checks for train/eval/benchmark/deploy.
 2. Actionable error messages with exact fix suggestions.
 3. Standardized run profiles: `smoke`, `full_benchmark`, `airgap_transfer`, `deploy_check`.
 
-### Success criteria
+### Stage 2 Success Criteria
 
 1. Preflight catches at least 90% of previously observed path/config/weights issues.
 2. New operator can run benchmark smoke path in under 30 minutes using docs only.
 
-### Required tests
+### Stage 2 Required Tests
 
 1. Unit tests for each preflight rule.
 2. Integration tests for positive/negative preflight scenarios.
 3. GUI workflow test for preflight invocation and user-facing diagnostics.
 
-### Cross-check evidence
+### Stage 2 Cross-Check Evidence
 
 - preflight report JSON
 - run abort logs containing deterministic error codes and hints
 
 ## Stage 3: Observability Hardening For Queue Workloads
 
-### Objective
+### Stage 3 Objective
 
 Ensure every run has enough telemetry for post-mortem diagnosis.
 
-### Deliverables
+### Stage 3 Deliverables
 
 1. Structured run event taxonomy (stage start/end, status, failure codes, durations).
 2. Standard log bundle format for issue reporting.
 3. Optional watchdog escalation categories (`idle`, `wall`, `resource`, `dependency`).
 
-### Success criteria
+### Stage 3 Success Criteria
 
 1. At least 90% of failed runs classified into known failure taxonomy without rerun.
 2. Mean time-to-diagnose decreases by at least 50% from current baseline.
 
-### Required tests
+### Stage 3 Required Tests
 
 1. Unit tests for event emission payload shape.
 2. Integration test forcing train/eval timeout and confirming complete log artifacts.
 3. Bench suite test confirming `suite_events.jsonl` and per-run logs are generated.
 
-### Cross-check evidence
+### Stage 3 Cross-Check Evidence
 
 - `${output_root}/logs/suite_events.jsonl`
 - `${output_root}/logs/<run_tag>/run_events.jsonl`
@@ -214,28 +207,28 @@ Ensure every run has enough telemetry for post-mortem diagnosis.
 
 ## Stage 4: Model Promotion And Registry Governance
 
-### Objective
+### Stage 4 Objective
 
 Promote only robust, reproducible models to deployable status.
 
-### Deliverables
+### Stage 4 Deliverables
 
 1. Promotion gate spec with mandatory metrics and minimums.
 2. Candidate registry status fields: `experimental`, `candidate`, `approved`, `deprecated`.
 3. Decision report template with rationale and dissent section.
 
-### Success criteria
+### Stage 4 Success Criteria
 
 1. Every approved model has complete benchmark evidence (multi-seed + diagnostics).
 2. Promotion decisions can be re-audited using stored artifacts only.
 
-### Required tests
+### Stage 4 Required Tests
 
 1. Registry schema validation tests.
 2. Benchmark aggregate validation tests for required columns/metrics.
 3. Regression test ensuring ranking logic remains deterministic.
 
-### Cross-check evidence
+### Stage 4 Cross-Check Evidence
 
 - candidate decision report
 - benchmark aggregate CSV with quality/robustness/runtime fields
@@ -243,28 +236,28 @@ Promote only robust, reproducible models to deployable status.
 
 ## Stage 5: Release, Patch, And Rollback Discipline
 
-### Objective
+### Stage 5 Objective
 
 Operationalize reliable releases and fast incident response.
 
-### Deliverables
+### Stage 5 Deliverables
 
 1. Release checklist: compatibility, migration notes, docs sync, artifact signatures.
 2. Patch protocol for urgent fixes with constrained scope and targeted regression suite.
 3. Rollback runbook with previous known-good package activation procedure.
 
-### Success criteria
+### Stage 5 Success Criteria
 
 1. Hotfix release SLA under 1 business day for priority defects.
 2. Rollback execution under 15 minutes in staging rehearsal.
 
-### Required tests
+### Stage 5 Required Tests
 
 1. Release-candidate smoke suite on clean environment.
 2. Patch branch test plan: targeted + critical-path regression.
 3. Rollback rehearsal test once per release cycle.
 
-### Cross-check evidence
+### Stage 5 Cross-Check Evidence
 
 - release notes with schema/version deltas
 - rollback rehearsal log
@@ -272,28 +265,28 @@ Operationalize reliable releases and fast incident response.
 
 ## Stage 6: Deployment Runtime Maturity
 
-### Objective
+### Stage 6 Objective
 
 Support stable and supportable production inference operations.
 
-### Deliverables
+### Stage 6 Deliverables
 
 1. Runtime health checks (`model load`, `preprocess`, `inference`, `output write`).
 2. Optional service mode (batch/API worker) with queue-safe concurrency controls.
 3. Drift and confidence monitoring hooks for incoming image cohorts.
 
-### Success criteria
+### Stage 6 Success Criteria
 
 1. Runtime error rate below agreed SLO target.
 2. Drift alerts trigger before major metric degradation in benchmark-like holdout checks.
 
-### Required tests
+### Stage 6 Required Tests
 
 1. Service smoke tests with concurrent requests/jobs.
 2. Load test on representative 512x512 images.
 3. Canary/shadow comparison test against current approved model.
 
-### Cross-check evidence
+### Stage 6 Cross-Check Evidence
 
 - runtime health logs
 - drift report snapshots
@@ -301,28 +294,28 @@ Support stable and supportable production inference operations.
 
 ## Stage 7: Continuous Upgrade Framework
 
-### Objective
+### Stage 7 Objective
 
 Enable low-friction future model additions and infrastructure changes.
 
-### Deliverables
+### Stage 7 Deliverables
 
 1. Change-impact template for new architecture integration.
 2. Compatibility matrix (Python/CUDA/driver/library versions).
 3. Quarterly tech debt and deprecation review.
 
-### Success criteria
+### Stage 7 Success Criteria
 
 1. New model backend integration does not require ad-hoc pipeline rewrites.
 2. Upgrade regressions are caught by compatibility suite before release.
 
-### Required tests
+### Stage 7 Required Tests
 
 1. New-backend contract tests.
 2. Compatibility suite across supported environments.
 3. End-to-end benchmark smoke for old and new schema versions.
 
-### Cross-check evidence
+### Stage 7 Cross-Check Evidence
 
 - compatibility matrix report
 - deprecation register

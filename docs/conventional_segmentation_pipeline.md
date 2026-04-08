@@ -19,23 +19,9 @@ The two implementations follow the same scientific idea:
 
 ## Flow Sheet
 
-```mermaid
-flowchart TD
-    A["Input image<br/>(RGB or grayscale)"] --> B["Load grayscale view"]
-    B --> C{"Crop bottom region?"}
-    C -- "Yes" --> D["Remove bottom crop_percent"]
-    C -- "No" --> E["Keep full frame"]
-    D --> F["CLAHE contrast normalization"]
-    E --> F["CLAHE contrast normalization"]
-    F --> G["Gaussian blur / local smoothing"]
-    G --> H["Adaptive local threshold<br/>(inverse binary)"]
-    H --> I["Morphological closing"]
-    I --> J["Connected-component labeling"]
-    J --> K["Area-based filtering"]
-    K --> L["Binary mask"]
-    L --> M["Optional overlay / contour preview"]
-    L --> N["ORA export and/or PNG mask"]
-```
+![Conventional segmentation flow sheet](diagrams/conventional_segmentation_pipeline.svg)
+
+The flow sheet is published as a static SVG so it stays crisp in HTML and PDF.
 
 ## Step-By-Step Explanation
 

@@ -59,17 +59,17 @@ AUDIT_METRIC_KEYS = (
 class DesktopAppearanceConfig:
     """Qt desktop visual style defaults."""
 
-    base_font_size: int = 18
-    heading_font_size: int = 20
-    monospace_font_size: int = 16
-    menu_font_size: int = 18
-    tab_font_size: int = 18
-    toolbar_font_size: int = 18
-    status_font_size: int = 17
-    control_padding_px: int = 8
-    panel_spacing_px: int = 10
-    table_row_padding_px: int = 9
-    table_min_row_height_px: int = 28
+    base_font_size: int = 16
+    heading_font_size: int = 18
+    monospace_font_size: int = 15
+    menu_font_size: int = 15
+    tab_font_size: int = 15
+    toolbar_font_size: int = 15
+    status_font_size: int = 14
+    control_padding_px: int = 5
+    panel_spacing_px: int = 8
+    table_row_padding_px: int = 6
+    table_min_row_height_px: int = 24
     high_contrast: bool = False
 
 
@@ -77,16 +77,16 @@ class DesktopAppearanceConfig:
 class DesktopWindowConfig:
     """Desktop window sizing and geometry behavior defaults."""
 
-    initial_width: int = 1580
-    initial_height: int = 980
-    minimum_width: int = 1280
-    minimum_height: int = 800
+    initial_width: int = 1880
+    initial_height: int = 1180
+    minimum_width: int = 1360
+    minimum_height: int = 860
     left_dock_width: int = 320
     right_dock_width: int = 360
     workflow_dock_width: int = 1180
     remember_geometry: bool = True
     clamp_to_screen: bool = True
-    start_maximized: bool = False
+    start_maximized: bool = True
     start_fullscreen: bool = False
     show_workflow_dock_on_start: bool = False
     show_log_dock_on_start: bool = False
@@ -489,26 +489,38 @@ def build_qt_stylesheet(config: DesktopUIConfig) -> str:
 
     a = config.appearance
     if a.high_contrast:
-        main_bg = "#0E1218"
-        panel_bg = "#10161F"
-        fg = "#E7EEF7"
-        border = "#2E3B49"
-        input_bg = "#0F151D"
-        accent = "#5FA8FF"
+        main_bg = "#090D13"
+        panel_bg = "#121821"
+        surface_bg = "#0C1219"
+        fg = "#F5FAFF"
+        muted_fg = "#D0DAE5"
+        border = "#58708A"
+        border_strong = "#8AA7C4"
+        accent = "#FFD166"
+        accent_soft = "#33415A"
+        hover_bg = "#1A2330"
+        selected_bg = "#2E445D"
     else:
-        main_bg = "#F2F5F8"
-        panel_bg = "#FFFFFF"
-        fg = "#162029"
-        border = "#D6DEE7"
-        input_bg = "#FFFFFF"
-        accent = "#2563EB"
+        main_bg = "#0D1117"
+        panel_bg = "#161B22"
+        surface_bg = "#0F141B"
+        fg = "#E6EDF5"
+        muted_fg = "#AAB6C4"
+        border = "#334155"
+        border_strong = "#52657A"
+        accent = "#7CC3FF"
+        accent_soft = "#203C57"
+        hover_bg = "#1F2833"
+        selected_bg = "#243447"
 
     button_pad_y = max(2, int(a.control_padding_px))
     button_pad_x = max(4, int(a.control_padding_px + 4))
+    radius = int(max(4, a.control_padding_px // 2))
     return (
         "QWidget {"
         f" font-size: {int(a.base_font_size)}px;"
         f" color: {fg};"
+        f" background: {main_bg};"
         "}"
         "QMainWindow {"
         f" background: {main_bg};"
@@ -517,63 +529,160 @@ def build_qt_stylesheet(config: DesktopUIConfig) -> str:
         f" font-size: {int(a.heading_font_size)}px;"
         f" margin-top: {int(max(4, a.panel_spacing_px))}px;"
         f" padding-top: {int(max(4, a.panel_spacing_px // 2))}px;"
+        f" border: 1px solid {border};"
+        f" border-radius: {radius + 4}px;"
+        f" background: {panel_bg};"
         "}"
         "QGroupBox::title {"
         " subcontrol-origin: margin;"
         " subcontrol-position: top left;"
         f" left: {int(max(4, a.control_padding_px))}px;"
         f" padding: 0px {int(max(4, a.control_padding_px))}px;"
+        f" color: {accent};"
         "}"
-        "QPushButton {"
+        "QPushButton, QToolButton, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {"
         f" padding: {button_pad_y}px {button_pad_x}px;"
+        " min-height: 28px;"
         f" border: 1px solid {border};"
-        f" background: {panel_bg};"
-        f" border-radius: {int(max(2, a.control_padding_px // 2))}px;"
+        f" background: {surface_bg};"
+        f" border-radius: {radius}px;"
+        f" color: {fg};"
         "}"
-        "QPushButton:hover {"
+        "QPushButton:hover, QToolButton:hover, QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover,"
+        " QPlainTextEdit:hover, QTextEdit:hover {"
+        f" background: {hover_bg};"
         f" border-color: {accent};"
         "}"
-        "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {"
-        f" padding: {int(a.control_padding_px)}px;"
-        f" border: 1px solid {border};"
-        f" background: {input_bg};"
+        "QPushButton:pressed, QToolButton:pressed {"
+        f" background: {selected_bg};"
+        f" border-color: {border_strong};"
+        "}"
+        "QPushButton:disabled, QToolButton:disabled, QLineEdit:disabled, QComboBox:disabled, "
+        "QSpinBox:disabled, QDoubleSpinBox:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {"
+        f" color: {muted_fg};"
+        f" background: {panel_bg};"
+        f" border-color: {border};"
         "}"
         "QPlainTextEdit {"
         " font-family: Menlo, Monaco, monospace;"
         f" font-size: {int(a.monospace_font_size)}px;"
         "}"
+        "QComboBox::drop-down {"
+        f" border-left: 1px solid {border};"
+        " width: 24px;"
+        "}"
+        "QComboBox QAbstractItemView, QListWidget, QTableWidget {"
+        f" background: {panel_bg};"
+        f" border: 1px solid {border};"
+        f" selection-background-color: {selected_bg};"
+        f" selection-color: {fg};"
+        "}"
         "QMenuBar, QMenu {"
+        f" background: {panel_bg};"
+        f" color: {fg};"
         f" font-size: {int(a.menu_font_size)}px;"
+        "}"
+        "QMenuBar::item:selected, QMenu::item:selected {"
+        f" background: {accent_soft};"
         "}"
         "QToolBar, QToolButton {"
         f" font-size: {int(a.toolbar_font_size)}px;"
         "}"
         "QTabBar::tab {"
+        f" background: {surface_bg};"
+        f" color: {muted_fg};"
+        f" border: 1px solid {border};"
+        f" border-bottom-color: {border};"
         f" font-size: {int(a.tab_font_size)}px;"
         f" padding: {int(max(4, a.control_padding_px // 2))}px {int(max(6, a.control_padding_px))}px;"
+        " margin-right: 2px;"
+        " min-width: 110px;"
+        " min-height: 30px;"
+        f" border-top-left-radius: {radius}px;"
+        f" border-top-right-radius: {radius}px;"
+        "}"
+        "QTabBar::tab:hover {"
+        f" background: {hover_bg};"
+        f" color: {fg};"
+        "}"
+        "QTabBar::tab:selected {"
+        f" background: {panel_bg};"
+        f" color: {fg};"
+        f" border-color: {accent};"
+        f" border-bottom-color: {panel_bg};"
+        f" font-weight: 600;"
+        "}"
+        "QTabWidget::pane {"
+        f" background: {panel_bg};"
+        f" border: 1px solid {border};"
+        f" top: -1px;"
+        f" border-radius: {radius + 2}px;"
+        "}"
+        "QGroupBox {"
+        f" background: {panel_bg};"
+        f" border: 1px solid {border};"
+        f" border-radius: {radius + 2}px;"
+        " margin-top: 14px;"
+        f" padding: {int(max(6, a.control_padding_px))}px;"
+        "}"
+        "QGroupBox::title {"
+        f" color: {fg};"
+        " subcontrol-origin: margin;"
+        " subcontrol-position: top left;"
+        f" padding: 0 {int(max(6, a.control_padding_px))}px;"
+        " font-weight: 600;"
         "}"
         "QStatusBar {"
         f" font-size: {int(a.status_font_size)}px;"
+        f" background: {panel_bg};"
+        f" color: {muted_fg};"
         "}"
         "QDockWidget::title {"
+        f" background: {panel_bg};"
+        f" color: {fg};"
         f" font-size: {int(a.menu_font_size)}px;"
         f" padding: {int(max(4, a.control_padding_px))}px;"
         "}"
-        "QListWidget, QTableWidget, QTabWidget::pane {"
-        f" background: {panel_bg};"
+        "QHeaderView::section {"
+        f" padding: {int(max(4, a.table_row_padding_px // 2))}px;"
+        f" background: {surface_bg};"
+        f" color: {fg};"
         f" border: 1px solid {border};"
+        "}"
+        "QTableView::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
+        f" background: {selected_bg};"
+        f" color: {fg};"
         "}"
         "QTableView::item, QTableWidget::item {"
         f" padding: {int(a.table_row_padding_px)}px;"
         f" min-height: {int(a.table_min_row_height_px)}px;"
         "}"
-        "QHeaderView::section {"
-        f" padding: {int(max(4, a.table_row_padding_px // 2))}px;"
+        "QScrollArea {"
         f" background: {panel_bg};"
         f" border: 1px solid {border};"
         "}"
-        "QTabBar::tab:selected {"
-        f" background: {panel_bg};"
-        f" border-bottom: 2px solid {accent};"
+        "QFrame#segmentationStatusPanel {"
+        f" background: {surface_bg};"
+        f" border: 1px solid {border};"
+        f" border-radius: {radius + 2}px;"
+        "}"
+        "QLabel[class='segmentation-status-title'] {"
+        f" color: {fg};"
+        " font-weight: 600;"
+        "}"
+        "QProgressBar {"
+        f" background: {main_bg};"
+        f" color: {fg};"
+        f" border: 1px solid {border};"
+        f" border-radius: {radius}px;"
+        f" padding: {int(max(4, a.control_padding_px // 2))}px;"
+        " text-align: center;"
+        "}"
+        "QProgressBar::chunk {"
+        f" background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {accent}, stop:1 {accent_soft});"
+        f" border-radius: {radius}px;"
+        "}"
+        "QScrollBar:vertical, QScrollBar:horizontal {"
+        f" background: {main_bg};"
         "}"
     )

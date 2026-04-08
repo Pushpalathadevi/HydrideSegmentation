@@ -199,3 +199,71 @@ class DesktopWorkflowManager:
             encoding="utf-8",
         )
         return run_dir
+
+
+def load_exported_run(run_dir: str | Path) -> DesktopRunRecord:
+    """Load a CLI-exported inference run folder into an in-memory record.
+
+    Parameters
+    ----------
+    run_dir:
+        Path to a directory produced by ``microseg-cli infer``.
+
+    Returns
+    -------
+    DesktopRunRecord
+        Reconstructed run record suitable for GUI display and correction.
+    """
+
+    root = Path(run_dir)
+    manifest_path = root / "manifest.json"
+    metrics_path = root / "metrics.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing manifest.json in {root}")
+    if not (root / "input.png").exists() or not (root / "prediction.png").exists() or not (root / "overlay.png").exists():
+        raise FileNotFoundError(f"missing required exported image artifacts in {root}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError(f"run manifest is not a JSON object: {manifest_path}")
+
+    metrics: dict[str, float | int] = {}
+    if metrics_path.exists():
+        metrics_payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+        if isinstance(metrics_payload, dict):
+            metrics = metrics_payload
+    elif isinstance(manifest.get("metrics"), dict):
+        metrics = dict(manifest["metrics"])
+
+    input_img = Image.open(root / "input.png").convert("RGB")
+    mask_img = Image.open(root / "prediction.png").convert("L")
+    overlay_img = Image.open(root / "overlay.png").convert("RGB")
+
+    standard_pngs = {"input.png", "prediction.png", "overlay.png"}
+    analysis_images_b64: dict[str, str] = {}
+    for extra in sorted(root.glob("*.png")):
+        if extra.name in standard_pngs:
+            continue
+        analysis_images_b64[extra.stem] = base64.b64encode(extra.read_bytes()).decode("utf-8")
+
+    nested_manifest = manifest.get("manifest")
+    if not isinstance(nested_manifest, dict):
+        nested_manifest = {}
+
+    return DesktopRunRecord(
+        run_id=str(manifest.get("run_id", root.name)),
+        image_path=str(manifest.get("image_path", "")),
+        image_name=str(manifest.get("image_name", Path(str(manifest.get("image_path", root.name))).name)),
+        model_name=str(manifest.get("model_name", nested_manifest.get("model_name", ""))),
+        model_id=str(manifest.get("model_id", nested_manifest.get("model_id", ""))),
+        started_utc=str(manifest.get("started_utc", "")),
+        finished_utc=str(manifest.get("finished_utc", "")),
+        input_image=input_img,
+        mask_image=mask_img,
+        overlay_image=overlay_img,
+        metrics=metrics,
+        manifest=dict(nested_manifest),
+        analysis_images_b64=analysis_images_b64,
+        feedback_record_dir=str(manifest.get("feedback_record_dir", "")),
+        feedback_record_id=str(manifest.get("feedback_record_id", "")),
+    )

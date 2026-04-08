@@ -187,6 +187,7 @@ Do not prioritize web deployment or cloud-only assumptions until local CPU workf
 ## 15. Documentation And Scientific Traceability Requirements
 
 - Any change that modifies a segmentation stage, model backend, default parameter, output schema, or registry entry must update the relevant documentation in the same change.
+- Flow sheets, schematics, and publication figures in user-facing docs must be committed as static SVG assets under `docs/diagrams/`; inline Mermaid blocks should be treated as temporary authoring artifacts only.
 - Classical segmentation docs must include:
   - an end-to-end flow sheet,
   - a parameter table,

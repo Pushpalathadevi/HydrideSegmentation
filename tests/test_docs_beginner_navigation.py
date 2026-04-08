@@ -29,6 +29,8 @@ def test_docs_conf_enables_notebook_rendering() -> None:
     assert '"myst_parser"' in conf
     assert '"nbsphinx"' not in conf
     assert '".ipynb"' not in conf
+    assert "mathjax4_config" in conf
+    assert "tex-mml-chtml.js" in conf
 
 
 def test_index_routes_beginner_path_and_archive() -> None:

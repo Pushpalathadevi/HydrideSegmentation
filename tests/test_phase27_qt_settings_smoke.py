@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from PIL import Image
 
 
 def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
@@ -69,6 +70,12 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     assert win.btn_thumb_up.text() == "👍"
     assert win.btn_thumb_down.text() == "👎"
     assert "Feedback:" in win.feedback_rating_label.text()
+    assert win.model_combo.minimumWidth() >= 320
+    assert win.inference_options_group.isCheckable() is True
+    assert win.inference_options_group.isChecked() is False
+    assert win.correction_tools_group.isCheckable() is True
+    assert win.export_group.isCheckable() is True
+    assert win.workflow_aux_group.isCheckable() is True
     screen = app.primaryScreen()
     assert screen is not None
     assert win.width() <= screen.availableGeometry().width()
@@ -77,3 +84,74 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     assert export_cfg.report_profile == "audit"
     assert export_cfg.write_csv_report is True
     win.close()
+
+
+def test_phase27_qt_inference_launches_subprocess(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from hydride_segmentation.qt.main_window import QtSegmentationMainWindow
+
+    app = QApplication.instance() or QApplication([])
+    win = QtSegmentationMainWindow()
+
+    image_path = tmp_path / "test_image.png"
+    Image.new("RGB", (32, 32), (120, 120, 120)).save(image_path)
+    win.path_edit.setText(str(image_path))
+    win.orch_infer_image_edit.setText(str(image_path))
+    model_name = win.model_combo.currentText()
+    monkeypatch.setattr(win, "_selected_model_id", lambda _name: "hydride_ml_Unet")
+
+    captured = {}
+
+    def _fake_start(*, label, model_name, image_path, cfg):
+        captured["label"] = label
+        captured["model_name"] = model_name
+        captured["image_path"] = image_path
+        captured["cfg"] = dict(cfg)
+
+    monkeypatch.setattr(win, "_start_inference_subprocess", _fake_start)
+    win.on_run_segmentation()
+    assert captured["label"] == "single"
+    assert captured["model_name"] == model_name
+    assert captured["image_path"] == str(image_path)
+    assert captured["cfg"]["operator_id"] == str(win.feedback_writer.config.operator_id)
+    win.close()
+
+
+def test_phase27_load_exported_cli_run_round_trips(tmp_path: Path) -> None:
+    from src.microseg.app.desktop_workflow import load_exported_run
+
+    run_dir = tmp_path / "sample_run"
+    run_dir.mkdir()
+    Image.new("RGB", (16, 16), (10, 20, 30)).save(run_dir / "input.png")
+    Image.new("L", (16, 16), 0).save(run_dir / "prediction.png")
+    Image.new("RGB", (16, 16), (40, 50, 60)).save(run_dir / "overlay.png")
+    Image.new("RGB", (16, 16), (70, 80, 90)).save(run_dir / "orientation_map.png")
+    (run_dir / "metrics.json").write_text('{"dice": 0.91}', encoding="utf-8")
+    (run_dir / "manifest.json").write_text(
+        """
+{
+  "run_id": "20260408T162308",
+  "image_path": "test_data/example.png",
+  "image_name": "example.png",
+  "model_name": "Registry: hydride_unet_optical_v1 (unet_binary)",
+  "model_id": "hydride_ml_Unet",
+  "started_utc": "2026-04-08T16:23:06.661119+00:00",
+  "finished_utc": "2026-04-08T16:23:08.185992+00:00",
+  "metrics": {"dice": 0.91},
+  "manifest": {"params": {"enable_gpu": false}}
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    record = load_exported_run(run_dir)
+    assert record.run_id == "20260408T162308"
+    assert record.model_id == "hydride_ml_Unet"
+    assert record.metrics["dice"] == 0.91
+    assert record.input_image.size == (16, 16)
+    assert record.mask_image.size == (16, 16)
+    assert record.overlay_image.size == (16, 16)
+    assert "orientation_map" in record.analysis_images_b64

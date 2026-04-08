@@ -48,6 +48,8 @@ def get_gui_model_specs() -> list[dict[str, str]]:
             "artifact_stage": frozen[spec.model_id].artifact_stage if spec.model_id in frozen else "",
             "source_run_manifest": frozen[spec.model_id].source_run_manifest if spec.model_id in frozen else "",
             "quality_report_path": frozen[spec.model_id].quality_report_path if spec.model_id in frozen else "",
+            "file_sha256": frozen[spec.model_id].file_sha256 if spec.model_id in frozen else "",
+            "file_size_bytes": str(frozen[spec.model_id].file_size_bytes) if spec.model_id in frozen else "",
         }
         for spec in specs
     ]
@@ -56,11 +58,27 @@ def get_gui_model_specs() -> list[dict[str, str]]:
 def resolve_gui_model_id(model_name: str) -> str:
     """Resolve a GUI model label (new or legacy) to a model identifier."""
 
+    text = str(model_name).strip()
     specs = build_hydride_registry().specs()
     display_map = {spec.display_name: spec.model_id for spec in specs}
-    if model_name in display_map:
-        return display_map[model_name]
-    return LEGACY_GUI_MODEL_TO_ID.get(model_name, "hydride_ml")
+    model_id_map = {spec.model_id: spec.model_id for spec in specs}
+    if text in display_map:
+        return display_map[text]
+    if text in model_id_map:
+        return model_id_map[text]
+    if text.startswith("hydride_trained::"):
+        tail = text.removeprefix("hydride_trained::")
+        if tail in model_id_map:
+            return tail
+        if tail.startswith("registry::"):
+            nested = tail.removeprefix("registry::")
+            if nested in model_id_map:
+                return nested
+    if text.startswith("registry::"):
+        tail = text.removeprefix("registry::")
+        if tail in model_id_map:
+            return tail
+    return LEGACY_GUI_MODEL_TO_ID.get(text, "hydride_ml")
 
 
 def is_conventional_model(model_name: str) -> bool:

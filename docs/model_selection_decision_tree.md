@@ -16,24 +16,9 @@ That usually means:
 
 ## Decision Tree
 
-```mermaid
-flowchart TD
-    A["Need a quick baseline?"] -->|Yes| B["Use conventional segmentation"]
-    A -->|No| C["Need a trainable model?"]
+![Model selection decision tree](diagrams/model_selection_decision_tree.svg)
 
-    C -->|No| B
-    C -->|Yes| D["Dataset is small or medium?"]
-
-    D -->|Yes| E["Prefer `unet_binary` or `smp_unet_resnet18`"]
-    D -->|No| F["Need more global context?"]
-
-    F -->|No| E
-    F -->|Yes| G["Try `hf_segformer_b0` or `hf_segformer_b2`"]
-
-    G --> H["Need maximum context and can afford compute?"]
-    H -->|Yes| I["Consider `hf_segformer_b5` or `hf_upernet_swin_large`"]
-    H -->|No| J["Use the compact transformer first"]
-```
+Use the SVG version when you want the branching logic to stay readable on wide screens.
 
 ## Practical Recommendations
 
@@ -107,4 +92,3 @@ Why:
 - [`docs/model_architecture_manuscript_foundation.md`](model_architecture_manuscript_foundation.md)
 - [`docs/worked_example_conventional_vs_ml.md`](worked_example_conventional_vs_ml.md)
 - [`docs/gui_model_integration_guide.md`](gui_model_integration_guide.md)
-

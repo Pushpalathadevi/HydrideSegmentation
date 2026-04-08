@@ -9,6 +9,7 @@ from typing import Any
 
 
 REGISTRY_SCHEMA = "microseg.frozen_checkpoint_registry.v1"
+LOCAL_REGISTRY_SUFFIX = ".local"
 
 
 @dataclass(frozen=True)
@@ -76,16 +77,17 @@ def registry_path(start: Path | None = None) -> Path:
     return find_repo_root(start) / "frozen_checkpoints" / "model_registry.json"
 
 
-def load_frozen_checkpoint_records(path: str | Path | None = None) -> list[FrozenCheckpointRecord]:
-    """Load frozen-checkpoint metadata records from JSON registry."""
+def _registry_overlay_path(reg_path: Path) -> Path:
+    """Return the adjacent local-overrides registry path for ``reg_path``."""
 
-    if path:
-        reg_path = Path(path)
-    else:
-        try:
-            reg_path = registry_path()
-        except FileNotFoundError:
-            return []
+    if reg_path.name.endswith(".local.json"):
+        return reg_path
+    return reg_path.with_name(f"{reg_path.stem}{LOCAL_REGISTRY_SUFFIX}{reg_path.suffix}")
+
+
+def _load_registry_records_from_file(reg_path: Path) -> list[FrozenCheckpointRecord]:
+    """Load checkpoint records from one registry file."""
+
     if not reg_path.exists():
         return []
 
@@ -102,6 +104,35 @@ def load_frozen_checkpoint_records(path: str | Path | None = None) -> list[Froze
     if not isinstance(models, list):
         raise ValueError("frozen checkpoint registry 'models' must be a list")
     return [FrozenCheckpointRecord.from_dict(dict(item)) for item in models]
+
+
+def load_frozen_checkpoint_records(path: str | Path | None = None) -> list[FrozenCheckpointRecord]:
+    """Load frozen-checkpoint metadata records from JSON registry."""
+
+    if path:
+        reg_path = Path(path)
+    else:
+        try:
+            reg_path = registry_path()
+        except FileNotFoundError:
+            return []
+    candidate_paths = [reg_path]
+    overlay_path = _registry_overlay_path(reg_path)
+    if overlay_path != reg_path and overlay_path.exists():
+        candidate_paths.append(overlay_path)
+
+    merged: dict[str, FrozenCheckpointRecord] = {}
+    found_any = False
+    for candidate in candidate_paths:
+        if not candidate.exists():
+            continue
+        found_any = True
+        for rec in _load_registry_records_from_file(candidate):
+            merged[rec.model_id] = rec
+
+    if not found_any:
+        return []
+    return list(merged.values())
 
 
 def frozen_checkpoint_map(path: str | Path | None = None) -> dict[str, FrozenCheckpointRecord]:

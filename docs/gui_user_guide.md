@@ -14,6 +14,17 @@
 10. Review model-specific frozen-checkpoint tips before selecting ML models.
 11. Use Dataset Prep + QA to preview split plans, run data QA, and gate training launches.
 
+While inference is running, the top status banner shows the current stage, elapsed time, and an ETA estimate when the app has enough history to infer one.
+The run is launched as a CLI subprocess, which keeps the GUI responsive and avoids thread-safety crashes; the exported result is loaded back into the window after completion.
+The desktop now uses a split layout: the left sidebar holds project/model/correction controls, while the right workspace keeps the image tabs large and readable.
+The left control rail has a fixed launch width so image loading, model selection, and run buttons stay usable instead of collapsing into a thin strip.
+The top of the sidebar now keeps image loading, sample selection, and model selection on separate rows so the ML model list remains readable.
+Advanced controls are grouped behind collapsible sections:
+- `Inference Setup` for config and calibration
+- `Correction Tools` for conventional tools and layer controls
+- `Export & Session` for exports, saves, and report options
+- `Workflow Extras` for workflow notes and profile management
+
 ## Correction Workflow
 
 Tools:
@@ -89,6 +100,7 @@ Batch export:
 - Default config file: `configs/app/desktop_ui.default.yml`
 - Startup override: `hydride-gui --ui-config configs/app/desktop_ui.default.yml`
 - The main workspace now keeps advanced panels behind the gear button near the top controls.
+- The image workspace is fit-to-view aware on resize and tab changes, so small test images fill the available viewport better.
 - Each image viewport includes its own zoom controls, plus Ctrl+mouse-wheel zoom and drag-based scrolling.
 - The application restores or clamps its window size so it stays on-screen on single or dual-monitor setups.
 

@@ -5,17 +5,9 @@ It connects the repo mission, the notebook labs, the GUI, the CLI, and the outpu
 
 ## Recommended Flow
 
-```mermaid
-flowchart LR
-    A["Mission + principles"] --> B["Glossary + learning path"]
-    B --> C["Notebook 01: data preparation"]
-    C --> D["Notebook 02: ML training + inference"]
-    D --> E["Notebook 03: correction + export"]
-    E --> F["Notebook 04: evaluation + reports"]
-    D --> G["GUI: inspect, compare, correct"]
-    G --> E
-    F --> H["Contribute new experiments"]
-```
+![Beginner learning path diagram](diagrams/learning_path.svg)
+
+The flow sheet is published as a static SVG so it stays crisp in HTML and PDF.
 
 ## What To Read First
 

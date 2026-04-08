@@ -73,7 +73,7 @@ def test_phase27_ui_config_invalid_values_are_clamped(tmp_path: Path) -> None:
     assert cfg.appearance.heading_font_size == 11
     assert cfg.appearance.menu_font_size == 10
     assert cfg.appearance.tab_font_size == 30
-    assert cfg.appearance.toolbar_font_size == 18
+    assert cfg.appearance.toolbar_font_size == 15
     assert cfg.appearance.status_font_size == 10
     assert cfg.appearance.control_padding_px == 2
     assert cfg.appearance.panel_spacing_px == 24
@@ -136,3 +136,14 @@ def test_phase27_stylesheet_generation_uses_config_values(tmp_path: Path) -> Non
     assert "font-size: 20px" in style
     assert "font-size: 21px" in style
     assert "min-height: 30px" in style
+    assert "QTabBar::tab {" in style
+    assert "QTabBar::tab:selected {" in style
+    assert "QTabWidget::pane {" in style
+    assert "QPushButton:hover" in style
+    assert "QToolButton:hover" in style
+    assert "selection-background-color" in style
+    assert "QFrame#segmentationStatusPanel {" in style
+    assert "QProgressBar {" in style
+    assert "QProgressBar::chunk {" in style
+    assert "#0D1117" in style
+    assert "#161B22" in style

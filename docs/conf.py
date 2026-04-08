@@ -21,7 +21,6 @@ extensions = [
     "myst_parser",
     "sphinx_design",
     "sphinx_copybutton",
-    "sphinxcontrib.mermaid",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
@@ -35,7 +34,7 @@ myst_enable_extensions = [
     "attrs_inline",
     "substitution",
 ]
-myst_fence_as_directive = ["mermaid"]
+myst_fence_as_directive = []
 
 myst_heading_anchors = 3
 autosectionlabel_prefix_document = True
@@ -95,15 +94,19 @@ mathjax_local_path = DOCS / "_static" / "mathjax" / "es5" / "tex-mml-chtml.js"
 if mathjax_local_path.exists():
     mathjax_path = "mathjax/es5/tex-mml-chtml.js"
 else:
-    mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+    mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@4/es5/tex-mml-chtml.js"
 
-mathjax3_config = {
+mathjax_common_config = {
     "tex": {
         "inlineMath": [["\\(", "\\)"]],
         "displayMath": [["\\[", "\\]"]],
         "packages": {"[+]": ["ams"]},
     }
 }
+
+# Sphinx 9 defaults to MathJax v4. Keep the v3 alias for compatibility with older local builds.
+mathjax4_config = mathjax_common_config
+mathjax3_config = mathjax_common_config
 
 nitpicky = False
 numfig = True

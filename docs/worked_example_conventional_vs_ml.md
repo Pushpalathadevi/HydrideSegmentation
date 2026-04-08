@@ -13,16 +13,9 @@ Use this page when you want to understand:
 
 ## Comparison Workflow
 
-```mermaid
-flowchart LR
-    A["Same input image"] --> B["Conventional baseline"]
-    A --> C["Trained ML model"]
-    B --> D["Mask + overlay + rule-based interpretation"]
-    C --> E["Mask + overlay + learned interpretation"]
-    D --> F["Compare boundaries, counts, and morphology"]
-    E --> F
-    F --> G["Read metrics together with the images"]
-```
+![Conventional vs ML comparison workflow](diagrams/worked_example_conventional_vs_ml.svg)
+
+The comparison figure is a static SVG so the side-by-side layout remains compact.
 
 ## What To Compare
 
@@ -92,4 +85,3 @@ That statement is not scientifically useful on its own.
 - [`docs/conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md)
 - [`docs/model_architecture_manuscript_foundation.md`](model_architecture_manuscript_foundation.md)
 - [`docs/scientific_validation.md`](scientific_validation.md)
-

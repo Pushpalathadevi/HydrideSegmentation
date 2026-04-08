@@ -1,6 +1,6 @@
 """Application assembly and runtime lifecycle helpers."""
 
-from .desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
+from .desktop_workflow import DesktopRunRecord, DesktopWorkflowManager, load_exported_run
 from .desktop_result_export import DesktopResultExportConfig, DesktopResultExporter
 from .desktop_ui_config import (
     BALANCED_METRIC_KEYS,
@@ -45,6 +45,7 @@ __all__ = [
     "HpcGaBundleResult",
     "HpcGaPlanConfig",
     "load_desktop_ui_config",
+    "load_exported_run",
     "parse_feedback_sources",
     "OrchestrationCommandBuilder",
     "compare_run_reports",

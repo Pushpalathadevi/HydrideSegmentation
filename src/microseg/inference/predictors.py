@@ -102,7 +102,9 @@ def discover_dynamic_ml_model_bindings() -> tuple[list[_DynamicModelBinding], li
     refs, warnings = discover_inference_references(include_registry=True)
     bindings: list[_DynamicModelBinding] = []
     for ref in refs:
-        model_id = f"hydride_trained::{ref.reference_id}"
+        model_id = ref.reference_id
+        if ref.source == "registry" and ref.reference_id.startswith("registry::"):
+            model_id = ref.reference_id.removeprefix("registry::") or ref.reference_id
         bindings.append(
             _DynamicModelBinding(
                 model_id=model_id,

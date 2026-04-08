@@ -4,146 +4,15 @@ This guide provides a developer-facing map of how the repository is organized, h
 
 ## 1) System Architecture (Component View)
 
-```mermaid
-flowchart TD
-  subgraph clients["Client Surfaces"]
-    qt["Qt Desktop\nhydride_segmentation/qt/main_window.py"]
-    cli["CLI\nscripts/microseg_cli.py"]
-    svc["Service/API\nhydride_segmentation/service.py + api/*"]
-  end
-
-  subgraph app["Application Orchestration (src/microseg/app)"]
-    facade["facade.py"]
-    orchestration["orchestration.py"]
-    desktopwf["desktop_workflow.py"]
-    exporter["desktop_result_export.py"]
-    review["report_review.py"]
-    hpcga["hpc_ga.py"]
-    uiconfig["desktop_ui_config.py"]
-    state["project_state.py"]
-  end
-
-  subgraph core["Segmentation Core (src/microseg)"]
-    domain["domain/* + core/interfaces.py"]
-    pipeline["pipelines/segmentation_pipeline.py"]
-    infer["inference/predictors.py"]
-    eval["evaluation/*"]
-    corr["corrections/*"]
-  end
-
-  subgraph dataflow["Data Lifecycle"]
-    dataprep["data_preparation/*"]
-    dataops["dataops/*"]
-    transforms["data/transforms.py + collate.py"]
-  end
-
-  subgraph training["Training Backends"]
-    unet["training/unet_binary.py"]
-    pixel["training/pixel_classifier.py + torch_pixel_classifier.py"]
-    extmodels["HF/SMP backends via registry"]
-  end
-
-  subgraph gov["Governance + Deployment"]
-    plugins["plugins/*"]
-    quality["quality/*"]
-    deploy["deployment/*"]
-  end
-
-  subgraph assets["Configs + Artifacts"]
-    cfg["configs/*.yml"]
-    weights["pre_trained_weights/metadata/*.json"]
-    frozen["frozen_checkpoints/model_registry.json"]
-    outputs["outputs/**"]
-  end
-
-  subgraph compat["Compatibility Layer"]
-    legacy["hydride_segmentation/*"]
-    adapter["hydride_segmentation/microseg_adapter.py"]
-  end
-
-  qt --> desktopwf
-  qt --> exporter
-  qt --> uiconfig
-  qt --> state
-  qt --> review
-
-  cli --> orchestration
-  cli --> dataprep
-  svc --> facade
-
-  desktopwf --> pipeline
-  facade --> pipeline
-  pipeline --> infer
-  pipeline --> eval
-  pipeline --> corr
-
-  orchestration --> dataprep
-  orchestration --> dataops
-  orchestration --> unet
-  orchestration --> pixel
-  orchestration --> extmodels
-  orchestration --> eval
-  orchestration --> hpcga
-
-  dataprep --> transforms
-  dataops --> transforms
-  unet --> plugins
-  pixel --> plugins
-  extmodels --> plugins
-  eval --> quality
-  deploy --> quality
-
-  cfg --> orchestration
-  cfg --> qt
-  weights --> plugins
-  frozen --> plugins
-  outputs --> review
-  outputs --> deploy
-
-  legacy --> adapter
-  adapter --> pipeline
-```
+![System architecture view](diagrams/code_architecture_system_view.svg)
 
 ## 2) End-to-End Data Flow (Research to Deployment)
 
-```mermaid
-flowchart LR
-  raw["Raw microstructure images + masks\n(external data folder or data/)"] --> prep["Dataset preparation\nsrc/microseg/data_preparation/*"]
-  prep --> curated["Prepared train/val/test dataset\n(MaDo/Oxford style + manifests + QA)"]
-  curated --> train["Training\nsrc/microseg/training/*"]
-  train --> ckpt["Model checkpoints + logs\noutputs/training/*"]
-  ckpt --> eval["Evaluation + analysis\nsrc/microseg/evaluation/*"]
-  eval --> reports["Structured reports\nJSON/HTML/PDF/CSV in outputs/**"]
-  reports --> compare["Run review + benchmark dashboard\nsrc/microseg/app/report_review.py + scripts/hydride_benchmark_suite.py"]
-  ckpt --> package["Deployment package + runtime checks\nsrc/microseg/deployment/*"]
-  package --> promote["Promotion gate / support bundle\nsrc/microseg/quality/*"]
-```
+![End-to-end data flow](diagrams/code_architecture_data_flow.svg)
 
 ## 3) Qt Runtime Interaction (Single Image)
 
-```mermaid
-sequenceDiagram
-  actor User
-  participant GUI as "Qt Main Window"
-  participant DW as "desktop_workflow.py"
-  participant Pipe as "segmentation_pipeline.py"
-  participant Pred as "predictors.py"
-  participant Eval as "analyzers.py"
-  participant Exp as "desktop_result_export.py"
-
-  User->>GUI: Load image and choose model/profile
-  GUI->>DW: run_single(image, model_key, params)
-  DW->>Pipe: execute(input image, predictor, analyzer)
-  Pipe->>Pred: predict(mask logits/probability)
-  Pred-->>Pipe: mask
-  Pipe->>Eval: compute hydride metrics/statistics
-  Eval-->>Pipe: scalar metrics + distribution summaries
-  Pipe-->>DW: segmentation result package
-  DW-->>GUI: result + overlays + history record
-  User->>GUI: Export Results Package
-  GUI->>Exp: export(result, export config/profile)
-  Exp-->>GUI: JSON + HTML + PDF + CSV + manifest paths
-```
+![Qt runtime interaction](diagrams/code_architecture_runtime_interaction.svg)
 
 ## 4) Module Map with Code and Doc Links
 

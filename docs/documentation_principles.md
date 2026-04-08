@@ -8,7 +8,7 @@ This repository treats documentation as a product surface, not an afterthought.
 2. User-facing commands must be documented with exact invocations.
 3. Research-facing algorithms must be documented with the math they implement.
 4. Outputs must be documented with filenames, directory roots, and schema versions.
-5. Diagrams should be SVG-first so they remain crisp in HTML and PDF builds.
+5. Diagrams should be static SVG-first so they remain crisp in HTML and PDF builds.
 6. Documentation links must remain repository-relative inside the repo.
 7. New workflows should explain how to run, how to validate, and how to interpret results.
 8. When GUI features are introduced, they need schematic visuals or equivalent structure diagrams.
@@ -20,6 +20,8 @@ This repository treats documentation as a product surface, not an afterthought.
 14. New user-facing workflows should have a beginner or on-ramp page that points to the shortest safe reading path.
 15. When defaults differ between legacy and modern code paths, the docs must name both and explain which one is canonical.
 16. When a workflow is best learned hands-on, provide a runnable notebook tutorial that uses sample data and links back to the canonical docs.
+
+17. Publication figures, flow sheets, and schematics should be authored or exported as static SVG assets in `docs/diagrams/` and referenced from the markdown pages rather than embedded as inline Mermaid blocks.
 
 ## Required Documentation Layers
 

@@ -22,7 +22,8 @@ See `docs/mission_statement.md`.
 - Qt desktop GUI (`hydride-gui`) with:
   - file/edit/view/help desktop-style menus
   - bundled sample image onboarding (`Load Sample` / `File -> Open Sample`)
-  - workspace-first layout with a large central visual area and compact side controls
+  - split dashboard layout with a fixed-width, scrollable control sidebar and a large central visual workspace
+  - collapsible sidebar groups for inference setup, correction tools, export/session actions, and workflow extras
   - in-view zoom, pan, fit-to-view, and 100% controls on each image canvas
   - brush/polygon/lasso tools
   - connected-feature delete/relabel
@@ -36,7 +37,7 @@ See `docs/mission_statement.md`.
   - configurable report profiles (`balanced`/`full`/`audit`) with section + metric selection
   - multi-image batch summary export (`batch_results_summary.json`, `batch_results_report.html`, `batch_results_report.pdf`, `batch_metrics.csv`)
   - YAML-driven desktop appearance settings (font sizes, contrast, spacing, startup geometry) with in-app settings dialog
-  - gear menu for secondary panels so the workspace stays image-first
+  - gear menu for secondary panels and a real status bar so the workspace stays image-first
   - project/session save-load
   - always-visible thumbs-up/thumbs-down result feedback with optional comment (auto-saved, non-blocking)
   - Dataset Prep + QA workspace (preview, prepare, QA, training gate)
@@ -54,6 +55,7 @@ See `docs/mission_statement.md`.
 - Air-gapped local transfer-learning support via `pre_trained_weights/` registry + bundle validation (`unet_binary`, SMP decoder family, `hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`, `transunet_tiny`, `segformer_mini`)
 - JSON + HTML run reports for training and evaluation
 - Frozen checkpoint metadata registry for model selection guidance
+- Local-only checkpoint overlays can be staged in `frozen_checkpoints/model_registry.local.json` with binaries under `frozen_checkpoints/candidates/`; the overlay is ignored by git but still available to the GUI and CLI at runtime.
 
 ## Standards Baseline
 
@@ -64,6 +66,7 @@ annotation, correction, and deployment needs.
 The repository now ships a Sphinx-based documentation system that is treated as part of the product surface:
 
 - source markdown, SVG diagrams, and math live under `docs/`
+- the docs build prefers the vendored MathJax bundle in `docs/_static/mathjax/es5/tex-mml-chtml.js`, so offline HTML rendering works without a CDN
 - HTML docs build with `python scripts/build_docs.py --html-only`
 - HTML + PDF docs build with `python scripts/build_docs.py`
 - the generated HTML can be served locally from `docs/_build/html/`
@@ -468,6 +471,9 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Use GUI `Dataset Prep + QA` tab or CLI `dataset-prepare` / `dataset-qa`.
 2. Run baseline inference:
 - GUI `Input` + `Run Segmentation` or CLI `microseg-cli infer`.
+  - The desktop `Run Segmentation` action launches a CLI subprocess for inference, so the window remains responsive while the model runs; the exported result is loaded back into the GUI after completion.
+  - The main window opens maximized by default when the UI config keeps `start_maximized: true`, and the image canvas now re-fits on tab switches and resize events.
+- A live status banner shows the current stage, elapsed time, and ETA estimate when enough history exists.
 3. Correct masks:
 - Use GUI correction tools and thumbs feedback (optional comment), then export corrected samples as needed.
 4. Train and evaluate:

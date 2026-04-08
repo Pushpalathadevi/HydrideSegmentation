@@ -18,15 +18,9 @@ For this project, a model is considered integrated when:
 
 ## High-Level Flow
 
-```mermaid
-flowchart TD
-    A["Train or obtain a checkpoint"] --> B["Validate the checkpoint or bundle"]
-    B --> C["Register the model in the frozen registry"]
-    C --> D["Expose the model in GUI metadata"]
-    D --> E["Confirm the backend loader can resolve it"]
-    E --> F["Run a GUI inference smoke test"]
-    F --> G["Inspect output and document the run"]
-```
+![GUI model integration workflow](diagrams/gui_model_integration_guide.svg)
+
+The workflow is a static SVG so the page remains legible offline.
 
 ## Step 1 - Confirm the Model Type
 
@@ -69,6 +63,8 @@ That means you should update the frozen registry or the model discovery layer so
 For frozen models, the canonical registry is:
 
 - [`frozen_checkpoints/model_registry.json`](../frozen_checkpoints/model_registry.json)
+
+If the checkpoint is local-only and should stay out of git, place its binary under `frozen_checkpoints/candidates/` and write an ignored overlay registry at `frozen_checkpoints/model_registry.local.json`. The GUI and CLI will merge that overlay with the canonical registry at runtime.
 
 ## Step 4 - Make The Loader Understand The Artifact
 
@@ -124,6 +120,8 @@ Open the desktop app and:
 4. inspect the mask,
 5. inspect the overlay,
 6. confirm the output paths or export options.
+
+The desktop inference action now runs in a CLI subprocess, so the window should stay responsive while a model is processing. Long-running models can still take time to finish, but the UI should not freeze while they do, and the exported result is loaded back into the GUI when the subprocess completes.
 
 If the model is conventional:
 
@@ -205,4 +203,3 @@ That keeps the code and the documentation aligned.
 - [`docs/model_architecture_manuscript_foundation.md`](model_architecture_manuscript_foundation.md)
 - [`docs/pretrained_model_catalog.md`](pretrained_model_catalog.md)
 - [`docs/usage_commands.md`](usage_commands.md)
-
