@@ -6,6 +6,10 @@ Enable transfer learning on air-gapped systems using locally staged pretrained b
 For the full scratch+pretrained campaign procedure (including `summary.html` / `summary.json`),
 use [`hpc_airgap_top5_realdata_runbook.md`](hpc_airgap_top5_realdata_runbook.md).
 
+If your immediate goal is not training but desktop inference on a trained `.pth` checkpoint,
+skip ahead to [`gui_model_integration_guide.md`](gui_model_integration_guide.md).
+That page explains the GUI registry overlay, the CLI smoke test, and the air-gapped inference workflow.
+
 This workflow supports the following local-pretrained backends:
 - U-Net:
   - `unet_binary` (local torch state dict bootstrap bundle)

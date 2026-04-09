@@ -17,7 +17,7 @@
 - Algorithms, mathematics, metrics, and scientific validation logic
 - Classical segmentation flow sheets with parameter meaning and tuning guidance
 - Model-family architecture comparison with citations and performance trade-offs
-- A GUI integration guide for bringing trained models into desktop inference
+- A beginner air-gapped guide for importing a trained `.pth` checkpoint into desktop inference
 - A worked comparison example for conventional vs ML outputs
 - A decision tree for choosing a starting model
 - Developer guidance for extending the platform without breaking traceability

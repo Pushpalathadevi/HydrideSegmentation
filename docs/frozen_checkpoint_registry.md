@@ -46,6 +46,8 @@ microseg-cli validate-registry --config configs/registry_validation.default.yml 
 ```
 5. Open GUI and confirm model help text updates.
 
+For a beginner-friendly, air-gapped walkthrough with concrete examples, see [`docs/gui_model_integration_guide.md`](gui_model_integration_guide.md).
+
 ## Design Rules
 
 - Do not hardcode absolute local filesystem paths.

@@ -19,8 +19,9 @@ The flow sheet is published as a static SVG so it stays crisp in HTML and PDF.
 | 4 | [`student_notebooks.md`](student_notebooks.md) | Gives the hands-on workflow ladder |
 | 5 | [`usage_commands.md`](usage_commands.md) | Shows exact copy-paste commands |
 | 6 | [`gui_user_guide.md`](gui_user_guide.md) | Shows the visual workflow and correction loop |
-| 7 | [`results_analysis.md`](results_analysis.md) | Explains how to read outputs and reports |
-| 8 | [`scientific_validation.md`](scientific_validation.md) | Shows how to judge whether a result is actually better |
+| 7 | [`gui_model_integration_guide.md`](gui_model_integration_guide.md) | Shows how to bring a trained `.pth` checkpoint into the GUI on an air-gapped PC |
+| 8 | [`results_analysis.md`](results_analysis.md) | Explains how to read outputs and reports |
+| 9 | [`scientific_validation.md`](scientific_validation.md) | Shows how to judge whether a result is actually better |
 
 ## What To Run First
 
@@ -39,6 +40,10 @@ microseg-cli models --details
 microseg-cli infer --config configs/inference.default.yml --set params.area_threshold=120
 microseg-cli evaluate --config configs/evaluate.default.yml --set split=test
 ```
+
+If your end goal is to use a trained checkpoint on the desktop GUI, read
+[`gui_model_integration_guide.md`](gui_model_integration_guide.md) before you start moving files around.
+It shows the registry overlay and the CLI smoke test that prevent most beginner mistakes.
 
 ## What Good Looks Like
 

@@ -19,7 +19,7 @@ Start here:
 - [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) for the classical algorithm flow sheet and parameter guide
 - [`model_selection_decision_tree.md`](model_selection_decision_tree.md) for a simple model choice guide
 - [`worked_example_conventional_vs_ml.md`](worked_example_conventional_vs_ml.md) for a side-by-side comparison workflow
-- [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for adding a trained model to desktop inference
+- [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for air-gapped registration of a trained `.pth` checkpoint into desktop inference
 - [`developer_guide.md`](developer_guide.md) for extension and contribution guidance
 
 Core planning and governance docs:

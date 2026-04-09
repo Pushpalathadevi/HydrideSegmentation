@@ -260,6 +260,220 @@ def svg_gui_model_integration() -> str:
     return "".join(parts)
 
 
+def svg_gui_model_integration_airgap_layout() -> str:
+    width, height = 1600, 760
+    parts = [
+        _header(
+            "Air-Gapped Model Handoff",
+            "Package on a connected machine, transfer by media, then validate locally on the isolated GUI PC.",
+            width,
+            height,
+        )
+    ]
+    parts.append(_panel(60, 92, 1480, 620, "Four-stage handoff"))
+
+    columns = [
+        (110, 170, 300, 430, "Connected training PC", "#f6ecd7", "#b28b3e"),
+        (445, 170, 300, 430, "Transfer media", "#eef5fb", "#5b7a99"),
+        (780, 170, 300, 430, "Air-gapped GUI PC", "#eef5fb", "#5b7a99"),
+        (1115, 170, 330, 430, "Desktop inference", "#eaf6ea", "#5d8d5d"),
+    ]
+    for x, y, w, h, title, fill, stroke in columns:
+        parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="22" ry="22" fill="{fill}" stroke="{stroke}" stroke-width="2"/>')
+        parts.append(
+            f'<text x="{x + w / 2}" y="{y + 34}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" '
+            f'font-size="20" font-weight="700" fill="#10263f">{escape(title)}</text>'
+        )
+
+    left_boxes = [
+        Box(135, 235, 250, 68, "best_checkpoint.pth", fill="#ffffff", size=19),
+        Box(135, 325, 250, 68, "training_manifest.json", fill="#ffffff", size=17),
+        Box(135, 415, 250, 68, "report.json\nclass map", fill="#ffffff", size=17),
+        Box(135, 505, 250, 68, "SHA256 checksum", fill="#ffffff", size=18),
+    ]
+    middle_boxes = [
+        Box(470, 235, 230, 68, "USB drive\nor offline share", fill="#ffffff", size=18),
+        Box(470, 325, 230, 68, "No internet\nrequired", fill="#ffffff", size=19),
+        Box(470, 415, 230, 68, "Copy once,\nverify once", fill="#ffffff", size=18),
+        Box(470, 505, 230, 68, "Keep the binary\nout of git", fill="#ffffff", size=18),
+    ]
+    airgap_boxes = [
+        Box(805, 235, 250, 68, "frozen_checkpoints/\ncandidates/my_unet_v1", fill="#ffffff", size=17),
+        Box(805, 325, 250, 68, "model_registry.local.json", fill="#ffffff", size=18),
+        Box(805, 415, 250, 68, "validate-registry\n--strict", fill="#ffffff", size=18),
+        Box(805, 505, 250, 68, "microseg-cli models\n--details", fill="#ffffff", size=17),
+    ]
+    desktop_boxes = [
+        Box(1140, 235, 270, 68, "Select model in GUI", fill="#ffffff", size=19),
+        Box(1140, 325, 270, 68, "Load image and run\nCLI smoke test", fill="#ffffff", size=17),
+        Box(1140, 415, 270, 68, "Inspect prediction,\noverlay, and metrics", fill="#ffffff", size=17),
+        Box(1140, 505, 270, 68, "Promote only after\nreview passes", fill="#ffffff", size=17),
+    ]
+    for box in left_boxes + middle_boxes + airgap_boxes + desktop_boxes:
+        parts.append(_box(box))
+
+    parts.append(_line(385, 269, 445, 269))
+    parts.append(_line(385, 359, 445, 359))
+    parts.append(_line(385, 449, 445, 449))
+    parts.append(_line(385, 539, 445, 539))
+    parts.append(_line(720, 269, 780, 269))
+    parts.append(_line(720, 359, 780, 359))
+    parts.append(_line(720, 449, 780, 449))
+    parts.append(_line(720, 539, 780, 539))
+    parts.append(_line(1055, 269, 1115, 269))
+    parts.append(_line(1055, 359, 1115, 359))
+    parts.append(_line(1055, 449, 1115, 449))
+    parts.append(_line(1055, 539, 1115, 539))
+    parts.append(_box(Box(540, 628, 520, 42, "Use repo-relative paths everywhere. The registry overlay is the only file the GUI needs to discover local-only models.", fill="#ffffff", stroke="#d8dfe8", size=15, weight=500)))
+    parts.append(_footer())
+    return "".join(parts)
+
+
+def svg_gui_model_integration_smoke_test() -> str:
+    width, height = 1600, 700
+    parts = [
+        _header(
+            "Model Smoke Test",
+            "CLI first, then GUI. The CLI proves the checkpoint loads; the GUI proves the workflow wiring.",
+            width,
+            height,
+        )
+    ]
+    parts.append(_panel(60, 92, 1480, 560, "Verification sequence"))
+    steps = [
+        (110, "1\nAdd registry entry", "#f6ecd7"),
+        (370, "2\nCheck discovery", "#eef5fb"),
+        (630, "3\nRun CLI inference", "#eef5fb"),
+        (890, "4\nInspect output folder", "#eef5fb"),
+        (1150, "5\nOpen GUI and rerun", "#eaf6ea"),
+    ]
+    for x, text, fill in steps:
+        parts.append(_box(Box(x, 200, 200, 112, text, fill=fill, size=22)))
+    for x1, x2 in zip([310, 570, 830, 1090], [370, 630, 890, 1150]):
+        parts.append(_line(x1, 256, x2, 256))
+
+    note_boxes = [
+        Box(120, 380, 360, 72, "Use the exact GUI display name\nfrom `microseg-cli models --details`.", fill="#ffffff", size=18),
+        Box(500, 380, 360, 72, "Expected run artifacts:\ninput.png, prediction.png, overlay.png", fill="#ffffff", size=17),
+        Box(880, 380, 360, 72, "Success means the mask loads back\ninto the desktop window.", fill="#ffffff", size=17),
+        Box(1260, 380, 220, 72, "If it fails,\ncheck the registry.", fill="#ffffff", size=18),
+    ]
+    for box in note_boxes:
+        parts.append(_box(box))
+
+    parts.append(_box(Box(160, 500, 320, 44, "CLI proof", fill="#eaf6ea", stroke="#5d8d5d", size=18)))
+    parts.append(_box(Box(540, 500, 320, 44, "Artifact proof", fill="#eaf6ea", stroke="#5d8d5d", size=18)))
+    parts.append(_box(Box(920, 500, 320, 44, "GUI proof", fill="#eaf6ea", stroke="#5d8d5d", size=18)))
+    parts.append(_box(Box(1300, 500, 160, 44, "Troubleshoot", fill="#f6ecd7", stroke="#b28b3e", size=18)))
+    parts.append(_footer())
+    return "".join(parts)
+
+
+def svg_gui_model_integration_troubleshooting() -> str:
+    width, height = 1600, 740
+    parts = [
+        _header(
+            "Troubleshooting Map",
+            "Start from the symptom, then check the likely cause and the first fix to try.",
+            width,
+            height,
+        )
+    ]
+    parts.append(_panel(60, 92, 1480, 600, "Common failure paths"))
+    headers = [
+        (110, "Symptom", "#f6ecd7"),
+        (650, "Likely cause", "#eef5fb"),
+        (1150, "First fix", "#eaf6ea"),
+    ]
+    for x, text, fill in headers:
+        parts.append(_box(Box(x, 150, 300, 58, text, fill=fill, size=22)))
+
+    rows = [
+        (
+            "Model missing in the GUI",
+            "Registry overlay is absent,\ninvalid, or the app was not restarted.",
+            "Run `microseg-cli models --details`,\nthen restart the GUI after fixing the JSON.",
+        ),
+        (
+            "Validator reports unsupported architecture",
+            "`model_type` does not match\na loader token such as `unet_binary`.",
+            "Change the registry entry to a supported\ntoken from `trained_model_loader.py`.",
+        ),
+        (
+            "CLI works but GUI still looks wrong",
+            "Wrong model label, stale build,\nor preprocessing/class mapping mismatch.",
+            "Smoke-test the exact display name in CLI,\nthen compare the checkpoint and class map.",
+        ),
+        (
+            "Prediction is all background or nonsense",
+            "The checkpoint was trained for a different\nmodality or label order.",
+            "Confirm `classes`, input normalization,\nand image modality before promotion.",
+        ),
+    ]
+    y_positions = [230, 332, 434, 536]
+    for y, (symptom, cause, fix) in zip(y_positions, rows):
+        parts.append(_box(Box(110, y, 300, 74, symptom, fill="#ffffff", size=18)))
+        parts.append(_box(Box(650, y, 430, 74, cause, fill="#ffffff", size=16, weight=500)))
+        parts.append(_box(Box(1150, y, 330, 74, fix, fill="#ffffff", size=16, weight=500)))
+        parts.append(_line(410, y + 37, 650, y + 37))
+        parts.append(_line(1080, y + 37, 1150, y + 37))
+
+    parts.append(_box(Box(220, 646, 1160, 42, "When in doubt: verify the registry, run the CLI smoke test, then open the GUI.", fill="#f8fbff", stroke="#a9bfd4", size=18, weight=500)))
+    parts.append(_footer())
+    return "".join(parts)
+
+
+def svg_gui_sidebar_redesign_comparison() -> str:
+    width, height = 1600, 720
+    parts = [
+        _header(
+            "GUI Sidebar Redesign",
+            "Left: the earlier cramped control rail. Right: the grouped layout with clearer spacing and hierarchy.",
+            width,
+            height,
+        )
+    ]
+    parts.append(_panel(60, 92, 1480, 620, "Before vs after"))
+    parts.append(_panel(95, 150, 650, 500, "Before", fill="#fff7f2", stroke="#d69b7a"))
+    parts.append(_panel(855, 150, 650, 500, "After", fill="#f3faf3", stroke="#7ca67c"))
+
+    parts.append(_box(Box(125, 208, 570, 52, "Tiny single-row controls, long labels clipped, many competing actions", fill="#ffffff", stroke="#e0b89f", size=17, weight=500)))
+    cramped = [
+        (130, 300, 86, "Tool"),
+        (226, 300, 86, "Mode"),
+        (322, 300, 86, "Class"),
+        (418, 300, 86, "Brush"),
+        (514, 300, 86, "Undo"),
+        (610, 300, 86, "+"),
+        (130, 370, 150, "Export Batch"),
+        (290, 370, 170, "Export Corrected"),
+        (470, 370, 160, "Save / Load"),
+        (130, 440, 570, 72, "Advanced report options, metrics, and session buttons all stacked into one narrow rail",),
+    ]
+    for item in cramped:
+        if len(item) == 4:
+            x, y, w, text = item
+            parts.append(_box(Box(x, y, w, 44, text, fill="#ffffff", size=15)))
+        else:
+            x, y, w, h, text = item
+            parts.append(_box(Box(x, y, w, h, text, fill="#ffffff", size=15)))
+
+    parts.append(_box(Box(885, 208, 570, 52, "Grouped into readable cards with two-column actions and more air", fill="#ffffff", stroke="#b8d8b8", size=17, weight=500)))
+    parts.append(_panel(900, 282, 540, 108, "Quick start"))
+    parts.append(_box(Box(930, 326, 210, 36, "Image path + Load", fill="#eef5fb", size=15)))
+    parts.append(_box(Box(1150, 326, 230, 36, "Sample + Model", fill="#eef5fb", size=15)))
+    parts.append(_panel(900, 404, 540, 112, "Correction tools"))
+    parts.append(_box(Box(930, 448, 150, 36, "Tool / Mode", fill="#eef5fb", size=15)))
+    parts.append(_box(Box(1090, 448, 150, 36, "Class / Brush", fill="#eef5fb", size=15)))
+    parts.append(_box(Box(1250, 448, 160, 36, "Undo / Redo", fill="#eef5fb", size=15)))
+    parts.append(_panel(900, 526, 540, 92, "Export + session"))
+    parts.append(_box(Box(930, 564, 160, 30, "Export", fill="#eaf6ea", size=14)))
+    parts.append(_box(Box(1100, 564, 160, 30, "Save", fill="#eaf6ea", size=14)))
+    parts.append(_box(Box(1270, 564, 140, 30, "Load", fill="#eaf6ea", size=14)))
+    parts.append(_footer())
+    return "".join(parts)
+
+
 def svg_workflow_roadmap() -> str:
     width, height = 1600, 740
     parts = [_header("Deployment And Productization Roadmap", "Build-and-gate on the left, deploy-and-learn on the right.", width, height)]
@@ -515,6 +729,10 @@ def main() -> None:
         "model_selection_decision_tree.svg": svg_model_selection(),
         "conventional_segmentation_pipeline.svg": svg_conventional_pipeline(),
         "gui_model_integration_guide.svg": svg_gui_model_integration(),
+        "gui_model_integration_airgap_layout.svg": svg_gui_model_integration_airgap_layout(),
+        "gui_model_integration_smoke_test.svg": svg_gui_model_integration_smoke_test(),
+        "gui_model_integration_troubleshooting.svg": svg_gui_model_integration_troubleshooting(),
+        "gui_sidebar_redesign_comparison.svg": svg_gui_sidebar_redesign_comparison(),
         "deployment_productization_master_roadmap.svg": svg_workflow_roadmap(),
         "model_architecture_manuscript_foundation.svg": svg_model_architecture(),
         "code_architecture_map.svg": svg_code_architecture_map(),

@@ -104,6 +104,20 @@ Batch export:
 - Each image viewport includes its own zoom controls, plus Ctrl+mouse-wheel zoom and drag-based scrolling.
 - The application restores or clamps its window size so it stays on-screen on single or dual-monitor setups.
 
+## Sidebar Redesign
+
+The left control rail now uses grouped cards instead of a dense button strip:
+
+![Sidebar redesign comparison](diagrams/gui_sidebar_redesign_comparison.svg)
+
+The revised layout puts the most common actions first:
+
+- quick start: load image, sample, and model selection
+- correction tools: interaction, overlay, and feedback controls
+- export and session: output packaging and persistence
+
+The goal is to keep the controls readable without forcing the image workspace to become too narrow.
+
 ## Results Dashboard
 
 `Results Dashboard` provides:
@@ -212,6 +226,8 @@ The model description area now includes metadata pulled from `frozen_checkpoints
 This helps users select the right model for optical/TEM or other microstructural contexts.
 Smoke-stage models are debug-only and are not intended for scientific reporting.
 
+For a step-by-step beginner tutorial on copying a trained `.pth` checkpoint into the GUI workflow on an air-gapped machine, see [`docs/gui_model_integration_guide.md`](gui_model_integration_guide.md).
+
 ## Sample Onboarding And Logs
 
 - Bundled sample images are available from:
@@ -242,3 +258,4 @@ When troubleshooting model loading:
 2. confirm checkpoint file exists at declared `model_path`
 3. confirm architecture is one of the supported trainable families
 4. verify required backend dependencies are installed (for example `transformers` for HF backends)
+5. for local-only checkpoints, confirm the registry overlay and GUI model label match the copied file

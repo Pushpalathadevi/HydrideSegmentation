@@ -20,6 +20,10 @@ If you are new to the project, read these in order:
 
 That sequence goes from purpose, to vocabulary, to guided practice, to method choice, to interpretation.
 
+If your immediate task is to use a trained checkpoint in the GUI on an air-gapped machine, jump to
+[`gui_model_integration_guide.md`](gui_model_integration_guide.md) after the mission statement and
+documentation principles. That page is the shortest path from `.pth` file to desktop inference.
+
 ## First Practical Workflow
 
 Use this sequence when you want your first successful run:
@@ -34,6 +38,9 @@ Use this sequence when you want your first successful run:
 
 This order prevents the common mistake of tuning a complex model before you understand the baseline.
 If you want a lower-risk sandbox before opening the GUI, start with the student notebooks and work through the sample data there first.
+
+If the thing you are trying to do is not training but simply getting a new `.pth` checkpoint into the GUI, use
+[`gui_model_integration_guide.md`](gui_model_integration_guide.md) as your operational guide and keep this page as the general study map.
 
 ## What Students Should Look For
 
