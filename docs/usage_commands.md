@@ -100,6 +100,70 @@ microseg-cli infer \
 
 Outputs are written under a dedicated run folder and include the input image, predicted mask, overlays, metrics, and a manifest.
 
+Run recursive folder inference (CLI) with machine-ingestible outputs:
+
+```bash
+microseg-cli infer \
+  --config configs/inference.default.yml \
+  --image-dir data/sample_images \
+  --recursive \
+  --glob-patterns "*.png,*.tif,*.tiff,*.jpg,*.jpeg"
+```
+
+Folder-mode export now writes:
+
+- `batch_results_summary.json` (machine-ingestible summary)
+- `batch_results_report.html` (input/mask/overlay per-row + key metrics)
+- `batch_metrics.csv`
+- `artifacts_manifest.json` (sha256 + size for generated artifacts)
+- `preview_images/` thumbnails for report rows
+- `runs/` per-image run folders (`input.png`, `prediction.png`, `overlay.png`, `metrics.json`, `manifest.json`)
+
+Recommended config keys for folder mode:
+
+```yaml
+image_dir: data/sample_images
+recursive: true
+glob_patterns: "*.png,*.tif,*.tiff,*.jpg,*.jpeg"
+model_name: Hydride Conventional
+output_dir: outputs/inference
+```
+
+### CLI import-error troubleshooting (`src` package not found)
+
+If you see errors like `ModuleNotFoundError: No module named 'src'`, use one of these supported run paths:
+
+1. **Install editable package (recommended):**
+
+```bash
+python -m pip install -e .
+microseg-cli infer --config configs/inference.default.yml --image test_data/syntheticHydrides.png
+```
+
+2. **Run module form from repository root:**
+
+```bash
+python -m scripts.microseg_cli infer --config configs/inference.default.yml --image test_data/syntheticHydrides.png
+```
+
+3. **Set `PYTHONPATH` explicitly (shell session only):**
+
+```bash
+export PYTHONPATH="$PWD:$PYTHONPATH"
+microseg-cli models --details
+```
+
+Verification checklist:
+
+- confirm current directory is repository root (`pwd`)
+- confirm interpreter is expected (`which python`)
+- confirm CLI entry point resolves (`which microseg-cli`)
+- smoke check imports:
+
+```bash
+python -c "import src.microseg, scripts.microseg_cli; print('ok')"
+```
+
 If you are integrating a new trained model into the GUI, review:
 
 - [`docs/gui_model_integration_guide.md`](gui_model_integration_guide.md)

@@ -966,6 +966,23 @@ class DesktopResultExporter:
         summary_path = batch_dir / "batch_results_summary.json"
         summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
 
+        preview_dir = batch_dir / "preview_images"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+        for idx, run in enumerate(runs, start=1):
+            stem = f"{idx:04d}_{Path(run.image_name).stem}"
+            input_path = preview_dir / f"{stem}_input.png"
+            mask_path = preview_dir / f"{stem}_mask.png"
+            overlay_path = preview_dir / f"{stem}_overlay.png"
+            run.input_image.save(input_path)
+            run.mask_image.save(mask_path)
+            run.overlay_image.save(overlay_path)
+            if idx - 1 < len(summary_payload["rows"]):
+                summary_payload["rows"][idx - 1]["input_preview_path"] = _to_rel(input_path, batch_dir)
+                summary_payload["rows"][idx - 1]["mask_preview_path"] = _to_rel(mask_path, batch_dir)
+                summary_payload["rows"][idx - 1]["overlay_preview_path"] = _to_rel(overlay_path, batch_dir)
+
+        summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+
         if bool(cfg.write_csv_report):
             csv_path = batch_dir / "batch_metrics.csv"
             all_fields: list[str] = []
@@ -987,6 +1004,29 @@ class DesktopResultExporter:
             pdf_path = batch_dir / "batch_results_report.pdf"
             self._write_batch_pdf(pdf_path=pdf_path, payload=summary_payload)
 
+        if bool(cfg.include_artifact_manifest):
+            rows_manifest: list[dict[str, Any]] = []
+            for path in sorted(p for p in batch_dir.rglob("*") if p.is_file() and p.name != "artifacts_manifest.json"):
+                rows_manifest.append(
+                    {
+                        "path": _to_rel(path, batch_dir),
+                        "size_bytes": int(path.stat().st_size),
+                        "sha256": _sha256_file(path),
+                    }
+                )
+            (batch_dir / "artifacts_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "microseg.desktop_batch_artifacts_manifest.v1",
+                        "created_utc": _utc_now(),
+                        "file_count": len(rows_manifest),
+                        "files": rows_manifest,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
         return batch_dir
 
     @staticmethod
@@ -998,14 +1038,30 @@ class DesktopResultExporter:
             if not isinstance(row, dict):
                 continue
             for key in row.keys():
+                if key in {"input_preview_path", "mask_preview_path", "overlay_preview_path"}:
+                    continue
                 if key not in header_fields:
                     header_fields.append(key)
         run_rows = []
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict):
                 continue
+            metric_bits = []
+            for key in (
+                "corrected_hydride_area_fraction_percent",
+                "predicted_hydride_area_fraction_percent",
+                "corrected_hydride_count",
+                "predicted_hydride_count",
+            ):
+                if key in row:
+                    metric_bits.append(f"{html.escape(key)}={html.escape(_fmt_metric(row.get(key, '')))}")
+            metrics_inline = "<br/>".join(metric_bits) if metric_bits else "n/a"
             run_rows.append(
                 "<tr>"
+                f"<td><img src='{html.escape(str(row.get('input_preview_path', '')))}' alt='input' style='max-width:220px;max-height:140px;'/></td>"
+                f"<td><img src='{html.escape(str(row.get('mask_preview_path', '')))}' alt='mask' style='max-width:220px;max-height:140px;'/></td>"
+                f"<td><img src='{html.escape(str(row.get('overlay_preview_path', '')))}' alt='overlay' style='max-width:220px;max-height:140px;'/></td>"
+                f"<td>{metrics_inline}</td>"
                 + "".join(f"<td>{html.escape(_fmt_metric(row.get(k, '')))}</td>" for k in header_fields)
                 + "</tr>"
             )
@@ -1046,6 +1102,7 @@ class DesktopResultExporter:
             f"<tbody>{''.join(agg_rows) if agg_rows else '<tr><td colspan=7>n/a</td></tr>'}</tbody></table>"
             "<h2>Run Rows</h2>"
             "<table><thead><tr>"
+            "<th>Input</th><th>Mask</th><th>Overlay</th><th>Key Stats</th>"
             + "".join(f"<th>{html.escape(field)}</th>" for field in header_fields)
             + "</tr></thead><tbody>"
             + ("".join(run_rows) if run_rows else "<tr><td>n/a</td></tr>")

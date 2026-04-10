@@ -59,6 +59,13 @@ Feedback analysis in GUI:
 
 ## Quick Start (CLI)
 
+Environment/bootstrap (recommended before running GA commands):
+
+```bash
+python -m pip install -e .
+microseg-cli models --details
+```
+
 ```bash
 microseg-cli hpc-ga-generate \
   --config configs/hpc_ga.default.yml \
@@ -96,6 +103,15 @@ microseg-cli hpc-ga-feedback-report \
   --config configs/hpc_ga.default.yml \
   --feedback-sources outputs/hpc_ga_bundle_a,outputs/hpc_ga_bundle_b \
   --output-path outputs/hpc_ga_feedback/feedback_report.json
+```
+
+If CLI import errors occur (`No module named src`), run from repo root using module form:
+
+```bash
+python -m scripts.microseg_cli hpc-ga-generate \
+  --config configs/hpc_ga.default.yml \
+  --dataset-dir outputs/prepared_dataset \
+  --output-dir outputs/hpc_ga_bundle
 ```
 
 ## Upload And Run On HPC

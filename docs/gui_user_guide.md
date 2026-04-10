@@ -81,6 +81,29 @@ Report customization controls:
 Batch export:
 - `Export Batch Summary` (menu/button) exports selected history runs or all runs if none selected.
 - outputs: `batch_results_summary.json`, `batch_results_report.html`, optional `batch_results_report.pdf`, `batch_metrics.csv`
+- batch summary now also includes `artifacts_manifest.json` and `preview_images/` for row-by-row visual inspection.
+
+## Recursive Folder Inference (GUI + CLI parity)
+
+`Run Batch` supports folder-first operation:
+
+1. Click `Run Batch`.
+2. Select an input folder (or cancel to fall back to manual file selection).
+3. The app scans recursively (default) for configured image globs (`*.png`, `*.jpg`, `*.jpeg`, `*.tif`, `*.tiff`, `*.bmp`).
+4. Each discovered image is inferred and added to history with full per-run provenance.
+
+The exported batch HTML includes one aligned row per image with:
+
+- input image preview
+- predicted mask preview
+- overlay preview
+- key scalar metrics (including hydride area fraction/count when available)
+
+GUI-native batch summary inspector:
+
+- open from `File -> Open Batch Results Summary...` or `Results Dashboard -> Open Batch Summary`
+- load any exported `batch_results_summary.json`
+- inspect aggregate batch summary at top, select per-image rows on the left, and review large input/mask/overlay panels with detailed per-image statistics on the right
 
 ## Session Persistence
 
