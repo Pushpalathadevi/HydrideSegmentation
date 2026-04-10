@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from src.microseg.domain import SegmentationRequest
 from src.microseg.inference import build_hydride_registry
 from src.microseg.plugins import frozen_checkpoint_map
@@ -29,7 +31,7 @@ def get_gui_model_specs() -> list[dict[str, str]]:
         frozen = frozen_checkpoint_map()
     except Exception:
         frozen = {}
-    return [
+    gui_specs = [
         {
             "model_id": spec.model_id,
             "display_name": spec.display_name,
@@ -53,7 +55,32 @@ def get_gui_model_specs() -> list[dict[str, str]]:
         }
         for spec in specs
     ]
-
+    if "hydride_ml" in frozen and not any(spec["model_id"] == "hydride_ml_Unet" for spec in gui_specs):
+        legacy = dict(asdict(frozen["hydride_ml"]))
+        gui_specs.append(
+            {
+                "model_id": "hydride_ml_Unet",
+                "display_name": "Registry: legacy hydride_ml_Unet",
+                "feature_family": "hydride",
+                "description": "Legacy UNet-compatible frozen-checkpoint alias",
+                "details": "Compatibility alias for historical GUI/export records that referenced hydride_ml_Unet.",
+                "model_nickname": str(legacy.get("model_nickname", "")),
+                "model_type": str(legacy.get("model_type", "")),
+                "framework": str(legacy.get("framework", "")),
+                "input_size": str(legacy.get("input_size", "")),
+                "input_dimensions": str(legacy.get("input_dimensions", "")),
+                "checkpoint_path_hint": str(legacy.get("checkpoint_path_hint", "")),
+                "application_remarks": str(legacy.get("application_remarks", "")),
+                "short_description": str(legacy.get("short_description", "")),
+                "detailed_description": str(legacy.get("detailed_description", "")),
+                "artifact_stage": str(legacy.get("artifact_stage", "")),
+                "source_run_manifest": str(legacy.get("source_run_manifest", "")),
+                "quality_report_path": str(legacy.get("quality_report_path", "")),
+                "file_sha256": str(legacy.get("file_sha256") or "metadata-unavailable"),
+                "file_size_bytes": str(legacy.get("file_size_bytes") or "unknown"),
+            }
+        )
+    return gui_specs
 
 def resolve_gui_model_id(model_name: str) -> str:
     """Resolve a GUI model label (new or legacy) to a model identifier."""

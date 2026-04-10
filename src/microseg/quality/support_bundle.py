@@ -176,11 +176,20 @@ def create_support_bundle(config: SupportBundleConfig) -> SupportBundleResult:
     collected: list[dict[str, Any]] = []
     missing: list[str] = []
     for path in _candidate_artifacts(run_root):
-        rel = path.name if path.is_file() else path.name
+        try:
+            rel = path.relative_to(run_root)
+        except ValueError:
+            rel = Path(path.name)
         dst = bundle_dir / "artifacts" / rel
         try:
             _copy_path(path, dst)
-            collected.append({"source": str(path), "dest": str(dst), "is_dir": bool(path.is_dir())})
+            collected.append(
+                {
+                    "source": rel.as_posix(),
+                    "dest": str(dst),
+                    "is_dir": bool(path.is_dir()),
+                }
+            )
         except Exception as exc:
             missing.append(f"{path} ({exc})")
 

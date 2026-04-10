@@ -1,7 +1,22 @@
 from setuptools import setup, find_packages
 
-with open('requirements.txt') as f:
-    requirements = [line.strip() for line in f if line.strip()]
+
+def _load_requirements(path: str) -> list[str]:
+    requirements: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("-r "):
+                nested = line[3:].strip()
+                requirements.extend(_load_requirements(nested))
+                continue
+            requirements.append(line)
+    return requirements
+
+
+requirements = _load_requirements("requirements.txt")
 
 setup(
     name='hydride-segmentation',

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -276,14 +277,18 @@ class ZoomableImageViewport(QWidget):
         root.addWidget(self.scroll_area, stretch=1)
 
     def eventFilter(self, obj, event):  # noqa: D401, N802
-        if obj is self.scroll_area.viewport() and event.type() == QEvent.Wheel:
+        try:
+            viewport = self.scroll_area.viewport()
+        except RuntimeError:
+            return False
+        if obj is viewport and event.type() == QEvent.Wheel:
             if event.modifiers() & Qt.ControlModifier:
                 if event.angleDelta().y() > 0:
                     self.zoom_in()
                 else:
                     self.zoom_out()
                 return True
-        if obj is self.scroll_area.viewport() and event.type() in (QEvent.Resize, QEvent.Show) and self._fit_mode:
+        if obj is viewport and event.type() in (QEvent.Resize, QEvent.Show) and self._fit_mode:
             QTimer.singleShot(0, self._apply_fit_zoom)
         return super().eventFilter(obj, event)
 
