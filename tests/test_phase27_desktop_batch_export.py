@@ -63,11 +63,16 @@ def test_phase27_batch_export_outputs(tmp_path: Path) -> None:
     assert (out_dir / "batch_results_summary.json").exists()
     assert (out_dir / "batch_results_report.html").exists()
     assert (out_dir / "batch_metrics.csv").exists()
+    assert (out_dir / "artifacts_manifest.json").exists()
+    assert (out_dir / "preview_images").exists()
     assert not (out_dir / "batch_results_report.pdf").exists()
 
     payload = json.loads((out_dir / "batch_results_summary.json").read_text(encoding="utf-8"))
     assert payload["schema_version"] == "microseg.desktop_batch_results.v1"
     assert int(payload["run_count"]) == 2
     assert len(payload["rows"]) == 2
+    assert all(str(row.get("input_preview_path", "")).startswith("preview_images/") for row in payload["rows"])
+    assert all(str(row.get("mask_preview_path", "")).startswith("preview_images/") for row in payload["rows"])
+    assert all(str(row.get("overlay_preview_path", "")).startswith("preview_images/") for row in payload["rows"])
     assert payload["aggregate_metrics"]
     assert "Hydride" in next(iter(payload["model_counts"].keys()))

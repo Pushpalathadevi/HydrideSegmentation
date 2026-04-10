@@ -350,6 +350,187 @@ class ZoomableImageViewport(QWidget):
         self.zoom_label.setText(f"{int(round(self._zoom * 100))}%")
 
 
+class BatchResultsInspectorDialog(QDialog):
+    """Interactive viewer for batch_results_summary exports."""
+
+    def __init__(self, summary_path: str | Path, parent=None) -> None:
+        super().__init__(parent)
+        self.summary_path = Path(summary_path).expanduser().resolve()
+        self.batch_root = self.summary_path.parent
+        self.payload = self._load_summary()
+        self.rows: list[dict[str, object]] = [
+            row for row in self.payload.get("rows", []) if isinstance(row, dict)
+        ]
+        self.setWindowTitle(f"Batch Results Inspector — {self.summary_path.name}")
+        self.resize(1520, 920)
+
+        root = QVBoxLayout(self)
+        self.summary_label = QLabel(self._summary_text())
+        self.summary_label.setWordWrap(True)
+        root.addWidget(self.summary_label)
+
+        main_split = QSplitter(Qt.Horizontal)
+        root.addWidget(main_split, stretch=1)
+
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.addWidget(QLabel("Per-image runs"))
+        self.rows_table = QTableWidget(0, 5)
+        self.rows_table.setHorizontalHeaderLabels(["Image", "Model", "Area % (corr)", "Count (corr)", "Run ID"])
+        self.rows_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.rows_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.rows_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.rows_table.horizontalHeader().setStretchLastSection(True)
+        self.rows_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        left_layout.addWidget(self.rows_table, stretch=1)
+        main_split.addWidget(left)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        self.preview_split = QSplitter(Qt.Horizontal)
+        self.input_view = ZoomableImageViewport("Input")
+        self.mask_view = ZoomableImageViewport("Mask")
+        self.overlay_view = ZoomableImageViewport("Overlay")
+        self.preview_split.addWidget(self.input_view)
+        self.preview_split.addWidget(self.mask_view)
+        self.preview_split.addWidget(self.overlay_view)
+        right_layout.addWidget(self.preview_split, stretch=4)
+
+        self.detail_text = QPlainTextEdit()
+        self.detail_text.setReadOnly(True)
+        self.detail_text.setPlaceholderText("Select a run row to view per-image statistics and provenance.")
+        right_layout.addWidget(self.detail_text, stretch=2)
+        main_split.addWidget(right)
+        main_split.setSizes([460, 1060])
+        self.preview_split.setSizes([360, 360, 360])
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        root.addWidget(buttons)
+
+        self._populate_rows_table()
+        self.rows_table.itemSelectionChanged.connect(self._on_selection_changed)
+        if self.rows:
+            self.rows_table.selectRow(0)
+            self._show_row(0)
+
+    def _load_summary(self) -> dict[str, object]:
+        if not self.summary_path.exists():
+            raise FileNotFoundError(f"summary JSON not found: {self.summary_path}")
+        payload = json.loads(self.summary_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError(f"summary JSON must be object: {self.summary_path}")
+        return payload
+
+    def _summary_text(self) -> str:
+        aggregate = self.payload.get("aggregate_metrics", [])
+        aggregate_rows = [row for row in aggregate if isinstance(row, dict)]
+        top_metrics = []
+        for row in aggregate_rows[:4]:
+            top_metrics.append(
+                f"{row.get('metric', '')}: mean={row.get('mean', '')} median={row.get('median', '')}"
+            )
+        top_line = " | ".join(top_metrics) if top_metrics else "n/a"
+        return (
+            f"Batch ID: {self.payload.get('batch_id', '')}    "
+            f"Runs: {self.payload.get('run_count', 0)}    "
+            f"Annotator: {self.payload.get('annotator', '')}\n"
+            f"Summary: {top_line}"
+        )
+
+    @staticmethod
+    def _as_display(value: object) -> str:
+        if isinstance(value, float):
+            return f"{value:.6g}"
+        if value is None:
+            return ""
+        return str(value)
+
+    def _row_metric(self, row: dict[str, object], key: str, fallback: str = "") -> str:
+        if key in row:
+            return self._as_display(row.get(key))
+        if fallback and fallback in row:
+            return self._as_display(row.get(fallback))
+        return ""
+
+    def _populate_rows_table(self) -> None:
+        self.rows_table.setRowCount(len(self.rows))
+        for idx, row in enumerate(self.rows):
+            values = [
+                str(row.get("image_name", row.get("image_path", ""))),
+                str(row.get("model_name", "")),
+                self._row_metric(row, "corrected_hydride_area_fraction_percent", "predicted_hydride_area_fraction_percent"),
+                self._row_metric(row, "corrected_hydride_count", "predicted_hydride_count"),
+                str(row.get("run_id", "")),
+            ]
+            for col, value in enumerate(values):
+                self.rows_table.setItem(idx, col, QTableWidgetItem(value))
+
+    def _resolve_image_path(self, row: dict[str, object], key: str, fallback_name: str) -> Path | None:
+        rel = str(row.get(key, "")).strip()
+        if rel:
+            path = (self.batch_root / rel).resolve()
+            if path.exists():
+                return path
+        run_id = str(row.get("run_id", "")).strip()
+        if run_id:
+            run_dirs = sorted((self.batch_root / "runs").glob(f"*_{run_id}"))
+            if run_dirs:
+                candidate = run_dirs[0] / fallback_name
+                if candidate.exists():
+                    return candidate.resolve()
+        return None
+
+    def _set_view_from_path(self, view: ZoomableImageViewport, image_path: Path | None) -> None:
+        if image_path is None:
+            view.image_label.setText("n/a")
+            view.zoom_label.setText("0%")
+            return
+        try:
+            with Image.open(image_path) as img:
+                view.set_image(np.array(img))
+        except Exception:
+            view.image_label.setText(f"Failed to load\n{image_path.name}")
+            view.zoom_label.setText("0%")
+
+    def _on_selection_changed(self) -> None:
+        rows = self.rows_table.selectionModel().selectedRows()
+        if not rows:
+            return
+        self._show_row(int(rows[0].row()))
+
+    def _show_row(self, idx: int) -> None:
+        if idx < 0 or idx >= len(self.rows):
+            return
+        row = self.rows[idx]
+        input_path = self._resolve_image_path(row, "input_preview_path", "input.png")
+        mask_path = self._resolve_image_path(row, "mask_preview_path", "prediction.png")
+        overlay_path = self._resolve_image_path(row, "overlay_preview_path", "overlay.png")
+        self._set_view_from_path(self.input_view, input_path)
+        self._set_view_from_path(self.mask_view, mask_path)
+        self._set_view_from_path(self.overlay_view, overlay_path)
+
+        metric_lines = []
+        for key in sorted(k for k in row.keys() if str(k).startswith(("predicted_", "corrected_"))):
+            metric_lines.append(f"{key}: {self._as_display(row.get(key))}")
+        detail = [
+            f"image_name: {row.get('image_name', '')}",
+            f"image_path: {row.get('image_path', '')}",
+            f"run_id: {row.get('run_id', '')}",
+            f"model_name: {row.get('model_name', '')}",
+            f"model_id: {row.get('model_id', '')}",
+            f"started_utc: {row.get('started_utc', '')}",
+            f"finished_utc: {row.get('finished_utc', '')}",
+            "",
+            "metrics:",
+            *metric_lines,
+        ]
+        self.detail_text.setPlainText("\n".join(detail))
+
+
 class CalibrationLineCanvas(QLabel):
     """Simple interactive canvas for drawing one calibration line."""
 
@@ -1486,6 +1667,9 @@ class QtSegmentationMainWindow(QMainWindow):
         act_export_batch_results = QAction("Export Batch Summary", self)
         act_export_batch_results.triggered.connect(self.on_export_batch_results)
         file_menu.addAction(act_export_batch_results)
+        act_open_batch_results = QAction("Open Batch Results Summary...", self)
+        act_open_batch_results.triggered.connect(self.on_open_batch_results_summary)
+        file_menu.addAction(act_open_batch_results)
 
         act_export = QAction("Export Corrected Sample", self)
         act_export.triggered.connect(self.on_export_correction)
@@ -2151,6 +2335,9 @@ class QtSegmentationMainWindow(QMainWindow):
         self.btn_results_export = QPushButton("Export Results")
         self.btn_results_export.clicked.connect(self.on_export_results_package)
         results_controls.addWidget(self.btn_results_export)
+        self.btn_results_open_batch = QPushButton("Open Batch Summary")
+        self.btn_results_open_batch.clicked.connect(self.on_open_batch_results_summary)
+        results_controls.addWidget(self.btn_results_open_batch)
         results_controls.addStretch(1)
 
         self.results_summary_label = QLabel("Results: run segmentation to populate dashboard")
@@ -4620,12 +4807,27 @@ class QtSegmentationMainWindow(QMainWindow):
             QMessageBox.critical(self, "Segmentation Error", str(exc))
 
     def on_run_batch(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select batch images",
-            "",
-            "Images (*.png *.jpg *.jpeg *.tif *.tiff *.bmp)",
-        )
+        selected_dir = QFileDialog.getExistingDirectory(self, "Select input folder for recursive batch inference")
+        if not selected_dir:
+            paths, _ = QFileDialog.getOpenFileNames(
+                self,
+                "Select batch images",
+                "",
+                "Images (*.png *.jpg *.jpeg *.tif *.tiff *.bmp)",
+            )
+        else:
+            cfg = self._resolve_run_config()
+            recursive = bool(cfg.get("recursive", True))
+            patterns_text = str(cfg.get("glob_patterns", "*.png,*.jpg,*.jpeg,*.tif,*.tiff,*.bmp"))
+            patterns = [item.strip() for item in patterns_text.replace("|", ",").split(",") if item.strip()]
+            root = Path(selected_dir)
+            scanner = root.rglob if recursive else root.glob
+            found: list[str] = []
+            for pattern in patterns:
+                for path in scanner(pattern):
+                    if path.is_file():
+                        found.append(str(path))
+            paths = sorted(set(found))
         if not paths:
             return
         self.state.image_path = str(paths[0])
@@ -5076,9 +5278,29 @@ class QtSegmentationMainWindow(QMainWindow):
                 ",".join(self._selected_report_sections()),
             )
             QMessageBox.information(self, "Batch Results Exported", f"Saved batch results package:\n{export_dir}")
+            self._open_batch_results_summary_path(Path(export_dir) / "batch_results_summary.json")
         except Exception as exc:
             self.logger.exception("Batch results package export failed")
             QMessageBox.critical(self, "Batch Results Export Error", str(exc))
+
+    def _open_batch_results_summary_path(self, summary_path: Path) -> None:
+        try:
+            dialog = BatchResultsInspectorDialog(summary_path, parent=self)
+            dialog.exec()
+        except Exception as exc:
+            self.logger.exception("Failed to open batch results summary: %s", summary_path)
+            QMessageBox.critical(self, "Batch Summary Viewer Error", str(exc))
+
+    def on_open_batch_results_summary(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open batch_results_summary.json",
+            "",
+            "JSON (*.json)",
+        )
+        if not path:
+            return
+        self._open_batch_results_summary_path(Path(path))
 
     def on_open_appearance_settings(self) -> None:
         dialog = AppearanceExportSettingsDialog(

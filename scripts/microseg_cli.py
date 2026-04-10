@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.microseg.app.desktop_workflow import DesktopWorkflowManager
+from src.microseg.app.desktop_result_export import DesktopResultExportConfig, DesktopResultExporter
 from src.microseg.app.hpc_ga import (
     HpcGaPlanConfig,
     generate_hpc_ga_bundle,
@@ -188,11 +189,56 @@ def _build_dataset_prepare_config(
     )
 
 
+def _collect_inference_images(
+    *,
+    image: str | None,
+    image_dir: str | None,
+    glob_patterns: list[str],
+    recursive: bool,
+) -> list[Path]:
+    candidates: list[Path] = []
+    if str(image or "").strip():
+        candidates.append(Path(str(image)).expanduser().resolve())
+    if str(image_dir or "").strip():
+        root = Path(str(image_dir)).expanduser().resolve()
+        if not root.exists():
+            raise FileNotFoundError(f"image directory does not exist: {root}")
+        if not root.is_dir():
+            raise NotADirectoryError(f"image directory is not a directory: {root}")
+        patterns = [p.strip() for p in glob_patterns if p and p.strip()]
+        if not patterns:
+            patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]
+        scanner = root.rglob if recursive else root.glob
+        for pattern in patterns:
+            candidates.extend(scanner(pattern))
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in sorted(candidates):
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file():
+            unique.append(path)
+    return unique
+
+
 def _infer(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     image_path = args.image or cfg.get("image_path")
-    if not image_path:
-        raise ValueError("image path is required (--image or config:image_path)")
+    image_dir = args.image_dir or cfg.get("image_dir")
+    recursive = bool(cfg.get("recursive", args.recursive))
+    patterns = _parse_name_list(cfg.get("glob_patterns", args.glob_patterns))
+    image_paths = _collect_inference_images(
+        image=str(image_path) if image_path else None,
+        image_dir=str(image_dir) if image_dir else None,
+        glob_patterns=patterns,
+        recursive=recursive,
+    )
+    if not image_paths:
+        raise ValueError(
+            "no input images found; set --image or --image-dir (with optional --glob-patterns/--recursive)"
+        )
 
     model_name = args.model_name or cfg.get("model_name")
     if not model_name:
@@ -205,27 +251,36 @@ def _infer(args: argparse.Namespace) -> int:
     params["device_policy"] = str(cfg.get("device_policy", args.device_policy))
 
     mgr = DesktopWorkflowManager()
-    record = mgr.run_single(
-        str(image_path),
+    records = mgr.run_batch(
+        [str(p) for p in image_paths],
         model_name=model_name,
         params=params,
         include_analysis=include_analysis,
     )
+    if not records:
+        raise RuntimeError("inference returned no records")
 
     capture_feedback = bool(cfg.get("capture_feedback", args.capture_feedback))
+    feedback_writer: FeedbackArtifactWriter | None = None
     if capture_feedback:
-        feedback_capture = FeedbackArtifactWriter(
+        feedback_writer = FeedbackArtifactWriter(
             FeedbackCaptureConfig(
                 feedback_root=str(cfg.get("feedback_root", args.feedback_root or "outputs/feedback_records")),
                 deployment_id=str(cfg.get("deployment_id", args.deployment_id or "cli_infer")),
                 operator_id=str(cfg.get("operator_id", args.operator_id or "unknown_operator")),
                 source="cli_infer",
             )
-        ).create_from_desktop_run(
+        )
+    for record in records:
+        if feedback_writer is None:
+            continue
+        row_params = dict(params)
+        row_params["image_path"] = str(record.image_path)
+        feedback_capture = feedback_writer.create_from_desktop_run(
             record,
             source="cli_infer",
             resolved_config=cfg,
-            params=params,
+            params=row_params,
             runtime={
                 "enable_gpu": bool(params.get("enable_gpu", False)),
                 "device_policy": str(params.get("device_policy", args.device_policy)),
@@ -235,11 +290,22 @@ def _infer(args: argparse.Namespace) -> int:
         record.feedback_record_dir = str(feedback_capture.record_dir)
         record.feedback_record_id = str(feedback_capture.record_id)
 
-    run_dir = mgr.export_run(record, out_dir)
-    (run_dir / "resolved_config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    print(f"inference export: {run_dir}")
-    if record.feedback_record_dir:
-        print(f"feedback record: {record.feedback_record_dir}")
+    exporter = DesktopResultExporter()
+    batch_dir = exporter.export_batch(
+        records,
+        output_dir=out_dir,
+        annotator=str(cfg.get("operator_id", args.operator_id or "unknown_operator")),
+        notes=str(cfg.get("batch_notes", "")),
+        config=DesktopResultExportConfig(write_batch_summary=True),
+    )
+    runs_dir = batch_dir / "runs"
+    for record in records:
+        mgr.export_run(record, runs_dir)
+    (batch_dir / "resolved_config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    print(f"inference export: {batch_dir}")
+    print(f"inference image count: {len(records)}")
+    if capture_feedback:
+        print("feedback capture: enabled")
     return 0
 
 
@@ -1649,6 +1715,19 @@ def _build_parser() -> argparse.ArgumentParser:
     infer.add_argument("--config", type=str, help="YAML config path")
     infer.add_argument("--set", action="append", default=[], help="Override key=value (supports dotted keys)")
     infer.add_argument("--image", type=str, help="Input image path")
+    infer.add_argument("--image-dir", type=str, default="", help="Input image directory (supports recursive scan)")
+    infer.add_argument(
+        "--glob-patterns",
+        type=str,
+        default="*.png,*.jpg,*.jpeg,*.bmp,*.tif,*.tiff",
+        help="Comma-separated glob patterns used with --image-dir",
+    )
+    infer.add_argument(
+        "--recursive",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Recursively scan sub-directories when --image-dir is set",
+    )
     infer.add_argument("--model-name", type=str, help="Model display name from registry")
     infer.add_argument("--output-dir", type=str, help="Export output directory")
     infer.add_argument("--enable-gpu", action="store_true", help="Enable GPU auto-selection for ML inference")

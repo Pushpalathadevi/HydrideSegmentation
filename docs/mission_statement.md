@@ -25,6 +25,7 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Frozen-checkpoint metadata registry for model selection and guidance
 - Checkpoint lifecycle management (`smoke`, `candidate`, `promoted`) with git-tracked metadata and git-ignored binaries
 - Human-readable + machine-readable run reporting (`json` + `html`)
+- Human-centered batch-inspection workflow as a first-class requirement: every folder-scale inference path (GUI + CLI) must provide intuitive visual review with per-image previews, per-image metrics, and aggregate statistics in machine-ingestible + human-readable outputs
 - Deployment-grade result reporting (`json` + `html` + `pdf`) for audit and handoff
 - Offline installer workflows for enterprise desktop deployment (single-file setup artifacts)
 - Mandatory end-of-phase quality gates (tests + stocktake + gap review + docs sync)
@@ -59,6 +60,7 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 17. Provide feedback-aware candidate ranking for later HPC sweeps using prior run metrics and reproducible reporting artifacts.
 18. Deliver enterprise-ready desktop UX with professional menus, bundled sample inputs, and persistent operational logging.
 19. Provide installer-grade packaging instructions/scripts for offline Windows deployment.
+20. Treat folder-scale inference review as a foundational workflow, with GUI-native inspection of exported batch summaries and per-image evidence alongside aggregate statistics.
 
 ## Success Criteria
 
@@ -72,6 +74,7 @@ Deliver a field-ready local desktop product and backend toolkit that can:
 - Saved project sessions can be reopened and resumed without data loss.
 - Hydride workflows remain stable while generalization is implemented.
 - Desktop users can export full run evidence packages (images + masks + metrics + HTML/PDF reports) without external tooling.
+- Desktop users can inspect recursive folder-inference summaries in-app, including row-aligned input/mask/overlay previews, per-image metrics, and aggregate batch statistics.
 - Desktop workflows support optional spatial calibration so size statistics can be reported in physical units when scale is available.
 - Documentation is treated as a first-class deliverable: commands, outputs, algorithms, and current status must be updated in the same change as behavior.
 - The Sphinx docs site must remain buildable into HTML and PDF artifacts from repository sources.
