@@ -13,8 +13,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.microseg.app.desktop_workflow import DesktopWorkflowManager
-from src.microseg.app.desktop_result_export import DesktopResultExportConfig, DesktopResultExporter
+from src.microseg.app import (
+    DesktopBatchProgress,
+    DesktopResultExportConfig,
+    DesktopWorkflowManager,
+    collect_inference_images,
+    run_desktop_batch_job,
+)
 from src.microseg.app.hpc_ga import (
     HpcGaPlanConfig,
     generate_hpc_ga_bundle,
@@ -189,38 +194,26 @@ def _build_dataset_prepare_config(
     )
 
 
-def _collect_inference_images(
-    *,
-    image: str | None,
-    image_dir: str | None,
-    glob_patterns: list[str],
-    recursive: bool,
-) -> list[Path]:
-    candidates: list[Path] = []
-    if str(image or "").strip():
-        candidates.append(Path(str(image)).expanduser().resolve())
-    if str(image_dir or "").strip():
-        root = Path(str(image_dir)).expanduser().resolve()
-        if not root.exists():
-            raise FileNotFoundError(f"image directory does not exist: {root}")
-        if not root.is_dir():
-            raise NotADirectoryError(f"image directory is not a directory: {root}")
-        patterns = [p.strip() for p in glob_patterns if p and p.strip()]
-        if not patterns:
-            patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]
-        scanner = root.rglob if recursive else root.glob
-        for pattern in patterns:
-            candidates.extend(scanner(pattern))
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in sorted(candidates):
-        key = str(path.resolve())
-        if key in seen:
-            continue
-        seen.add(key)
-        if path.is_file():
-            unique.append(path)
-    return unique
+def _format_duration(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    minutes, sec = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours}h {minutes:02d}m {sec:02d}s"
+    if minutes > 0:
+        return f"{minutes}m {sec:02d}s"
+    return f"{sec}s"
+
+
+def _print_batch_progress(update: DesktopBatchProgress) -> None:
+    eta_text = "n/a" if update.eta_seconds is None else _format_duration(update.eta_seconds)
+    elapsed_text = _format_duration(update.elapsed_seconds)
+    image_bits = f"images {update.completed_images}/{update.total_images}"
+    stage_bits = f"stage={update.stage}"
+    print(
+        f"[batch {update.percent_complete:3d}% | {image_bits} | {stage_bits} | elapsed {elapsed_text} | eta {eta_text}] "
+        f"{update.message}"
+    )
 
 
 def _infer(args: argparse.Namespace) -> int:
@@ -229,7 +222,7 @@ def _infer(args: argparse.Namespace) -> int:
     image_dir = args.image_dir or cfg.get("image_dir")
     recursive = bool(cfg.get("recursive", args.recursive))
     patterns = _parse_name_list(cfg.get("glob_patterns", args.glob_patterns))
-    image_paths = _collect_inference_images(
+    image_paths = collect_inference_images(
         image=str(image_path) if image_path else None,
         image_dir=str(image_dir) if image_dir else None,
         glob_patterns=patterns,
@@ -251,15 +244,6 @@ def _infer(args: argparse.Namespace) -> int:
     params["device_policy"] = str(cfg.get("device_policy", args.device_policy))
 
     mgr = DesktopWorkflowManager()
-    records = mgr.run_batch(
-        [str(p) for p in image_paths],
-        model_name=model_name,
-        params=params,
-        include_analysis=include_analysis,
-    )
-    if not records:
-        raise RuntimeError("inference returned no records")
-
     capture_feedback = bool(cfg.get("capture_feedback", args.capture_feedback))
     feedback_writer: FeedbackArtifactWriter | None = None
     if capture_feedback:
@@ -271,9 +255,10 @@ def _infer(args: argparse.Namespace) -> int:
                 source="cli_infer",
             )
         )
-    for record in records:
+
+    def _finalize_record(record) -> None:
         if feedback_writer is None:
-            continue
+            return
         row_params = dict(params)
         row_params["image_path"] = str(record.image_path)
         feedback_capture = feedback_writer.create_from_desktop_run(
@@ -290,20 +275,24 @@ def _infer(args: argparse.Namespace) -> int:
         record.feedback_record_dir = str(feedback_capture.record_dir)
         record.feedback_record_id = str(feedback_capture.record_id)
 
-    exporter = DesktopResultExporter()
-    batch_dir = exporter.export_batch(
-        records,
+    batch_result = run_desktop_batch_job(
+        workflow=mgr,
+        result_exporter=DesktopResultExporter(),
+        image_paths=[str(p) for p in image_paths],
+        model_name=str(model_name),
         output_dir=out_dir,
+        params=params,
+        include_analysis=include_analysis,
         annotator=str(cfg.get("operator_id", args.operator_id or "unknown_operator")),
         notes=str(cfg.get("batch_notes", "")),
-        config=DesktopResultExportConfig(write_batch_summary=True),
+        export_config=DesktopResultExportConfig(write_batch_summary=True),
+        resolved_config=cfg,
+        finalize_record=_finalize_record,
+        progress_callback=_print_batch_progress,
     )
-    runs_dir = batch_dir / "runs"
-    for record in records:
-        mgr.export_run(record, runs_dir)
-    (batch_dir / "resolved_config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    print(f"inference export: {batch_dir}")
-    print(f"inference image count: {len(records)}")
+    print(f"inference export: {batch_result.batch_dir}")
+    print(f"inference summary: {batch_result.summary_json_path}")
+    print(f"inference image count: {len(batch_result.records)}")
     if capture_feedback:
         print("feedback capture: enabled")
     return 0

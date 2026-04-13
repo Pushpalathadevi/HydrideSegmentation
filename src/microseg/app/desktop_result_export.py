@@ -342,6 +342,34 @@ class DesktopResultExporter:
             "files": files,
         }
 
+    @staticmethod
+    def write_batch_artifact_manifest(batch_dir: Path) -> Path:
+        """Write or refresh the aggregate batch artifact manifest for a batch export root."""
+
+        rows_manifest: list[dict[str, Any]] = []
+        for path in sorted(p for p in batch_dir.rglob("*") if p.is_file() and p.name != "artifacts_manifest.json"):
+            rows_manifest.append(
+                {
+                    "path": _to_rel(path, batch_dir),
+                    "size_bytes": int(path.stat().st_size),
+                    "sha256": _sha256_file(path),
+                }
+            )
+        manifest_path = batch_dir / "artifacts_manifest.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "microseg.desktop_batch_artifacts_manifest.v1",
+                    "created_utc": _utc_now(),
+                    "file_count": len(rows_manifest),
+                    "files": rows_manifest,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return manifest_path
+
     def export(
         self,
         run: DesktopRunRecord,
@@ -960,6 +988,7 @@ class DesktopResultExporter:
                 "html_report": "batch_results_report.html" if bool(cfg.write_html_report) else "",
                 "pdf_report": "batch_results_report.pdf" if bool(cfg.write_pdf_report) else "",
                 "metrics_csv": "batch_metrics.csv" if bool(cfg.write_csv_report) else "",
+                "artifacts_manifest": "artifacts_manifest.json" if bool(cfg.include_artifact_manifest) else "",
             },
         }
 
@@ -1005,27 +1034,7 @@ class DesktopResultExporter:
             self._write_batch_pdf(pdf_path=pdf_path, payload=summary_payload)
 
         if bool(cfg.include_artifact_manifest):
-            rows_manifest: list[dict[str, Any]] = []
-            for path in sorted(p for p in batch_dir.rglob("*") if p.is_file() and p.name != "artifacts_manifest.json"):
-                rows_manifest.append(
-                    {
-                        "path": _to_rel(path, batch_dir),
-                        "size_bytes": int(path.stat().st_size),
-                        "sha256": _sha256_file(path),
-                    }
-                )
-            (batch_dir / "artifacts_manifest.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": "microseg.desktop_batch_artifacts_manifest.v1",
-                        "created_utc": _utc_now(),
-                        "file_count": len(rows_manifest),
-                        "files": rows_manifest,
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
+            self.write_batch_artifact_manifest(batch_dir)
 
         return batch_dir
 

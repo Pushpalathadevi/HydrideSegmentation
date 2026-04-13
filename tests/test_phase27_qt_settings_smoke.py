@@ -72,10 +72,12 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     assert "Feedback:" in win.feedback_rating_label.text()
     assert win.model_combo.minimumWidth() >= 320
     assert win.inference_options_group.isCheckable() is True
-    assert win.inference_options_group.isChecked() is False
+    assert win.inference_options_group.isChecked() is True
     assert win.correction_tools_group.isCheckable() is True
     assert win.export_group.isCheckable() is True
     assert win.workflow_aux_group.isCheckable() is True
+    assert win.active_run_box.isHidden() is True
+    assert win.history_box.isHidden() is True
     screen = app.primaryScreen()
     assert screen is not None
     assert win.width() <= screen.availableGeometry().width()
@@ -83,6 +85,7 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     export_cfg = win._results_export_config_from_ui()  # noqa: SLF001
     assert export_cfg.report_profile == "audit"
     assert export_cfg.write_csv_report is True
+    assert "Model:" in win.current_model_summary_label.text()
     win.close()
 
 
@@ -155,3 +158,36 @@ def test_phase27_load_exported_cli_run_round_trips(tmp_path: Path) -> None:
     assert record.mask_image.size == (16, 16)
     assert record.overlay_image.size == (16, 16)
     assert "orientation_map" in record.analysis_images_b64
+
+
+def test_phase27_qt_batch_progress_updates_status_banner() -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from hydride_segmentation.qt.main_window import QtSegmentationMainWindow
+    from src.microseg.app import DesktopBatchProgress
+
+    app = QApplication.instance() or QApplication([])
+    win = QtSegmentationMainWindow()
+    win._set_segmentation_busy(True, label="batch")  # noqa: SLF001
+    win._on_background_job_status(  # noqa: SLF001
+        DesktopBatchProgress(
+            stage="infer",
+            message="[1/4] Inference complete for sample_a.png.",
+            completed_steps=2,
+            total_steps=10,
+            completed_images=1,
+            total_images=4,
+            percent_complete=20,
+            elapsed_seconds=5.0,
+            eta_seconds=15.0,
+            current_image="sample_a.png",
+        )
+    )
+    assert win.segmentation_progress_label.text() == "[1/4] Inference complete for sample_a.png."
+    assert "Processed 1/4 images" in win.segmentation_detail_label.text()
+    assert win.segmentation_progress_bar.value() == 20
+    assert "ETA:" in win.segmentation_eta_label.text()
+    win._set_segmentation_busy(False)  # noqa: SLF001
+    win.close()

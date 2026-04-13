@@ -1,5 +1,11 @@
 """Application assembly and runtime lifecycle helpers."""
 
+from .desktop_batch_job import (
+    DesktopBatchJobResult,
+    DesktopBatchProgress,
+    collect_inference_images,
+    run_desktop_batch_job,
+)
 from .desktop_workflow import DesktopRunRecord, DesktopWorkflowManager, load_exported_run
 from .desktop_result_export import DesktopResultExportConfig, DesktopResultExporter
 from .desktop_ui_config import (
@@ -30,6 +36,9 @@ from .project_state import (
 from .workflow_profiles import read_workflow_profile, write_workflow_profile
 
 __all__ = [
+    "collect_inference_images",
+    "DesktopBatchJobResult",
+    "DesktopBatchProgress",
     "DesktopRunRecord",
     "DesktopResultExportConfig",
     "DesktopResultExporter",
@@ -53,6 +62,7 @@ __all__ = [
     "ProjectSaveRequest",
     "ProjectStateStore",
     "read_workflow_profile",
+    "run_desktop_batch_job",
     "run_request",
     "summarize_feedback_sources",
     "summarize_run_report",

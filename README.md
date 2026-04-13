@@ -35,7 +35,7 @@ See `docs/mission_statement.md`.
   - scalar statistics panel (fraction/count/density/orientation/size summaries)
   - full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`, `results_metrics.csv`, `artifacts_manifest.json`)
   - configurable report profiles (`balanced`/`full`/`audit`) with section + metric selection
-  - multi-image batch summary export (`batch_results_summary.json`, `batch_results_report.html`, `batch_results_report.pdf`, `batch_metrics.csv`)
+  - one-action recursive batch inference + export with per-run manifests under `runs/`, aggregate outputs (`batch_results_summary.json`, `batch_results_report.html`, `batch_results_report.pdf`, `batch_metrics.csv`), and auto-opened summary review in the GUI
   - YAML-driven desktop appearance settings (font sizes, contrast, spacing, startup geometry) with in-app settings dialog
   - gear menu for secondary panels and a real status bar so the workspace stays image-first
   - project/session save-load
@@ -472,8 +472,10 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 2. Run baseline inference:
 - GUI `Input` + `Run Segmentation` or CLI `microseg-cli infer`.
   - The desktop `Run Segmentation` action launches a CLI subprocess for inference, so the window remains responsive while the model runs; the exported result is loaded back into the GUI after completion.
+  - The Qt sidebar now defaults to a compact `Quick Start` + `Active Run` rail; advanced setup, correction, export/session, logs, and workflow extras stay hidden behind the gear menu until explicitly opened.
+  - `Run Batch` now performs recursive folder inference, writes the full batch export package in one pass (`runs/`, `batch_results_summary.json`, `batch_results_report.html`, `artifacts_manifest.json`, `resolved_config.json`), and opens the batch summary inspector automatically when the job finishes.
   - The main window opens maximized by default when the UI config keeps `start_maximized: true`, and the image canvas now re-fits on tab switches and resize events.
-- A live status banner shows the current stage, elapsed time, and ETA estimate when enough history exists.
+- A live status banner shows the current stage, processed-image counts, elapsed time, percent complete, and ETA during batch jobs.
 3. Correct masks:
 - Use GUI correction tools and thumbs feedback (optional comment), then export corrected samples as needed.
 4. Train and evaluate:

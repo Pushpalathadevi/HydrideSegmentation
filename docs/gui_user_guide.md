@@ -15,10 +15,15 @@
 11. Use Dataset Prep + QA to preview split plans, run data QA, and gate training launches.
 
 While inference is running, the top status banner shows the current stage, elapsed time, and an ETA estimate when the app has enough history to infer one.
+During recursive batch jobs it also shows processed-image counts, percent complete, and rolling ETA updates as inference, feedback/provenance capture, and export steps finish.
 The run is launched as a CLI subprocess, which keeps the GUI responsive and avoids thread-safety crashes; the exported result is loaded back into the window after completion.
 The desktop now uses a split layout: the left sidebar holds project/model/correction controls, while the right workspace keeps the image tabs large and readable.
-The left control rail has a fixed launch width so image loading, model selection, and run buttons stay usable instead of collapsing into a thin strip.
-The top of the sidebar now keeps image loading, sample selection, and model selection on separate rows so the ML model list remains readable.
+The left control rail now defaults to a narrower progressive-disclosure layout:
+- `Quick Start` stays visible with load/select/run/status controls
+- `Active Run` appears after inference with review/export shortcuts plus annotator/feedback fields
+- advanced setup, correction tools, export/session, workflow extras, and logs stay hidden behind the gear menu until explicitly opened
+
+The control rail keeps image loading, sample selection, and model selection on separate rows so the ML model list remains readable without forcing the image workspace to collapse.
 Advanced controls are grouped behind collapsible sections:
 - `Inference Setup` for config and calibration
 - `Correction Tools` for conventional tools and layer controls
@@ -90,7 +95,9 @@ Batch export:
 1. Click `Run Batch`.
 2. Select an input folder (or cancel to fall back to manual file selection).
 3. The app scans recursively (default) for configured image globs (`*.png`, `*.jpg`, `*.jpeg`, `*.tif`, `*.tiff`, `*.bmp`).
-4. Each discovered image is inferred and added to history with full per-run provenance.
+4. Each discovered image is inferred, feedback/provenance is captured, and the run is exported under the final batch package in one pass.
+5. The app writes `runs/` per-image artifacts plus `batch_results_summary.json`, `batch_results_report.html`, optional PDF/CSV outputs, `artifacts_manifest.json`, and `resolved_config.json`.
+6. The batch summary inspector opens automatically at the end of the run for immediate review.
 
 The exported batch HTML includes one aligned row per image with:
 

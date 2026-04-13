@@ -64,6 +64,9 @@ from PySide6.QtWidgets import (
 from hydride_segmentation.version import __version__
 from hydride_segmentation.legacy_api import DEFAULT_CONVENTIONAL_PARAMS
 from src.microseg.app import (
+    collect_inference_images,
+    DesktopBatchJobResult,
+    DesktopBatchProgress,
     DesktopUIConfig,
     DesktopRunRecord,
     DesktopResultExportConfig,
@@ -79,6 +82,7 @@ from src.microseg.app import (
     load_exported_run,
     REPORT_SECTIONS,
     read_workflow_profile,
+    run_desktop_batch_job,
     summarize_run_report,
     write_workflow_profile,
 )
@@ -194,7 +198,7 @@ class _SegmentationWorker(QObject):
 
     finished = Signal(object)
     failed = Signal(str, str, str)
-    status = Signal(str)
+    status = Signal(object)
 
     def __init__(self, label: str, job) -> None:
         super().__init__()
@@ -1379,7 +1383,10 @@ class QtSegmentationMainWindow(QMainWindow):
             )
             return
 
-        pct = min(95, max(1, int((elapsed / estimate) * 100)))
+        if self._segmentation_progress_value > 0:
+            pct = min(100, max(1, int(self._segmentation_progress_value)))
+        else:
+            pct = min(95, max(1, int((elapsed / estimate) * 100)))
         remaining = max(0.0, estimate - elapsed)
         self._segmentation_progress_value = pct
         self.segmentation_progress_bar.setRange(0, 100)
@@ -1593,14 +1600,34 @@ class QtSegmentationMainWindow(QMainWindow):
         self.logger.error("Inference subprocess error: %s", proc.errorString())
         QMessageBox.critical(self, "Segmentation Error", proc.errorString())
 
-    @Slot(str)
-    def _on_background_job_status(self, message: str) -> None:
+    @Slot(object)
+    def _on_background_job_status(self, message: object) -> None:
+        if isinstance(message, DesktopBatchProgress):
+            text = str(message.message).strip()
+            if not text:
+                return
+            self._segmentation_status_text = text
+            self._segmentation_detail_text = (
+                f"Processed {message.completed_images}/{message.total_images} images | "
+                f"step {message.completed_steps}/{message.total_steps}"
+            )
+            if message.eta_seconds is None:
+                self._segmentation_estimate_seconds = None
+            else:
+                self._segmentation_estimate_seconds = float(message.elapsed_seconds) + float(message.eta_seconds)
+            self._segmentation_progress_value = int(message.percent_complete)
+            self.segmentation_progress_label.setText(text)
+            self.logger.info("%s", text)
+            self._refresh_segmentation_progress()
+            return
+
         text = str(message).strip()
         if not text:
             return
         self._segmentation_status_text = text
         self._segmentation_detail_text = text
         self.segmentation_progress_label.setText(text)
+        self.logger.info("%s", text)
         self._refresh_segmentation_progress()
 
     @Slot()
@@ -1734,10 +1761,10 @@ class QtSegmentationMainWindow(QMainWindow):
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setFrameShape(QFrame.NoFrame)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sidebar_scroll.setFixedWidth(580)
+        sidebar_scroll.setFixedWidth(470)
         sidebar_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         sidebar_container = QWidget()
-        sidebar_container.setFixedWidth(560)
+        sidebar_container.setFixedWidth(448)
         sidebar_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         sidebar_layout = QVBoxLayout(sidebar_container)
         sidebar_layout.setContentsMargins(4, 4, 4, 4)
@@ -1759,6 +1786,13 @@ class QtSegmentationMainWindow(QMainWindow):
 
         controls = QVBoxLayout()
         controls.setSpacing(10)
+
+        quick_intro = QLabel(
+            "Load an image or sample, choose a model, then run segmentation. "
+            "Use the gear menu only when you need setup, correction, export, or workflow detail."
+        )
+        quick_intro.setWordWrap(True)
+        controls.addWidget(quick_intro)
 
         image_row = QHBoxLayout()
         image_row.setSpacing(8)
@@ -1822,6 +1856,14 @@ class QtSegmentationMainWindow(QMainWindow):
         action_grid.addWidget(self.btn_workspace_gear, 1, 1)
         controls.addLayout(action_grid)
 
+        self.current_image_summary_label = QLabel("Image: none loaded")
+        self.current_image_summary_label.setWordWrap(True)
+        controls.addWidget(self.current_image_summary_label)
+
+        self.current_model_summary_label = QLabel(f"Model: {self.model_combo.currentText().strip()}")
+        self.current_model_summary_label.setWordWrap(True)
+        controls.addWidget(self.current_model_summary_label)
+
         self.model_desc = QLabel("")
         self.model_desc.setWordWrap(True)
         self._on_model_changed(self.model_combo.currentText())
@@ -1883,7 +1925,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.segmentation_eta_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         progress_col.addWidget(self.segmentation_eta_label)
         segmentation_layout.addLayout(progress_col, stretch=2)
-        project_box = QGroupBox("Project & Model")
+        project_box = QGroupBox("Quick Start")
         project_layout = QVBoxLayout(project_box)
         project_layout.setContentsMargins(10, 12, 10, 10)
         project_layout.setSpacing(8)
@@ -1892,9 +1934,93 @@ class QtSegmentationMainWindow(QMainWindow):
         project_layout.addWidget(self.segmentation_status_panel)
         sidebar_layout.addWidget(project_box)
 
+        self.annotator_edit = QLineEdit()
+        self.annotator_edit.setPlaceholderText("Annotator")
+        self.annotator_edit.setMinimumHeight(32)
+
+        self.notes_edit = QLineEdit()
+        self.notes_edit.setPlaceholderText("Notes for feedback/export/session")
+        self.notes_edit.textChanged.connect(self._on_feedback_comment_changed)
+        self.notes_edit.setMinimumHeight(32)
+
+        self.btn_thumb_up = QPushButton("👍")
+        self.btn_thumb_up.setToolTip("Rate segmentation as acceptable")
+        self.btn_thumb_up.clicked.connect(lambda: self._on_feedback_rating_clicked("thumbs_up"))
+        self.btn_thumb_up.setMinimumSize(36, 32)
+
+        self.btn_thumb_down = QPushButton("👎")
+        self.btn_thumb_down.setToolTip("Rate segmentation as poor")
+        self.btn_thumb_down.clicked.connect(lambda: self._on_feedback_rating_clicked("thumbs_down"))
+        self.btn_thumb_down.setMinimumSize(36, 32)
+
+        self.feedback_rating_label = QLabel("Feedback: unrated")
+
+        self.active_run_box = QGroupBox("Active Run")
+        active_run_layout = QVBoxLayout(self.active_run_box)
+        active_run_layout.setContentsMargins(10, 12, 10, 10)
+        active_run_layout.setSpacing(8)
+
+        self.active_run_summary_label = QLabel("No active result yet.")
+        self.active_run_summary_label.setWordWrap(True)
+        active_run_layout.addWidget(self.active_run_summary_label)
+
+        self.active_run_hint_label = QLabel(
+            "Run inference to unlock correction, review, and export actions. "
+            "Advanced knobs remain available behind the gear menu."
+        )
+        self.active_run_hint_label.setWordWrap(True)
+        active_run_layout.addWidget(self.active_run_hint_label)
+
+        active_identity_grid = QGridLayout()
+        active_identity_grid.setHorizontalSpacing(8)
+        active_identity_grid.setVerticalSpacing(8)
+        active_identity_grid.addWidget(QLabel("Annotator"), 0, 0)
+        active_identity_grid.addWidget(self.annotator_edit, 0, 1, 1, 3)
+        active_identity_grid.addWidget(QLabel("Notes"), 1, 0)
+        active_identity_grid.addWidget(self.notes_edit, 1, 1, 1, 3)
+        active_identity_grid.addWidget(self.btn_thumb_up, 2, 0)
+        active_identity_grid.addWidget(self.btn_thumb_down, 2, 1)
+        active_identity_grid.addWidget(self.feedback_rating_label, 2, 2, 1, 2)
+        active_run_layout.addLayout(active_identity_grid)
+
+        active_actions = QGridLayout()
+        active_actions.setHorizontalSpacing(8)
+        active_actions.setVerticalSpacing(8)
+        self.btn_open_results = QPushButton("Open Results")
+        self.btn_open_results.clicked.connect(self.on_open_results_dashboard)
+        self.btn_open_results.setMinimumHeight(34)
+        active_actions.addWidget(self.btn_open_results, 0, 0)
+
+        self.btn_open_correction = QPushButton("Open Correction")
+        self.btn_open_correction.clicked.connect(lambda: self.tabs.setCurrentWidget(self.split_widget))
+        self.btn_open_correction.setMinimumHeight(34)
+        active_actions.addWidget(self.btn_open_correction, 0, 1)
+
+        self.btn_export_results_quick = QPushButton("Export Results")
+        self.btn_export_results_quick.clicked.connect(self.on_export_results_package)
+        self.btn_export_results_quick.setMinimumHeight(34)
+        active_actions.addWidget(self.btn_export_results_quick, 1, 0)
+
+        self.btn_export_mask_quick = QPushButton("Export Mask")
+        self.btn_export_mask_quick.clicked.connect(self.on_export_correction)
+        self.btn_export_mask_quick.setMinimumHeight(34)
+        active_actions.addWidget(self.btn_export_mask_quick, 1, 1)
+
+        self.btn_export_batch_quick = QPushButton("Export Batch Summary")
+        self.btn_export_batch_quick.clicked.connect(self.on_export_batch_results)
+        self.btn_export_batch_quick.setMinimumHeight(34)
+        active_actions.addWidget(self.btn_export_batch_quick, 2, 0)
+
+        self.btn_open_batch_quick = QPushButton("Open Batch Summary")
+        self.btn_open_batch_quick.clicked.connect(self.on_open_batch_results_summary)
+        self.btn_open_batch_quick.setMinimumHeight(34)
+        active_actions.addWidget(self.btn_open_batch_quick, 2, 1)
+        active_run_layout.addLayout(active_actions)
+        sidebar_layout.addWidget(self.active_run_box)
+
         self.inference_options_group = QGroupBox("Inference Setup")
         self.inference_options_group.setCheckable(True)
-        self.inference_options_group.setChecked(False)
+        self.inference_options_group.setChecked(True)
         inference_options_layout = QVBoxLayout(self.inference_options_group)
         inference_options_layout.setContentsMargins(10, 12, 10, 10)
         inference_options_layout.setSpacing(8)
@@ -2088,76 +2214,48 @@ class QtSegmentationMainWindow(QMainWindow):
         layer_panel_layout.addWidget(QLabel("Diff α"), 1, 1)
         layer_panel_layout.addWidget(self.slider_diff, 1, 2, 1, 2)
 
-        self.annotator_edit = QLineEdit()
-        self.annotator_edit.setPlaceholderText("Annotator")
-        self.annotator_edit.setMinimumHeight(32)
-        layer_panel_layout.addWidget(QLabel("Annotator"), 1, 4)
-        layer_panel_layout.addWidget(self.annotator_edit, 1, 5, 1, 2)
-
-        self.notes_edit = QLineEdit()
-        self.notes_edit.setPlaceholderText("Correction notes")
-        self.notes_edit.textChanged.connect(self._on_feedback_comment_changed)
-        self.notes_edit.setMinimumHeight(32)
-        layer_panel_layout.addWidget(QLabel("Notes"), 2, 0)
-        layer_panel_layout.addWidget(self.notes_edit, 2, 1, 1, 4)
-
-        self.btn_thumb_up = QPushButton("👍")
-        self.btn_thumb_up.setToolTip("Rate segmentation as acceptable")
-        self.btn_thumb_up.clicked.connect(lambda: self._on_feedback_rating_clicked("thumbs_up"))
-        self.btn_thumb_up.setMinimumSize(36, 32)
-        layer_panel_layout.addWidget(self.btn_thumb_up, 2, 5)
-
-        self.btn_thumb_down = QPushButton("👎")
-        self.btn_thumb_down.setToolTip("Rate segmentation as poor")
-        self.btn_thumb_down.clicked.connect(lambda: self._on_feedback_rating_clicked("thumbs_down"))
-        self.btn_thumb_down.setMinimumSize(36, 32)
-        layer_panel_layout.addWidget(self.btn_thumb_down, 2, 6)
-
-        self.feedback_rating_label = QLabel("Feedback: unrated")
-        layer_panel_layout.addWidget(self.feedback_rating_label, 2, 7)
-
         self.chk_fmt_indexed = QCheckBox("indexed")
         self.chk_fmt_indexed.setChecked(True)
-        layer_panel_layout.addWidget(self.chk_fmt_indexed, 3, 0)
+        layer_panel_layout.addWidget(self.chk_fmt_indexed, 2, 0)
 
         self.chk_fmt_color = QCheckBox("color")
         self.chk_fmt_color.setChecked(True)
-        layer_panel_layout.addWidget(self.chk_fmt_color, 3, 1)
+        layer_panel_layout.addWidget(self.chk_fmt_color, 2, 1)
 
         self.chk_fmt_npy = QCheckBox("npy")
         self.chk_fmt_npy.setChecked(False)
-        layer_panel_layout.addWidget(self.chk_fmt_npy, 3, 2)
+        layer_panel_layout.addWidget(self.chk_fmt_npy, 2, 2)
 
         self.chk_report_html = QCheckBox("report.html")
         self.chk_report_html.setChecked(bool(self._ui_config.export_defaults.write_html_report))
-        layer_panel_layout.addWidget(self.chk_report_html, 3, 3)
+        layer_panel_layout.addWidget(self.chk_report_html, 2, 3)
 
         self.chk_report_pdf = QCheckBox("report.pdf")
         self.chk_report_pdf.setChecked(bool(self._ui_config.export_defaults.write_pdf_report))
-        layer_panel_layout.addWidget(self.chk_report_pdf, 3, 4)
+        layer_panel_layout.addWidget(self.chk_report_pdf, 2, 4)
 
         self.chk_report_csv = QCheckBox("report.csv")
         self.chk_report_csv.setChecked(bool(self._ui_config.export_defaults.write_csv_report))
-        layer_panel_layout.addWidget(self.chk_report_csv, 3, 5)
+        layer_panel_layout.addWidget(self.chk_report_csv, 2, 5)
 
-        layer_panel_layout.addWidget(QLabel("Profile"), 3, 6)
+        layer_panel_layout.addWidget(QLabel("Profile"), 2, 6)
         self.report_profile_combo = QComboBox()
         self.report_profile_combo.addItems(["balanced", "full", "audit"])
         self.report_profile_combo.setCurrentText(str(self._ui_config.export_defaults.report_profile))
         self.report_profile_combo.currentTextChanged.connect(lambda *_: self.on_reset_profile_report_metrics())
         self.report_profile_combo.setMinimumHeight(32)
-        layer_panel_layout.addWidget(self.report_profile_combo, 3, 7)
+        layer_panel_layout.addWidget(self.report_profile_combo, 2, 7)
 
-        layer_panel_layout.addWidget(QLabel("Top-K"), 4, 0)
+        layer_panel_layout.addWidget(QLabel("Top-K"), 3, 0)
         self.report_top_k_spin = QSpinBox()
         self.report_top_k_spin.setRange(1, 200)
         self.report_top_k_spin.setValue(int(self._ui_config.export_defaults.top_k_key_metrics))
         self.report_top_k_spin.setMinimumHeight(32)
-        layer_panel_layout.addWidget(self.report_top_k_spin, 4, 1)
+        layer_panel_layout.addWidget(self.report_top_k_spin, 3, 1)
 
         self.chk_artifact_manifest = QCheckBox("artifact manifest")
         self.chk_artifact_manifest.setChecked(bool(self._ui_config.export_defaults.include_artifact_manifest))
-        layer_panel_layout.addWidget(self.chk_artifact_manifest, 4, 2, 1, 2)
+        layer_panel_layout.addWidget(self.chk_artifact_manifest, 3, 2, 1, 2)
 
         self.btn_export_batch = QPushButton("Export Batch Summary")
         self.btn_export_batch.clicked.connect(self.on_export_batch_results)
@@ -2181,18 +2279,18 @@ class QtSegmentationMainWindow(QMainWindow):
         self.history_list = QListWidget()
         self.history_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.history_list.currentRowChanged.connect(self.on_history_selected)
-        history_box = QGroupBox("Recent Runs")
-        history_box.setCheckable(True)
-        history_box.setChecked(False)
-        history_layout = QVBoxLayout(history_box)
+        self.history_box = QGroupBox("Recent Runs")
+        self.history_box.setCheckable(True)
+        self.history_box.setChecked(True)
+        history_layout = QVBoxLayout(self.history_box)
         history_layout.setContentsMargins(10, 12, 10, 10)
         history_layout.addWidget(self.history_list)
-        history_box.setMinimumHeight(180)
-        sidebar_layout.addWidget(history_box)
+        self.history_box.setMinimumHeight(180)
+        sidebar_layout.addWidget(self.history_box)
 
         self.correction_tools_group = QGroupBox("Correction Tools")
         self.correction_tools_group.setCheckable(True)
-        self.correction_tools_group.setChecked(False)
+        self.correction_tools_group.setChecked(True)
         correction_tools_layout = QVBoxLayout(self.correction_tools_group)
         correction_tools_layout.setContentsMargins(10, 12, 10, 10)
         correction_tools_layout.setSpacing(10)
@@ -2247,7 +2345,7 @@ class QtSegmentationMainWindow(QMainWindow):
         advanced_layout.addWidget(self.report_metric_list)
         self.export_group = QGroupBox("Export & Session")
         self.export_group.setCheckable(True)
-        self.export_group.setChecked(False)
+        self.export_group.setChecked(True)
         export_box = self.export_group
         export_layout = QVBoxLayout(export_box)
         export_layout.setContentsMargins(10, 12, 10, 10)
@@ -2954,7 +3052,7 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.workflow_aux_group = QGroupBox("Workflow Extras")
         self.workflow_aux_group.setCheckable(True)
-        self.workflow_aux_group.setChecked(False)
+        self.workflow_aux_group.setChecked(True)
         workflow_aux_layout = QVBoxLayout(self.workflow_aux_group)
         workflow_aux_layout.setContentsMargins(10, 12, 10, 10)
         workflow_aux_layout.setSpacing(8)
@@ -3016,7 +3114,14 @@ class QtSegmentationMainWindow(QMainWindow):
         self.log_box.setMaximumBlockCount(1200)
         sidebar_layout.addWidget(self.log_box)
 
+        self._workspace_toggle_actions: dict[str, QAction] = {}
         self.model_desc.hide()
+        self.active_run_box.hide()
+        self.inference_options_group.hide()
+        self.history_box.hide()
+        self.correction_tools_group.hide()
+        self.export_group.hide()
+        self.workflow_aux_group.hide()
         self.log_box.hide()
 
         if bool(self._ui_config.window.show_log_dock_on_start):
@@ -3028,16 +3133,21 @@ class QtSegmentationMainWindow(QMainWindow):
         workspace_menu.addAction("Appearance & Export Settings", self.on_open_appearance_settings)
         workspace_menu.addSeparator()
 
+        def _set_widgets_visible(widgets: list[QWidget], visible: bool) -> None:
+            for widget in widgets:
+                widget.setVisible(bool(visible))
+
         def _add_toggle_action(title: str, widgets: list[QWidget], *, checked: bool = False) -> None:
             action = QAction(title, self)
             action.setCheckable(True)
             action.setChecked(checked)
-            action.triggered.connect(lambda state, ws=widgets: [w.setVisible(bool(state)) for w in ws])
+            action.triggered.connect(lambda state, ws=widgets: _set_widgets_visible(ws, bool(state)))
+            self._workspace_toggle_actions[title] = action
             workspace_menu.addAction(action)
 
         _add_toggle_action("Model summary", [self.model_desc], checked=False)
         _add_toggle_action("Inference Setup", [self.inference_options_group], checked=False)
-        _add_toggle_action("Recent Runs", [history_box], checked=False)
+        _add_toggle_action("Recent Runs", [self.history_box], checked=False)
         _add_toggle_action("Correction Tools", [self.correction_tools_group], checked=False)
         _add_toggle_action("Export & Session", [self.export_group], checked=False)
         _add_toggle_action("Workflow Extras", [self.workflow_aux_group], checked=False)
@@ -3051,15 +3161,90 @@ class QtSegmentationMainWindow(QMainWindow):
         workspace_menu.addAction("Workflow Hub", self.on_open_workflow_hub)
         workspace_menu.addAction("Results Dashboard", self.on_open_results_dashboard)
         self.btn_workspace_gear.setMenu(workspace_menu)
+        self._update_progressive_disclosure()
 
     def _apply_main_splitter_sizes(self) -> None:
         if not hasattr(self, "main_splitter"):
             return
         total_width = max(1, self.width())
-        sidebar_width = min(620, max(460, int(total_width * 0.35)))
+        sidebar_width = min(500, max(380, int(total_width * 0.29)))
         workspace_width = max(600, total_width - sidebar_width)
         self.main_splitter.setSizes([sidebar_width, workspace_width])
         self._splitter_geometry_applied = True
+
+    def _set_workspace_panel_visible(self, title: str, visible: bool) -> None:
+        action = getattr(self, "_workspace_toggle_actions", {}).get(title)
+        if action is not None:
+            action.setChecked(bool(visible))
+        mapping = {
+            "Model summary": [self.model_desc] if hasattr(self, "model_desc") else [],
+            "Inference Setup": [self.inference_options_group] if hasattr(self, "inference_options_group") else [],
+            "Recent Runs": [self.history_box] if hasattr(self, "history_box") else [],
+            "Correction Tools": [self.correction_tools_group] if hasattr(self, "correction_tools_group") else [],
+            "Export & Session": [self.export_group] if hasattr(self, "export_group") else [],
+            "Workflow Extras": [self.workflow_aux_group] if hasattr(self, "workflow_aux_group") else [],
+            "Advanced report options": [self.report_advanced_group] if hasattr(self, "report_advanced_group") else [],
+            "Desktop log": [self.log_box] if hasattr(self, "log_box") else [],
+        }
+        for widget in mapping.get(title, []):
+            widget.setVisible(bool(visible))
+
+    def _update_progressive_disclosure(self) -> None:
+        has_run = self.state.current_run is not None
+        has_history = hasattr(self, "history_list") and self.history_list.count() > 0
+        has_multiple_history = hasattr(self, "history_list") and self.history_list.count() > 1
+
+        if hasattr(self, "active_run_box"):
+            self.active_run_box.setVisible(bool(has_run))
+        if has_history:
+            self._set_workspace_panel_visible("Recent Runs", True)
+        elif hasattr(self, "history_box"):
+            self._set_workspace_panel_visible("Recent Runs", False)
+
+        if hasattr(self, "btn_export_batch_quick"):
+            self.btn_export_batch_quick.setEnabled(bool(has_history))
+        if hasattr(self, "btn_open_batch_quick"):
+            self.btn_open_batch_quick.setEnabled(bool(has_history))
+        if hasattr(self, "btn_export_results_quick"):
+            self.btn_export_results_quick.setEnabled(bool(has_run))
+        if hasattr(self, "btn_export_mask_quick"):
+            self.btn_export_mask_quick.setEnabled(bool(has_run))
+        if hasattr(self, "btn_open_results"):
+            self.btn_open_results.setEnabled(bool(has_run))
+        if hasattr(self, "btn_open_correction"):
+            self.btn_open_correction.setEnabled(bool(has_run))
+
+        image_name = "none loaded"
+        if self.state.current_run is not None:
+            image_name = str(Path(self.state.current_run.image_path).name)
+        elif self.state.image_path:
+            image_name = str(Path(self.state.image_path).name)
+        if hasattr(self, "current_image_summary_label"):
+            self.current_image_summary_label.setText(f"Image: {image_name}")
+
+        if hasattr(self, "current_model_summary_label") and hasattr(self, "model_combo"):
+            self.current_model_summary_label.setText(f"Model: {self.model_combo.currentText().strip()}")
+
+        if hasattr(self, "active_run_summary_label"):
+            if self.state.current_run is None:
+                self.active_run_summary_label.setText("No active result yet.")
+            else:
+                record = self.state.current_run
+                self.active_run_summary_label.setText(
+                    f"{record.image_name} | {record.model_name} | run {record.run_id}"
+                )
+        if hasattr(self, "active_run_hint_label"):
+            if self.state.current_run is None:
+                self.active_run_hint_label.setText(
+                    "Run inference to unlock correction, review, and export actions. Advanced knobs remain behind the gear menu."
+                )
+            else:
+                history_text = f"{self.history_list.count()} saved run(s) in this session"
+                if has_multiple_history:
+                    history_text += "; batch summary export is ready."
+                self.active_run_hint_label.setText(
+                    f"Use the quick actions below for the active run. You currently have {history_text}"
+                )
 
     def showEvent(self, event):  # noqa: N802
         super().showEvent(event)
@@ -3561,6 +3746,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._try_auto_calibration_from_metadata(str(sample_path), user_initiated=False)
         self.tabs.setCurrentIndex(0)
         self.logger.info("Loaded sample image: %s", sample_path)
+        self._update_progressive_disclosure()
 
     def on_load_sample(self) -> None:
         if self.sample_combo.count() == 0:
@@ -3576,6 +3762,8 @@ class QtSegmentationMainWindow(QMainWindow):
     def _on_model_changed(self, model_name: str) -> None:
         spec = self._model_specs.get(model_name)
         self._toggle_conventional_controls(model_name)
+        if hasattr(self, "current_model_summary_label"):
+            self.current_model_summary_label.setText(f"Model: {model_name.strip()}")
         if not spec:
             self.model_desc.setText("")
             return
@@ -3604,6 +3792,7 @@ class QtSegmentationMainWindow(QMainWindow):
             lines.append(f"<b>Checkpoint sha256:</b> {spec.get('file_sha256')}")
         self.model_desc.setText("<br>".join([line for line in lines if line]))
         self.logger.info("Selected model: %s (%s)", model_name, spec.get("model_id", ""))
+        self._update_progressive_disclosure()
 
     def _on_class_changed(self, class_label: str) -> None:
         class_index = self._selected_class_index()
@@ -4779,6 +4968,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._try_auto_calibration_from_metadata(path, user_initiated=False)
         self.tabs.setCurrentIndex(0)
         self.logger.info("Loaded image path: %s", path)
+        self._update_progressive_disclosure()
 
     def on_run_segmentation(self) -> None:
         path = self.path_edit.text().strip()
@@ -4825,14 +5015,15 @@ class QtSegmentationMainWindow(QMainWindow):
             recursive = bool(cfg.get("recursive", True))
             patterns_text = str(cfg.get("glob_patterns", "*.png,*.jpg,*.jpeg,*.tif,*.tiff,*.bmp"))
             patterns = [item.strip() for item in patterns_text.replace("|", ",").split(",") if item.strip()]
-            root = Path(selected_dir)
-            scanner = root.rglob if recursive else root.glob
-            found: list[str] = []
-            for pattern in patterns:
-                for path in scanner(pattern):
-                    if path.is_file():
-                        found.append(str(path))
-            paths = sorted(set(found))
+            paths = [
+                str(path)
+                for path in collect_inference_images(
+                    image=None,
+                    image_dir=selected_dir,
+                    glob_patterns=patterns,
+                    recursive=recursive,
+                )
+            ]
         if not paths:
             return
         self.state.image_path = str(paths[0])
@@ -4846,7 +5037,13 @@ class QtSegmentationMainWindow(QMainWindow):
             if self._selected_model_id(model_name) == "hydride_conventional":
                 params.update(self._collect_conventional_params())
             params.setdefault("image_path", paths[0])
+            params["enable_gpu"] = bool(cfg.get("enable_gpu", False))
+            params["device_policy"] = str(cfg.get("device_policy", "cpu"))
             operator_id = self._active_operator_id()
+            output_dir = str(cfg.get("output_dir") or (self.orchestrator.repo_root / "outputs" / "inference"))
+            batch_notes = self.notes_edit.text().strip()
+            export_config = self._results_export_config_from_ui()
+            class_map = self.state.class_map
             self.logger.info("Running batch of %d images with %s", len(paths), model_name)
             self._start_background_job(
                 label="batch",
@@ -4858,6 +5055,10 @@ class QtSegmentationMainWindow(QMainWindow):
                     include_analysis=include_analysis,
                     resolved_config=cfg,
                     operator_id=operator_id,
+                    output_dir=output_dir,
+                    batch_notes=batch_notes,
+                    export_config=export_config,
+                    class_map=class_map,
                 ),
                 on_finished=self._on_batch_run_finished,
             )
@@ -4912,7 +5113,11 @@ class QtSegmentationMainWindow(QMainWindow):
         include_analysis: bool,
         resolved_config: dict[str, object],
         operator_id: str,
-    ) -> list[DesktopRunRecord]:
+        output_dir: str,
+        batch_notes: str,
+        export_config: DesktopResultExportConfig,
+        class_map: SegmentationClassMap,
+    ) -> DesktopBatchJobResult:
         estimate = self._estimate_model_runtime_seconds(self._selected_model_id(model_name))
         self._segmentation_estimate_seconds = estimate
         if estimate is None:
@@ -4921,25 +5126,29 @@ class QtSegmentationMainWindow(QMainWindow):
             report_status(
                 f"Running batch inference for {len(paths)} images; typical per-image runtime is about {self._format_duration(estimate)}."
             )
-        records = self.workflow.run_batch(
-            paths,
+        return run_desktop_batch_job(
+            workflow=self.workflow,
+            result_exporter=self.result_exporter,
+            image_paths=paths,
             model_name=model_name,
+            output_dir=output_dir,
             params=params,
             include_analysis=include_analysis,
-        )
-        for record in records:
-            row_params = dict(params)
-            row_params["image_path"] = record.image_path
-            report_status(f"Finalizing {Path(record.image_path).name} and writing feedback metadata.")
-            self._capture_feedback_for_record(
+            annotator=operator_id or "unknown",
+            notes=batch_notes,
+            class_map=class_map,
+            export_config=export_config,
+            resolved_config=resolved_config,
+            finalize_record=lambda record: self._capture_feedback_for_record(
                 record,
                 resolved_config=resolved_config,
-                params=row_params,
+                params={**params, "image_path": record.image_path},
                 source="desktop_gui",
                 operator_id=operator_id,
-            )
-        report_status("Batch results are ready for review.")
-        return records
+            ),
+            progress_callback=lambda update: report_status(update),
+            initial_per_image_seconds=estimate,
+        )
 
     @Slot(object)
     def _on_single_run_finished(self, payload: object) -> None:
@@ -4952,19 +5161,22 @@ class QtSegmentationMainWindow(QMainWindow):
 
     @Slot(object)
     def _on_batch_run_finished(self, payload: object) -> None:
-        if not isinstance(payload, list):
+        if not isinstance(payload, DesktopBatchJobResult):
             self.logger.warning("Unexpected batch payload: %r", type(payload))
             return
-        records = [record for record in payload if isinstance(record, DesktopRunRecord)]
+        records = [record for record in payload.records if isinstance(record, DesktopRunRecord)]
         if not records:
             return
         for record in records:
             self._add_record(record)
         self._show_record(records[-1])
         self.history_list.setCurrentRow(self.history_list.count() - 1)
+        self.logger.info("Batch inference exported to %s (%d runs)", payload.batch_dir, len(records))
+        self._open_batch_results_summary_path(payload.summary_json_path)
 
     def _add_record(self, record: DesktopRunRecord) -> None:
         self.history_list.addItem(record.history_label)
+        self._update_progressive_disclosure()
 
     def _active_operator_id(self) -> str:
         text = self.annotator_edit.text().strip()
@@ -5126,6 +5338,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._update_action_label()
         self._update_results_dashboard()
         self._load_feedback_for_record(record)
+        self._update_progressive_disclosure()
 
         self.logger.info("Active run: %s", record.history_label)
         if record.metrics:
