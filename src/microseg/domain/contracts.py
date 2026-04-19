@@ -25,6 +25,7 @@ class SegmentationOutput:
 
     image: np.ndarray
     mask: np.ndarray
+    manifest: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

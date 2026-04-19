@@ -29,11 +29,12 @@ Additional workflow config:
 - `dataset_split.default.yml` for leakage-aware split planning
 - `dataset_qa.default.yml` for packaged dataset QA checks
 - `dataset_prepare.default.yml` for unsplit source/masks -> split dataset preparation
-  - includes `split_strategy`, leakage-group controls, RGB `mask_input_type`, `mask_colormap`, optional `binary_mask_normalization`, and optional `class_map_path` (fallback: `configs/segmentation_classes.json`)
+  - includes `split_strategy`, leakage-group controls, RGB `mask_input_type`, `mask_colormap`, optional `binary_mask_normalization`, optional `class_map_path` (fallback: `configs/segmentation_classes.json`), and the shared `augmentation` block
+  - augmentation examples: `dataset_prepare.augmentation.disabled.yml`, `dataset_prepare.augmentation.shadow_blur.yml`, `dataset_prepare.augmentation.debug.yml`, `dataset_prepare.augmentation.multi.yml`
 - `phaseid_oh5_benchmark.default.yml` for the single-command raw `.oh5` phaseId workflow
   - includes `.oh5` dataset-path resolution, phase-ID foreground mapping, dataset split/QA policy, benchmark template selection, and PPTX generation settings
 - `data_prep.default.yml` for `prep-dataset` binary segmentation data preparation (`src/microseg/data_preparation`)
-  - includes binarization mode/threshold controls, red-dominance RGB fallback, auto-Otsu fallback for noisy near-binary grayscale masks, empty-mask warn/error policy, resizing policy, debug inspection options, and warning-related raw-mask expectations
+  - includes binarization mode/threshold controls, red-dominance RGB fallback, auto-Otsu fallback for noisy near-binary grayscale masks, empty-mask warn/error policy, resizing policy, debug inspection options, warning-related raw-mask expectations, and the shared `augmentation` block
 - `segmentation_classes.json` repo-level default class definitions used by correction/export and RGB-mask class-color fallback
 - `hpc_ga.default.yml` for GA-based HPC multi-candidate script bundle generation
   - includes feedback-hybrid planning controls and metric/runtime fitness weights

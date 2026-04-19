@@ -220,6 +220,13 @@ microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml
 ```
 See [docs/data_preparation.md](docs/data_preparation.md) for the dedicated binary segmentation data preparation subsystem (pairing, binarization, resizing, manifesting, and Oxford/MaDo exports).
 
+Leakage-safe train-only shadow + blur augmentation during dataset preparation:
+```bash
+microseg-cli dataset-prepare \
+  --config configs/dataset_prepare.augmentation.shadow_blur.yml
+```
+The canonical `dataset-prepare` path now supports a shared YAML augmentation block with deterministic seeds, split targeting, per-operation probabilities, per-sample variant counts, and debug inspection artifacts. The same augmentation block also flows through `train` / `evaluate` when `auto_prepare_dataset=true`.
+
 Paired JPG + RGB PNG mask to MaDo-style dataset prep:
 ```bash
 python scripts/microseg_cli.py prepare_dataset \

@@ -47,6 +47,8 @@ class SegmentationPipeline:
             "model_id": request.model_id,
             "include_analysis": request.include_analysis,
         }
+        if isinstance(output.manifest, dict):
+            manifest.update(output.manifest)
 
         return PipelineResult(
             ok=True,

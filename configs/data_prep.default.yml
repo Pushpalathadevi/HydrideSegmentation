@@ -75,3 +75,14 @@ expected_raw_binary_values:
   - 0
   - 255
 path_mode: relative
+augmentation:
+  enabled: false
+  seed: 42
+  stage: post_resize
+  apply_splits:
+    - train
+  variants_per_sample: 1
+  operations: []
+  debug:
+    enabled: false
+    max_samples: 8

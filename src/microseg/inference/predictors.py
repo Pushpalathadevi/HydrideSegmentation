@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+import time
 
 from hydride_segmentation.legacy_api import DEFAULT_CONVENTIONAL_PARAMS
 from hydride_segmentation.segmentation_mask_creation import run_model as run_conv_model
@@ -38,7 +39,7 @@ class HydrideConventionalPredictor:
         if params:
             cfg.update(params)
         image, mask = run_conv_model(image_path, cfg)
-        return SegmentationOutput(image=image, mask=mask)
+        return SegmentationOutput(image=image, mask=mask, manifest={"inference_backend": "conventional"})
 
 
 class HydrideMLPredictor:
@@ -48,6 +49,7 @@ class HydrideMLPredictor:
 
     def predict(self, image_path: str, params: dict | None = None) -> SegmentationOutput:
         cfg = dict(params or {})
+        resolve_started = time.perf_counter()
         run_dir = str(cfg.get("run_dir", "")).strip()
         registry_model_id = str(cfg.get("registry_model_id", "")).strip()
         checkpoint_path = str(cfg.get("checkpoint_path", cfg.get("weights_path", ""))).strip()
@@ -70,13 +72,18 @@ class HydrideMLPredictor:
                 "hydride_ml requires one of: params.run_dir, params.registry_model_id, or params.checkpoint_path"
             )
 
-        image, mask, _ = run_reference_inference(
+        resolve_seconds = max(0.0, time.perf_counter() - resolve_started)
+        image, mask, manifest = run_reference_inference(
             image_path,
             ref,
             enable_gpu=bool(cfg.get("enable_gpu", False)),
             device_policy=str(cfg.get("device_policy", "cpu")),
+            preprocess_config=cfg.get("gui_preprocess"),
         )
-        return SegmentationOutput(image=image, mask=mask)
+        timings = dict(manifest.get("timing", {}))
+        timings["model_resolution_seconds"] = float(resolve_seconds)
+        manifest["timing"] = timings
+        return SegmentationOutput(image=image, mask=mask, manifest=manifest)
 
 
 class ReferencePredictor:
@@ -87,13 +94,17 @@ class ReferencePredictor:
 
     def predict(self, image_path: str, params: dict | None = None) -> SegmentationOutput:
         cfg = dict(params or {})
-        image, mask, _ = run_reference_inference(
+        image, mask, manifest = run_reference_inference(
             image_path,
             self.reference,
             enable_gpu=bool(cfg.get("enable_gpu", False)),
             device_policy=str(cfg.get("device_policy", "cpu")),
+            preprocess_config=cfg.get("gui_preprocess"),
         )
-        return SegmentationOutput(image=image, mask=mask)
+        timings = dict(manifest.get("timing", {}))
+        timings.setdefault("model_resolution_seconds", 0.0)
+        manifest["timing"] = timings
+        return SegmentationOutput(image=image, mask=mask, manifest=manifest)
 
 
 def discover_dynamic_ml_model_bindings() -> tuple[list[_DynamicModelBinding], list[str]]:

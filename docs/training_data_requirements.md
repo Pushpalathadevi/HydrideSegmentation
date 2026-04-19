@@ -98,6 +98,12 @@ Leakage-aware split controls:
   - `stem`: groups by exact stem
   - `regex`: groups by `leakage_group_regex` capture
 
+Augmentation policy:
+- split first, then augment only the configured target splits
+- default target is `train`
+- augmented variants retain original linkage via manifest metadata and filename suffixes such as `_aug001`
+- image-only augmentations leave masks unchanged
+
 ## Programmatic Tracking IDs
 
 Prepared filenames include global `_ID` suffix for consistent referencing in:
@@ -135,6 +141,13 @@ microseg-cli dataset-prepare \
   --set 'mask_colormap={"0":[0,0,0],"1":[255,0,0],"2":[0,255,0]}'
 ```
 
+Prepare dataset with train-only shadow + blur augmentation:
+
+```bash
+microseg-cli dataset-prepare \
+  --config configs/dataset_prepare.augmentation.shadow_blur.yml
+```
+
 Train (auto-prepare enabled by default):
 
 ```bash
@@ -146,6 +159,7 @@ Evaluate (auto-prepare enabled by default):
 ```bash
 microseg-cli evaluate --config configs/evaluate.default.yml
 ```
+The same `augmentation:` YAML block can be placed in train/evaluate configs when those commands rely on auto-prepare.
 
 ## Recommended Validation
 

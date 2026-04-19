@@ -1,0 +1,36 @@
+dataset_dir: data
+output_dir: outputs/prepared_dataset_augmented_debug
+split_train_ratio: 0.8
+split_val_ratio: 0.1
+split_test_ratio: 0.1
+split_seed: 42
+split_id_width: 6
+split_strategy: leakage_aware
+leakage_group_mode: suffix_aware
+mask_input_type: indexed
+binary_mask_normalization: off
+augmentation:
+  enabled: true
+  seed: 42
+  stage: post_resize
+  apply_splits:
+    - train
+  variants_per_sample: 1
+  operations:
+    - name: shadow
+      probability: 1.0
+      parameters:
+        radius: 150
+        sigma: 500
+        intensity_range: [40, 50]
+        count_range: [1, 2]
+    - name: blur
+      probability: 1.0
+      parameters:
+        sigma: 120
+        kernel_size_range: [3, 7]
+        min_center_distance_ratio: 0.4
+        count_range: [1, 2]
+  debug:
+    enabled: true
+    max_samples: 6

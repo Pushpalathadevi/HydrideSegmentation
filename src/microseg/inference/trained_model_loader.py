@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
 
 from src.microseg.plugins import find_repo_root, frozen_checkpoint_map
 from src.microseg.training.unet_binary import load_unet_binary_model, predict_unet_binary_mask
+from .gui_preprocessing import (
+    GuiInferencePreprocessConfig,
+    coerce_gui_inference_preprocess_config,
+    load_original_inference_image,
+    prepare_gui_inference_input,
+    rescale_mask_to_original,
+)
 
 _SUPPORTED_ARCHITECTURES: tuple[str, ...] = (
     "unet_binary",
@@ -41,6 +49,23 @@ class InferenceModelReference:
     backend_label: str
     run_dir: str = ""
     manifest_path: str = ""
+
+
+@dataclass(frozen=True)
+class ModelWarmLoadStatus:
+    """Background warm-load status for one resolved inference model."""
+
+    reference_id: str
+    display_name: str
+    status: str
+    message: str
+    checkpoint_path: str = ""
+    load_duration_seconds: float = 0.0
+    cache_hit: bool = False
+
+
+_BUNDLE_CACHE_LOCK = threading.Lock()
+_BUNDLE_CACHE: dict[tuple[str, bool, str], dict[str, Any]] = {}
 
 
 def supported_trainable_architectures() -> tuple[str, ...]:
@@ -203,27 +228,161 @@ def discover_inference_references(
     return refs, warnings
 
 
+def _bundle_cache_key(reference: InferenceModelReference, *, enable_gpu: bool, device_policy: str) -> tuple[str, bool, str]:
+    return (str(reference.checkpoint_path), bool(enable_gpu), str(device_policy).strip().lower() or "cpu")
+
+
+def get_or_load_reference_bundle(
+    reference: InferenceModelReference,
+    *,
+    enable_gpu: bool = False,
+    device_policy: str = "cpu",
+    use_cache: bool = True,
+) -> tuple[dict[str, Any], bool, float]:
+    """Load a trained-model bundle, optionally reusing the process-local cache."""
+
+    key = _bundle_cache_key(reference, enable_gpu=enable_gpu, device_policy=device_policy)
+    if use_cache:
+        with _BUNDLE_CACHE_LOCK:
+            cached = _BUNDLE_CACHE.get(key)
+        if cached is not None:
+            return cached, True, 0.0
+
+    started = time.perf_counter()
+    bundle = load_unet_binary_model(
+        reference.checkpoint_path,
+        enable_gpu=enable_gpu,
+        device_policy=device_policy,
+    )
+    load_seconds = max(0.0, time.perf_counter() - started)
+    if not use_cache:
+        return bundle, False, load_seconds
+
+    with _BUNDLE_CACHE_LOCK:
+        cached = _BUNDLE_CACHE.get(key)
+        if cached is None:
+            _BUNDLE_CACHE[key] = bundle
+            return bundle, False, load_seconds
+        return cached, True, 0.0
+
+
+def warm_load_reference_bundle(
+    reference: InferenceModelReference,
+    *,
+    enable_gpu: bool = False,
+    device_policy: str = "cpu",
+) -> ModelWarmLoadStatus:
+    """Warm-load and cache a reference bundle for later GUI inference reuse."""
+
+    bundle, cache_hit, load_seconds = get_or_load_reference_bundle(
+        reference,
+        enable_gpu=enable_gpu,
+        device_policy=device_policy,
+        use_cache=True,
+    )
+    device = str(bundle.get("device", "cpu"))
+    if cache_hit:
+        message = f"Model ready from cache on {device}."
+    else:
+        message = f"Model loaded on {device} in {load_seconds:.2f}s."
+    return ModelWarmLoadStatus(
+        reference_id=reference.reference_id,
+        display_name=reference.display_name,
+        status="ready",
+        message=message,
+        checkpoint_path=reference.checkpoint_path,
+        load_duration_seconds=float(load_seconds),
+        cache_hit=bool(cache_hit),
+    )
+
+
 def run_reference_inference(
     image_path: str | Path,
     reference: InferenceModelReference,
     *,
     enable_gpu: bool = False,
     device_policy: str = "cpu",
+    preprocess_config: GuiInferencePreprocessConfig | dict[str, Any] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     """Run segmentation with a resolved model reference."""
 
-    image = np.asarray(Image.open(image_path).convert("RGB"), dtype=np.uint8)
-    bundle = load_unet_binary_model(
-        reference.checkpoint_path,
+    image_load_started = time.perf_counter()
+    if preprocess_config is None:
+        image, _original_channels = load_original_inference_image(image_path)
+        image_load_seconds = max(0.0, time.perf_counter() - image_load_started)
+        preprocess_seconds = 0.0
+        model_input = image if image.ndim == 3 else np.repeat(image[:, :, None], 3, axis=2)
+        preprocessing_manifest: dict[str, Any] = {
+            "applied": False,
+            "original_size": {"width": int(image.shape[1]), "height": int(image.shape[0])},
+            "preprocessed_size": {"width": int(model_input.shape[1]), "height": int(model_input.shape[0])},
+            "original_channel_count": int(1 if image.ndim == 2 else image.shape[2]),
+            "preprocessed_channel_count": int(1 if image.ndim == 2 else image.shape[2]),
+            "model_input_channel_count": int(model_input.shape[2]),
+            "channel_duplicated": bool(image.ndim == 2),
+            "resize": {
+                "policy": "none",
+                "target_long_side": None,
+                "scale": 1.0,
+            },
+            "contrast": {"enabled": False, "mode": "disabled", "parameters": {}},
+            "rescaled_to_original": False,
+        }
+        display_image = model_input if image.ndim == 2 else image.astype(np.uint8, copy=True)
+    else:
+        preprocess_started = image_load_started
+        prepared = prepare_gui_inference_input(
+            image_path,
+            coerce_gui_inference_preprocess_config(preprocess_config),
+        )
+        preprocess_elapsed = max(0.0, time.perf_counter() - preprocess_started)
+        image_load_seconds = 0.0
+        preprocess_seconds = preprocess_elapsed
+        model_input = prepared.model_ready_image
+        display_image = prepared.original_image
+        preprocessing_manifest = dict(prepared.metadata)
+        preprocessing_manifest["applied"] = True
+        preprocessing_manifest["rescaled_to_original"] = True
+
+    bundle, cache_hit, bundle_load_seconds = get_or_load_reference_bundle(
+        reference,
         enable_gpu=enable_gpu,
         device_policy=device_policy,
     )
-    pred = predict_unet_binary_mask(image, bundle).astype(np.uint8) * 255
-    return image, pred, {
+    forward_started = time.perf_counter()
+    pred = predict_unet_binary_mask(model_input.astype(np.uint8), bundle).astype(np.uint8) * 255
+    forward_seconds = max(0.0, time.perf_counter() - forward_started)
+    postprocess_started = time.perf_counter()
+    if preprocess_config is not None:
+        pred = rescale_mask_to_original(
+            pred,
+            (
+                int(preprocessing_manifest["original_size"]["width"]),
+                int(preprocessing_manifest["original_size"]["height"]),
+            ),
+        )
+    postprocess_seconds = max(0.0, time.perf_counter() - postprocess_started)
+    return display_image.astype(np.uint8, copy=True), pred, {
         "reference_id": reference.reference_id,
         "architecture": reference.architecture,
         "backend": reference.backend_label,
         "source": reference.source,
         "checkpoint_path": reference.checkpoint_path,
         "device": bundle.get("device", "cpu"),
+        "preprocessing": preprocessing_manifest,
+        "cache": {
+            "bundle_cache_hit": bool(cache_hit),
+            "cache_key": {
+                "checkpoint_path": reference.checkpoint_path,
+                "enable_gpu": bool(enable_gpu),
+                "device_policy": str(device_policy),
+            },
+        },
+        "timing": {
+            "image_load_seconds": float(image_load_seconds),
+            "preprocess_seconds": float(preprocess_seconds),
+            "bundle_lookup_or_load_seconds": float(bundle_load_seconds),
+            "forward_pass_seconds": float(forward_seconds),
+            "postprocess_seconds": float(postprocess_seconds),
+        },
     }

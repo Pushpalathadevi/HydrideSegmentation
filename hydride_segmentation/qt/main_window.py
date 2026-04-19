@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image
 from skimage.draw import disk, line
 
+from hydride_segmentation.microseg_adapter import resolve_gui_model_reference
 from PySide6.QtCore import QEvent, QObject, QProcess, QSettings, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QFont, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
@@ -105,12 +106,20 @@ from src.microseg.dataops import (
     prepare_training_dataset_layout,
     run_dataset_quality_checks,
 )
+from src.microseg.data_preparation.augmentation import parse_augmentation_config
 from src.microseg.evaluation import (
     HydrideVisualizationConfig,
     compute_hydride_statistics,
     render_hydride_visualizations,
 )
 from src.microseg.feedback import FeedbackArtifactWriter, FeedbackCaptureConfig, load_feedback_record
+from src.microseg.inference.gui_preprocessing import (
+    GuiInferencePreprocessConfig,
+    ManualContrastAdjustment,
+    inspect_image_metadata,
+    prepare_gui_inference_input,
+)
+from src.microseg.inference.trained_model_loader import ModelWarmLoadStatus
 from src.microseg.io import resolve_config
 from src.microseg.quality import PreflightConfig, run_preflight
 from src.microseg.ui import AnnotationLayerSettings, compose_annotation_view
@@ -212,6 +221,132 @@ class _SegmentationWorker(QObject):
             self.failed.emit(self._label, str(exc), traceback.format_exc())
             return
         self.finished.emit(result)
+
+
+class _WarmLoadWorker(QObject):
+    """Warm-load one ML model in the background without blocking the GUI."""
+
+    finished = Signal(int, object)
+    failed = Signal(int, str)
+
+    def __init__(self, generation: int, job) -> None:
+        super().__init__()
+        self._generation = generation
+        self._job = job
+
+    def run(self) -> None:
+        try:
+            result = self._job()
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            self.failed.emit(self._generation, str(exc))
+            return
+        self.finished.emit(self._generation, result)
+
+
+class _ContrastAdjustmentDialog(QDialog):
+    """Manual contrast preview dialog for ML inference preprocessing."""
+
+    def __init__(
+        self,
+        *,
+        image_path: str,
+        config: GuiInferencePreprocessConfig,
+        adjustment: ManualContrastAdjustment | None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Adjust Contrast Before Inference")
+        self._image_path = image_path
+        self._config = config
+        self.result_adjustment: ManualContrastAdjustment | None = adjustment
+
+        layout = QVBoxLayout(self)
+        preview_row = QHBoxLayout()
+        self.original_preview = QLabel("Original")
+        self.original_preview.setAlignment(Qt.AlignCenter)
+        self.base_preview = QLabel("Resized")
+        self.base_preview.setAlignment(Qt.AlignCenter)
+        self.adjusted_preview = QLabel("Adjusted")
+        self.adjusted_preview.setAlignment(Qt.AlignCenter)
+        preview_row.addWidget(self.original_preview, stretch=1)
+        preview_row.addWidget(self.base_preview, stretch=1)
+        preview_row.addWidget(self.adjusted_preview, stretch=1)
+        layout.addLayout(preview_row)
+
+        form = QFormLayout()
+        seed = adjustment or ManualContrastAdjustment()
+        self.black_spin = QDoubleSpinBox()
+        self.black_spin.setRange(0.0, 20.0)
+        self.black_spin.setSingleStep(0.5)
+        self.black_spin.setValue(float(seed.black_percentile))
+        form.addRow("Black percentile", self.black_spin)
+
+        self.white_spin = QDoubleSpinBox()
+        self.white_spin.setRange(80.0, 100.0)
+        self.white_spin.setSingleStep(0.5)
+        self.white_spin.setValue(float(seed.white_percentile))
+        form.addRow("White percentile", self.white_spin)
+
+        self.gamma_spin = QDoubleSpinBox()
+        self.gamma_spin.setRange(0.2, 3.0)
+        self.gamma_spin.setSingleStep(0.1)
+        self.gamma_spin.setValue(float(seed.gamma))
+        form.addRow("Gamma", self.gamma_spin)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.reset_button = buttons.addButton("Reset To Auto", QDialogButtonBox.ResetRole)
+        buttons.accepted.connect(self._accept_adjustment)
+        buttons.rejected.connect(self.reject)
+        self.reset_button.clicked.connect(self._reset_to_auto)
+        layout.addWidget(buttons)
+
+        self.black_spin.valueChanged.connect(self._refresh_preview)
+        self.white_spin.valueChanged.connect(self._refresh_preview)
+        self.gamma_spin.valueChanged.connect(self._refresh_preview)
+        self._refresh_preview()
+
+    def _current_adjustment(self) -> ManualContrastAdjustment:
+        low = float(self.black_spin.value())
+        high = max(low + 0.1, float(self.white_spin.value()))
+        return ManualContrastAdjustment(
+            black_percentile=low,
+            white_percentile=high,
+            gamma=float(self.gamma_spin.value()),
+        )
+
+    def _set_preview(self, label: QLabel, image_array: np.ndarray) -> None:
+        pix = _rgb_to_pixmap(image_array)
+        label.setPixmap(pix.scaled(240, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def _refresh_preview(self) -> None:
+        base_cfg = GuiInferencePreprocessConfig(
+            target_long_side=int(self._config.target_long_side),
+            auto_contrast_enabled=False,
+            contrast_mode=str(self._config.contrast_mode),
+            manual_adjustment=None,
+        )
+        base = prepare_gui_inference_input(self._image_path, base_cfg)
+        adjusted = prepare_gui_inference_input(
+            self._image_path,
+            GuiInferencePreprocessConfig(
+                target_long_side=int(self._config.target_long_side),
+                auto_contrast_enabled=False,
+                contrast_mode=str(self._config.contrast_mode),
+                manual_adjustment=self._current_adjustment(),
+            ),
+        )
+        self._set_preview(self.original_preview, base.original_image)
+        self._set_preview(self.base_preview, base.resized_image)
+        self._set_preview(self.adjusted_preview, adjusted.resized_image)
+
+    def _accept_adjustment(self) -> None:
+        self.result_adjustment = self._current_adjustment()
+        self.accept()
+
+    def _reset_to_auto(self) -> None:
+        self.result_adjustment = None
+        self.accept()
 
 
 class ZoomableImageViewport(QWidget):
@@ -1155,6 +1290,12 @@ class QtSegmentationMainWindow(QMainWindow):
         self._active_job_thread: QThread | None = None
         self._active_job_worker: _SegmentationWorker | None = None
         self._active_job_label: str = ""
+        self._warm_load_thread: QThread | None = None
+        self._warm_load_worker: _WarmLoadWorker | None = None
+        self._warm_load_generation: int = 0
+        self._warm_load_target_model: str = ""
+        self._last_warm_load_status: ModelWarmLoadStatus | None = None
+        self._inference_manual_contrast_adjustment: ManualContrastAdjustment | None = None
         self._inference_process: QProcess | None = None
         self._inference_stdout: list[str] = []
         self._inference_output_dir: Path | None = None
@@ -1219,6 +1360,9 @@ class QtSegmentationMainWindow(QMainWindow):
         self._sync_scroll_guard = False
 
         self._build_ui()
+        preferred_model = self.workflow.preferred_default_model_name()
+        if preferred_model and self.model_combo.findText(preferred_model) >= 0:
+            self.model_combo.setCurrentText(preferred_model)
         self._configure_menu()
         self._bind_shortcuts()
         self._apply_style()
@@ -1230,6 +1374,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.log_message_requested.connect(self._log)
         self.logger.addHandler(self._ui_handler)
         self._refresh_sample_picker()
+        self._update_inference_preprocess_summary()
         self._update_calibration_status_label()
         self._refresh_segmentation_progress()
 
@@ -1531,7 +1676,8 @@ class QtSegmentationMainWindow(QMainWindow):
     @Slot(int, int)
     def _on_inference_process_finished(self, exit_code: int, exit_status: int) -> None:
         process = self._inference_process
-        stdout_text = "\n".join(self._inference_stdout)
+        stdout_lines = list(self._inference_stdout)
+        stdout_text = "\n".join(stdout_lines)
         self._inference_process = None
         self._inference_stdout = []
         self._set_segmentation_busy(False, label="single")
@@ -1553,7 +1699,7 @@ class QtSegmentationMainWindow(QMainWindow):
             return
 
         run_dir = ""
-        for line in reversed(self._inference_stdout):
+        for line in reversed(stdout_lines):
             if line.startswith("inference export:"):
                 run_dir = line.split(":", 1)[1].strip()
                 break
@@ -1830,6 +1976,18 @@ class QtSegmentationMainWindow(QMainWindow):
         model_row.addWidget(self.model_combo, stretch=1)
         controls.addLayout(model_row)
 
+        preprocess_row = QHBoxLayout()
+        preprocess_row.setSpacing(8)
+        self.chk_auto_contrast = QCheckBox("Auto maximize contrast before inference")
+        self.chk_auto_contrast.setChecked(True)
+        self.chk_auto_contrast.toggled.connect(self._update_inference_preprocess_summary)
+        preprocess_row.addWidget(self.chk_auto_contrast, stretch=1)
+        self.btn_adjust_contrast = QPushButton("Adjust Contrast Before Inference")
+        self.btn_adjust_contrast.clicked.connect(self.on_adjust_contrast_before_inference)
+        self.btn_adjust_contrast.setMinimumHeight(34)
+        preprocess_row.addWidget(self.btn_adjust_contrast)
+        controls.addLayout(preprocess_row)
+
         action_grid = QGridLayout()
         action_grid.setHorizontalSpacing(8)
         action_grid.setVerticalSpacing(8)
@@ -1863,6 +2021,14 @@ class QtSegmentationMainWindow(QMainWindow):
         self.current_model_summary_label = QLabel(f"Model: {self.model_combo.currentText().strip()}")
         self.current_model_summary_label.setWordWrap(True)
         controls.addWidget(self.current_model_summary_label)
+
+        self.inference_preprocess_summary_label = QLabel("ML preprocessing: waiting for image metadata.")
+        self.inference_preprocess_summary_label.setWordWrap(True)
+        controls.addWidget(self.inference_preprocess_summary_label)
+
+        self.model_warm_load_status_label = QLabel("Model warm-load: idle")
+        self.model_warm_load_status_label.setWordWrap(True)
+        controls.addWidget(self.model_warm_load_status_label)
 
         self.model_desc = QLabel("")
         self.model_desc.setWordWrap(True)
@@ -2500,9 +2666,13 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_infer_output_edit = QLineEdit("outputs/inference")
         self.orch_infer_enable_gpu = QCheckBox("Enable GPU")
         self.orch_infer_enable_gpu.setChecked(False)
+        self.orch_infer_enable_gpu.toggled.connect(lambda _checked: self._start_model_warm_load(self.model_combo.currentText()))
         self.orch_infer_device_policy = QComboBox()
         self.orch_infer_device_policy.addItems(["cpu", "auto", "cuda", "mps"])
         self.orch_infer_device_policy.setCurrentText("cpu")
+        self.orch_infer_device_policy.currentTextChanged.connect(
+            lambda _text: self._start_model_warm_load(self.model_combo.currentText())
+        )
         self.btn_orch_infer = QPushButton("Run Inference Job")
         self.btn_orch_infer.clicked.connect(self.on_orchestrate_inference)
         infer_form.addRow("Config", self.orch_infer_config_edit)
@@ -3405,6 +3575,88 @@ class QtSegmentationMainWindow(QMainWindow):
     def _selected_model_id(self, model_name: str | None = None) -> str:
         return str(self._selected_model_spec(model_name).get("model_id", ""))
 
+    def _selected_model_is_ml(self, model_name: str | None = None) -> bool:
+        return self._selected_model_id(model_name) != "hydride_conventional"
+
+    def _current_ml_preprocess_config(self) -> GuiInferencePreprocessConfig:
+        return GuiInferencePreprocessConfig(
+            target_long_side=512,
+            auto_contrast_enabled=bool(self.chk_auto_contrast.isChecked()),
+            contrast_mode="histogram_stretch",
+            manual_adjustment=self._inference_manual_contrast_adjustment,
+        )
+
+    def _current_ml_preprocess_payload(self, cfg: dict[str, object] | None = None) -> dict[str, object]:
+        base = {}
+        if isinstance(cfg, dict):
+            raw = cfg.get("gui_preprocess")
+            if isinstance(raw, dict):
+                base = dict(raw)
+        current = self._current_ml_preprocess_config()
+        base.update(
+            {
+                "target_long_side": int(base.get("target_long_side", current.target_long_side)),
+                "auto_contrast_enabled": bool(current.auto_contrast_enabled),
+                "contrast_mode": str(base.get("contrast_mode", current.contrast_mode)),
+            }
+        )
+        if current.manual_adjustment is not None:
+            base["manual_adjustment"] = {
+                "black_percentile": float(current.manual_adjustment.black_percentile),
+                "white_percentile": float(current.manual_adjustment.white_percentile),
+                "gamma": float(current.manual_adjustment.gamma),
+            }
+        else:
+            base.pop("manual_adjustment", None)
+        return base
+
+    def _toggle_ml_preprocess_controls(self, visible: bool) -> None:
+        for widget in (
+            getattr(self, "chk_auto_contrast", None),
+            getattr(self, "btn_adjust_contrast", None),
+            getattr(self, "inference_preprocess_summary_label", None),
+        ):
+            if widget is None:
+                continue
+            widget.setVisible(bool(visible))
+            widget.setEnabled(bool(visible))
+
+    def _update_inference_preprocess_summary(self) -> None:
+        if not hasattr(self, "inference_preprocess_summary_label"):
+            return
+        if not self._selected_model_is_ml():
+            self.inference_preprocess_summary_label.setText("ML preprocessing: disabled for conventional inference.")
+            return
+        path = self.path_edit.text().strip()
+        if not path or not Path(path).exists():
+            mode = "manual" if self._inference_manual_contrast_adjustment is not None else (
+                "auto" if self.chk_auto_contrast.isChecked() else "disabled"
+            )
+            self.inference_preprocess_summary_label.setText(
+                f"ML preprocessing: long side 512, contrast={mode}. Load an image to preview final dimensions."
+            )
+            return
+        try:
+            meta = inspect_image_metadata(path)
+            width = int(meta["width"])
+            height = int(meta["height"])
+            long_side = max(1, max(width, height))
+            scale = 512.0 / float(long_side)
+            out_width = max(1, int(round(width * scale)))
+            out_height = max(1, int(round(height * scale)))
+            original_channels = int(meta["original_channel_count"])
+            duplicate = original_channels == 1
+            contrast_mode = "manual" if self._inference_manual_contrast_adjustment is not None else (
+                "auto" if self.chk_auto_contrast.isChecked() else "disabled"
+            )
+            self.inference_preprocess_summary_label.setText(
+                "ML preprocessing: "
+                f"{width}x{height} ({original_channels}ch) -> {out_width}x{out_height}; "
+                f"contrast={contrast_mode}; channel duplication={'yes' if duplicate else 'no'}."
+            )
+        except Exception as exc:
+            self.inference_preprocess_summary_label.setText(f"ML preprocessing: preview unavailable ({exc}).")
+
     def _toggle_conventional_controls(self, model_name: str) -> None:
         if not hasattr(self, "conventional_row_widget"):
             return
@@ -3744,6 +3996,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.state.image_path = str(sample_path)
         self._preview_input_image(str(sample_path))
         self._try_auto_calibration_from_metadata(str(sample_path), user_initiated=False)
+        self._update_inference_preprocess_summary()
         self.tabs.setCurrentIndex(0)
         self.logger.info("Loaded sample image: %s", sample_path)
         self._update_progressive_disclosure()
@@ -3762,10 +4015,12 @@ class QtSegmentationMainWindow(QMainWindow):
     def _on_model_changed(self, model_name: str) -> None:
         spec = self._model_specs.get(model_name)
         self._toggle_conventional_controls(model_name)
+        self._toggle_ml_preprocess_controls(self._selected_model_is_ml(model_name))
         if hasattr(self, "current_model_summary_label"):
             self.current_model_summary_label.setText(f"Model: {model_name.strip()}")
         if not spec:
             self.model_desc.setText("")
+            self._update_inference_preprocess_summary()
             return
         lines = [
             f"<b>{spec['display_name']}</b> | {spec.get('description', '')}",
@@ -3792,6 +4047,8 @@ class QtSegmentationMainWindow(QMainWindow):
             lines.append(f"<b>Checkpoint sha256:</b> {spec.get('file_sha256')}")
         self.model_desc.setText("<br>".join([line for line in lines if line]))
         self.logger.info("Selected model: %s (%s)", model_name, spec.get("model_id", ""))
+        self._update_inference_preprocess_summary()
+        self._start_model_warm_load(model_name)
         self._update_progressive_disclosure()
 
     def _on_class_changed(self, class_label: str) -> None:
@@ -3853,6 +4110,10 @@ class QtSegmentationMainWindow(QMainWindow):
             mask_input_type=str(self.orch_prepare_mask_type.currentText()),
             mask_colormap=mask_colormap,
             mask_colormap_strict=bool(self.orch_prepare_colormap_strict.isChecked()),
+            augmentation=parse_augmentation_config(
+                cfg.get("augmentation", {}),
+                default_seed=int(cfg.get("split_seed", self.orch_prepare_seed.value())),
+            ),
         )
 
     def _dataset_prepare_overrides(self, config: DatasetPrepareConfig) -> list[str]:
@@ -3873,6 +4134,10 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         if config.mask_colormap:
             overrides.append(f"mask_colormap={json.dumps(config.mask_colormap, separators=(',', ':'))}")
+        if config.augmentation.enabled or config.augmentation.operations:
+            overrides.append(
+                f"augmentation={json.dumps(config.augmentation.to_dict(), separators=(',', ':'))}"
+            )
         return overrides
 
     def _set_dataset_preview_payload(self, rows: list[dict[str, object]], split_counts: dict[str, int], summary: str) -> None:
@@ -3947,6 +4212,94 @@ class QtSegmentationMainWindow(QMainWindow):
     def _resolve_run_config(self) -> dict:
         cfg_path = self.config_path_edit.text().strip() or None
         return resolve_config(cfg_path, self._config_overrides())
+
+    def _current_warm_load_params(self) -> dict[str, object]:
+        return {
+            "enable_gpu": bool(self.orch_infer_enable_gpu.isChecked()) if hasattr(self, "orch_infer_enable_gpu") else False,
+            "device_policy": (
+                str(self.orch_infer_device_policy.currentText()) if hasattr(self, "orch_infer_device_policy") else "cpu"
+            ),
+        }
+
+    def _start_model_warm_load(self, model_name: str) -> None:
+        if not hasattr(self, "model_warm_load_status_label"):
+            return
+        if not self._selected_model_is_ml(model_name):
+            self.model_warm_load_status_label.setText("Model warm-load: not needed for conventional inference.")
+            self._last_warm_load_status = None
+            return
+        params = self._current_warm_load_params()
+        reference = resolve_gui_model_reference(model_name, params)
+        if reference is None:
+            self.model_warm_load_status_label.setText("Model warm-load: no resolvable checkpoint for this model yet.")
+            self._last_warm_load_status = None
+            return
+        self._warm_load_generation += 1
+        generation = self._warm_load_generation
+        self._warm_load_target_model = model_name
+        self.model_warm_load_status_label.setText(f"Model warm-load: loading {model_name} in background...")
+        thread = QThread(self)
+        worker = _WarmLoadWorker(
+            generation,
+            lambda: self.workflow.warm_model(model_name, params=params),
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_model_warm_load_finished)
+        worker.failed.connect(self._on_model_warm_load_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        self._warm_load_thread = thread
+        self._warm_load_worker = worker
+        thread.start()
+
+    @Slot(int, object)
+    def _on_model_warm_load_finished(self, generation: int, payload: object) -> None:
+        if generation != self._warm_load_generation:
+            return
+        self._warm_load_thread = None
+        self._warm_load_worker = None
+        if isinstance(payload, ModelWarmLoadStatus):
+            self._last_warm_load_status = payload
+            self.model_warm_load_status_label.setText(f"Model warm-load: {payload.message}")
+            self.logger.info("Warm-loaded model %s (%s)", payload.display_name, payload.message)
+            return
+        if payload is None:
+            self.model_warm_load_status_label.setText("Model warm-load: skipped for current selection.")
+            self._last_warm_load_status = None
+            return
+        self.model_warm_load_status_label.setText("Model warm-load: ready.")
+
+    @Slot(int, str)
+    def _on_model_warm_load_failed(self, generation: int, message: str) -> None:
+        if generation != self._warm_load_generation:
+            return
+        self._warm_load_thread = None
+        self._warm_load_worker = None
+        self._last_warm_load_status = None
+        self.model_warm_load_status_label.setText(f"Model warm-load: failed ({message}).")
+        self.logger.warning("Model warm-load failed for %s: %s", self._warm_load_target_model, message)
+
+    def on_adjust_contrast_before_inference(self) -> None:
+        path = self.path_edit.text().strip()
+        if not path:
+            QMessageBox.warning(self, "Missing image", "Load an image before adjusting ML contrast.")
+            return
+        if not self._selected_model_is_ml():
+            QMessageBox.information(self, "Contrast Adjustment", "Contrast adjustment is only used for ML inference.")
+            return
+        dialog = _ContrastAdjustmentDialog(
+            image_path=path,
+            config=self._current_ml_preprocess_config(),
+            adjustment=self._inference_manual_contrast_adjustment,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        self._inference_manual_contrast_adjustment = dialog.result_adjustment
+        self._update_inference_preprocess_summary()
 
     def _start_orchestration_job(self, command: list[str], job_name: str) -> None:
         if self._job_process is not None and self._job_process.state() != QProcess.NotRunning:
@@ -4966,6 +5319,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.state.image_path = path
         self._preview_input_image(path)
         self._try_auto_calibration_from_metadata(path, user_initiated=False)
+        self._update_inference_preprocess_summary()
         self.tabs.setCurrentIndex(0)
         self.logger.info("Loaded image path: %s", path)
         self._update_progressive_disclosure()
@@ -4986,16 +5340,27 @@ class QtSegmentationMainWindow(QMainWindow):
             params = dict(cfg.get("params", {}))
             if self._selected_model_id(model_name) == "hydride_conventional":
                 params.update(self._collect_conventional_params())
+            else:
+                params["gui_preprocess"] = self._current_ml_preprocess_payload(cfg)
+            params["enable_gpu"] = bool(cfg.get("enable_gpu", self.orch_infer_enable_gpu.isChecked()))
+            params["device_policy"] = str(cfg.get("device_policy", self.orch_infer_device_policy.currentText()))
             params["image_path"] = path
             operator_id = self._active_operator_id()
             self.logger.info("Running segmentation on %s with %s", path, model_name)
             cfg = dict(cfg)
             cfg["operator_id"] = operator_id
-            self._start_inference_subprocess(
+            self._start_background_job(
                 label="single",
-                model_name=model_name,
-                image_path=path,
-                cfg=cfg,
+                job=lambda report_status: self._run_desktop_segmentation_job(
+                    report_status,
+                    path=path,
+                    model_name=model_name,
+                    params=params,
+                    include_analysis=include_analysis,
+                    resolved_config=cfg,
+                    operator_id=operator_id,
+                ),
+                on_finished=self._on_single_run_finished,
             )
         except Exception as exc:
             self.logger.exception("Segmentation failed")
@@ -5036,9 +5401,11 @@ class QtSegmentationMainWindow(QMainWindow):
             params = dict(cfg.get("params", {}))
             if self._selected_model_id(model_name) == "hydride_conventional":
                 params.update(self._collect_conventional_params())
+            else:
+                params["gui_preprocess"] = self._current_ml_preprocess_payload(cfg)
             params.setdefault("image_path", paths[0])
-            params["enable_gpu"] = bool(cfg.get("enable_gpu", False))
-            params["device_policy"] = str(cfg.get("device_policy", "cpu"))
+            params["enable_gpu"] = bool(cfg.get("enable_gpu", self.orch_infer_enable_gpu.isChecked()))
+            params["device_policy"] = str(cfg.get("device_policy", self.orch_infer_device_policy.currentText()))
             operator_id = self._active_operator_id()
             output_dir = str(cfg.get("output_dir") or (self.orchestrator.repo_root / "outputs" / "inference"))
             batch_notes = self.notes_edit.text().strip()

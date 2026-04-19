@@ -13,6 +13,11 @@ from src.microseg.dataops.training_dataset import (
     prepare_training_dataset_layout,
     preview_training_dataset_layout,
 )
+from src.microseg.data_preparation.augmentation import (
+    AugmentationConfig,
+    AugmentationOperationConfig,
+    parse_augmentation_config,
+)
 
 
 def _write(path: Path, arr: np.ndarray) -> None:
@@ -221,3 +226,141 @@ def test_phase10_generate_dataset_manifest_from_existing_splits(tmp_path: Path) 
     assert manifest["sample_to_split"]["train/a"] == "train"
     assert manifest["sample_to_split"]["val/a"] == "val"
     assert manifest["sample_to_split"]["b"] == "test"
+
+
+def test_phase10_augmentation_config_parsing() -> None:
+    cfg = parse_augmentation_config(
+        {
+            "enabled": True,
+            "seed": 7,
+            "stage": "post_resize",
+            "apply_splits": ["train"],
+            "variants_per_sample": 2,
+            "operations": [
+                {"name": "shadow", "probability": 0.75, "parameters": {"count_range": [1, 2]}},
+                {"name": "blur", "probability": 0.5, "parameters": {"kernel_size_range": [3, 5]}},
+            ],
+            "debug": {"enabled": True, "max_samples": 3},
+        },
+        default_seed=42,
+    )
+
+    assert cfg.enabled is True
+    assert cfg.seed == 7
+    assert cfg.stage == "post_resize"
+    assert cfg.apply_splits == ("train",)
+    assert cfg.variants_per_sample == 2
+    assert [op.name for op in cfg.operations] == ["shadow", "blur"]
+    assert cfg.debug.enabled is True
+    assert cfg.debug.max_samples == 3
+
+
+def test_phase10_prepare_augmentation_is_seeded_and_leakage_safe(tmp_path: Path) -> None:
+    root = tmp_path / "raw"
+    for stem in ["a_aug1", "a_aug2", "b", "c"]:
+        img = np.full((16, 16, 3), len(stem) * 10, dtype=np.uint8)
+        mask = np.zeros((16, 16), dtype=np.uint8)
+        mask[:, 4:12] = 1
+        _write(root / "source" / f"{stem}.png", img)
+        _write(root / "masks" / f"{stem}.png", mask)
+
+    augmentation = AugmentationConfig(
+        enabled=True,
+        seed=11,
+        apply_splits=("train",),
+        variants_per_sample=2,
+        operations=(
+            AugmentationOperationConfig(
+                name="shadow",
+                probability=1.0,
+                parameters={"count_range": [1, 1], "intensity_range": [30, 30]},
+            ),
+            AugmentationOperationConfig(
+                name="blur",
+                probability=1.0,
+                parameters={"count_range": [1, 1], "kernel_size_range": [3, 3]},
+            ),
+        ),
+    )
+
+    out_a = tmp_path / "prepared_a"
+    out_b = tmp_path / "prepared_b"
+    cfg = DatasetPrepareConfig(
+        dataset_dir=str(root),
+        output_dir=str(out_a),
+        train_ratio=0.5,
+        val_ratio=0.25,
+        test_ratio=0.25,
+        seed=5,
+        split_strategy="leakage_aware",
+        leakage_group_mode="suffix_aware",
+        augmentation=augmentation,
+    )
+    prepare_training_dataset_layout(cfg)
+    prepare_training_dataset_layout(
+        DatasetPrepareConfig(
+            dataset_dir=str(root),
+            output_dir=str(out_b),
+            train_ratio=0.5,
+            val_ratio=0.25,
+            test_ratio=0.25,
+            seed=5,
+            split_strategy="leakage_aware",
+            leakage_group_mode="suffix_aware",
+            augmentation=augmentation,
+        )
+    )
+
+    train_aug_a = sorted((out_a / "train" / "images").glob("*_aug*.png"))
+    train_aug_b = sorted((out_b / "train" / "images").glob("*_aug*.png"))
+    assert train_aug_a
+    assert [p.name for p in train_aug_a] == [p.name for p in train_aug_b]
+
+    first_a = np.asarray(Image.open(train_aug_a[0]).convert("RGB"), dtype=np.uint8)
+    first_b = np.asarray(Image.open(train_aug_b[0]).convert("RGB"), dtype=np.uint8)
+    assert np.array_equal(first_a, first_b)
+
+    import json
+
+    manifest = json.loads((out_a / "dataset_prepare_manifest.json").read_text(encoding="utf-8"))
+    groups: dict[str, set[str]] = {}
+    for row in manifest["mapping"]:
+        groups.setdefault(str(row["source_group"]), set()).add(str(row["split"]))
+    assert len(groups["a"]) == 1
+    assert manifest["augmentation"]["generated_samples"] > 0
+
+
+def test_phase10_prepare_existing_split_layout_can_materialize_augmented_copy(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    for split in ["train", "val", "test"]:
+        img = np.full((8, 8, 3), 120, dtype=np.uint8)
+        mask = np.zeros((8, 8), dtype=np.uint8)
+        mask[:, 3:5] = 1
+        _write(root / split / "images" / f"{split}_a.png", img)
+        _write(root / split / "masks" / f"{split}_a.png", mask)
+
+    out = tmp_path / "prepared"
+    res = prepare_training_dataset_layout(
+        DatasetPrepareConfig(
+            dataset_dir=str(root),
+            output_dir=str(out),
+            augmentation=AugmentationConfig(
+                enabled=True,
+                seed=19,
+                apply_splits=("train",),
+                variants_per_sample=1,
+                operations=(
+                    AugmentationOperationConfig(
+                        name="shadow",
+                        probability=1.0,
+                        parameters={"count_range": [1, 1], "intensity_range": [20, 20]},
+                    ),
+                ),
+            ),
+        )
+    )
+
+    assert res.prepared is True
+    assert any((out / "train" / "images").glob("*_aug001.png"))
+    assert not any((out / "val" / "images").glob("*_aug001.png"))
+    assert (out / "dataset_prepare_manifest.json").exists()

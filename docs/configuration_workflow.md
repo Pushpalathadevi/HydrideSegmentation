@@ -48,12 +48,24 @@ Unsplit source/masks to split-layout preparation:
 microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml
 ```
 
+Split-safe augmentation example:
+```bash
+microseg-cli dataset-prepare --config configs/dataset_prepare.augmentation.shadow_blur.yml
+```
+
 Leakage-aware split controls for unsplit auto-prepare:
 ```bash
 microseg-cli dataset-prepare \
   --config configs/dataset_prepare.default.yml \
   --set split_strategy=leakage_aware \
   --set leakage_group_mode=suffix_aware
+```
+
+Augmentation override example:
+```bash
+microseg-cli dataset-prepare \
+  --config configs/dataset_prepare.default.yml \
+  --set 'augmentation={"enabled":true,"seed":42,"apply_splits":["train"],"variants_per_sample":2,"operations":[{"name":"shadow","probability":0.9,"parameters":{"radius":150,"sigma":500,"intensity_range":[40,50],"count_range":[1,3]}},{"name":"blur","probability":0.8,"parameters":{"sigma":120,"kernel_size_range":[3,9],"min_center_distance_ratio":0.4,"count_range":[1,3]}}],"debug":{"enabled":true,"max_samples":4}}'
 ```
 
 RGB mask colormap conversion example:

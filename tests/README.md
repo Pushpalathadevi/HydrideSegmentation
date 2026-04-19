@@ -31,6 +31,7 @@ Current phase coverage includes:
 - `test_phase9_registry_validation.py` strict frozen model registry validation rules
 - `test_phase9_dataops.py` leakage-aware split planner and dataset QA checks
 - `test_phase10_dataset_prepare.py` unsplit source/masks auto-prepare with leakage-aware grouping, global IDs, optional RGB-colormap conversion, and preview contract checks
+- `test_phase10_dataset_prepare.py` also covers augmentation config parsing, deterministic seeded augmentation materialization, leakage-safe train-only augmentation, and augmented-copy generation from existing split layouts
 - `test_phase13_report_review.py` run-report summary/compare and workflow profile persistence roundtrips
 - `test_phase14_checkpoint_lifecycle.py` checkpoint lifecycle metadata validation and registry-hint checkpoint resolution
 - `test_phase15_hpc_ga_planner.py` GA candidate planning, feedback-hybrid ranking inputs, HPC script-bundle generation, pretrained mapping/script overrides, and HPC workflow-profile scope roundtrips
@@ -48,6 +49,7 @@ Current phase coverage includes:
 - `test_phase27_qt_settings_smoke.py` Qt offscreen smoke for settings/config application and GUI-to-export config wiring
 
 - `test_data_preparation_module.py` paired image/mask collector, RGB red-threshold + red-dominance fallback binarization, noisy-grayscale auto-Otsu fallback, short-side resize+crop alignment, empty-mask warn/error policy, manifests/QA reports, debug criteria exports, and dry-run behavior
+- `test_data_preparation_module.py` also covers shared augmentation integration in the paired prep path, including deterministic outputs and `debug_augmentation/` metadata panels
 - `test_mask_binary_normalization.py` binary-mask auto-normalization option (`two_value_zero_background`) for 2-value indexed masks
 - `test_service.py` legacy Flask service request validation for model selection, parameter parsing, and response behavior
 

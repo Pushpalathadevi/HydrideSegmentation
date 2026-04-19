@@ -13,6 +13,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from src.microseg.data_preparation.augmentation import AugmentationDebugWriter, AugmentationRunner
 from src.microseg.data_preparation.binarization import MaskBinarizer
 from src.microseg.data_preparation.config import DatasetPrepConfig
 from src.microseg.data_preparation.debug import DebugInspector
@@ -45,6 +46,8 @@ class DatasetPreparer:
         self.binarizer = MaskBinarizer(cfg)
         self.resizer = Resizer(cfg)
         self.inspector = DebugInspector()
+        self.augmentation_runner = AugmentationRunner(cfg.augmentation)
+        self.augmentation_debug_writer = AugmentationDebugWriter()
         self.manifest_writer = ManifestWriter()
         self.exporters = {"oxford": OxfordExporter(), "mado": MadoExporter()}
 
@@ -70,6 +73,9 @@ class DatasetPreparer:
         read_failures: list[str] = []
         empty_output_masks: list[str] = []
         debug_written = 0
+        augmentation_debug_written = 0
+        augmentation_generated = 0
+        augmentation_stage = str(self.cfg.augmentation.stage)
 
         stage_start = time.perf_counter()
         for idx, pair in enumerate(pairs):
@@ -123,6 +129,66 @@ class DatasetPreparer:
             }
             records.append(rec)
 
+            if self.augmentation_runner.enabled_for_split(split):
+                variant_source_image = image if augmentation_stage == "pre_resize" else image_out
+                variant_source_mask = mask_binary if augmentation_stage == "pre_resize" else mask_out
+                variants = self.augmentation_runner.generate_variants(
+                    image=variant_source_image,
+                    mask=variant_source_mask,
+                    split=split,
+                    source_name=pair.stem,
+                    resolved_stage=augmentation_stage,
+                )
+                for variant in variants:
+                    if augmentation_stage == "pre_resize":
+                        aug_image_out, aug_mask_out, aug_resize_warnings = self.resizer.apply(
+                            variant.image,
+                            mask_binary,
+                            split=split,
+                            sample_seed=int(variant.metadata.sample_seed),
+                        )
+                    else:
+                        aug_image_out = variant.image
+                        aug_mask_out = variant.mask
+                        aug_resize_warnings = []
+                    augmentation_generated += 1
+                    aug_stem = f"{pair.stem}_aug{variant.metadata.variant_index:03d}"
+                    aug_image_file_name = f"{aug_stem}{self.cfg.image_ext}"
+                    aug_mask_file_name = f"{aug_stem}{self.cfg.mask_ext}"
+                    aug_rec = {
+                        "stem": aug_stem,
+                        "source_stem": pair.stem,
+                        "split": split,
+                        "source_image_path": self._fmt_path(pair.image_path, output_dir),
+                        "source_mask_path": self._fmt_path(pair.mask_path, output_dir),
+                        "image_file_name": aug_image_file_name,
+                        "mask_file_name": aug_mask_file_name,
+                        "original_shape": list(image.shape[:2]),
+                        "output_shape": list(aug_image_out.shape[:2]),
+                        "mask_stats": mask_stats,
+                        "warnings": list(aug_resize_warnings),
+                        "augmentation": variant.metadata.to_dict(),
+                        "image_out": aug_image_out,
+                        "mask_out": (aug_mask_out * self.cfg.mask_foreground_value).astype(np.uint8),
+                    }
+                    split_counts[split] += 1
+                    records.append(aug_rec)
+                    if (
+                        self.cfg.augmentation.debug.enabled
+                        and augmentation_debug_written < int(self.cfg.augmentation.debug.max_samples)
+                    ):
+                        self.augmentation_debug_writer.write(
+                            debug_root=output_dir / "debug_augmentation",
+                            split=split,
+                            stem=aug_stem,
+                            base_image=image_out if augmentation_stage == "post_resize" else image,
+                            augmented_image=aug_image_out,
+                            mask=aug_mask_out if aug_mask_out.ndim == 2 else mask_out,
+                            metadata=variant.metadata,
+                            ext=self.cfg.debug_ext,
+                        )
+                        augmentation_debug_written += 1
+
             if self.cfg.debug.enabled and debug_written < self.cfg.debug.inspection_limit:
                 debug_criteria = self._debug_criteria(mask_stats)
                 annotation = (
@@ -168,6 +234,8 @@ class DatasetPreparer:
             read_failures=read_failures,
             empty_output_masks=empty_output_masks,
             elapsed_seconds=time.perf_counter() - run_start,
+            augmentation_generated=augmentation_generated,
+            augmentation_debug_written=augmentation_debug_written,
         )
         return DatasetPrepareResult(manifest_path=manifest_path, split_counts=split_counts, total_pairs=len(records))
 
@@ -191,6 +259,8 @@ class DatasetPreparer:
         read_failures: list[str],
         empty_output_masks: list[str],
         elapsed_seconds: float,
+        augmentation_generated: int,
+        augmentation_debug_written: int,
     ) -> None:
         fg_ratios = [float(rec["mask_stats"].get("fg_ratio", 0.0)) for rec in records]
         binary_sets = [tuple(rec["mask_stats"].get("unique_binary_values", [])) for rec in records]
@@ -225,6 +295,15 @@ class DatasetPreparer:
             },
             "timing": {
                 "elapsed_seconds": elapsed_seconds,
+            },
+            "augmentation": {
+                "enabled": bool(self.cfg.augmentation.enabled),
+                "stage": str(self.cfg.augmentation.stage),
+                "apply_splits": list(self.cfg.augmentation.apply_splits),
+                "variants_per_sample": int(self.cfg.augmentation.variants_per_sample),
+                "generated_samples": int(augmentation_generated),
+                "debug_samples_written": int(augmentation_debug_written),
+                "operations": [op.name for op in self.cfg.augmentation.operations if op.enabled],
             },
             "dry_run": bool(self.cfg.dry_run),
         }

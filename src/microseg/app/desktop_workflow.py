@@ -15,8 +15,10 @@ from hydride_segmentation.microseg_adapter import (
     get_gui_model_options,
     get_gui_model_specs,
     resolve_gui_model_id,
+    resolve_gui_model_reference,
     run_pipeline_from_gui,
 )
+from src.microseg.inference import ModelWarmLoadStatus, warm_load_reference_bundle
 from src.microseg.utils import mask_overlay, to_rgb
 
 
@@ -61,6 +63,38 @@ class DesktopWorkflowManager:
 
     def model_specs(self) -> list[dict[str, str]]:
         return get_gui_model_specs()
+
+    def preferred_default_model_name(self) -> str:
+        """Return the first usable ML model, otherwise the conventional fallback."""
+
+        specs = self.model_specs()
+        conventional_name = specs[0]["display_name"] if specs else ""
+        for spec in specs:
+            model_id = str(spec.get("model_id", "")).strip()
+            name = str(spec.get("display_name", "")).strip()
+            if not name or model_id in {"", "hydride_conventional", "hydride_ml"}:
+                if model_id == "hydride_conventional" and not conventional_name:
+                    conventional_name = name
+                continue
+            try:
+                if resolve_gui_model_reference(name, {}) is not None:
+                    return name
+            except Exception:
+                continue
+        return conventional_name
+
+    def warm_model(self, model_name: str, *, params: dict | None = None) -> ModelWarmLoadStatus | None:
+        """Warm-load an ML model bundle for GUI responsiveness."""
+
+        reference = resolve_gui_model_reference(model_name, params)
+        if reference is None:
+            return None
+        cfg = dict(params or {})
+        return warm_load_reference_bundle(
+            reference,
+            enable_gpu=bool(cfg.get("enable_gpu", False)),
+            device_policy=str(cfg.get("device_policy", "cpu")),
+        )
 
     def history(self) -> list[DesktopRunRecord]:
         return list(self._history)

@@ -450,3 +450,83 @@ def test_pipeline_errors_when_output_mask_all_zeros(tmp_path: Path) -> None:
         assert "output mask is all zeros after preprocessing" in str(exc)
     else:
         raise AssertionError("expected ValueError for empty output mask")
+
+
+def test_pipeline_augmentation_generates_debug_and_metadata(tmp_path: Path) -> None:
+    input_dir = _build_paired_dataset(tmp_path, n=4)
+    output_dir = tmp_path / "out_aug"
+    cfg = DatasetPrepConfig.from_dict({
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "styles": ["mado"],
+        "target_size": 32,
+        "augmentation": {
+            "enabled": True,
+            "seed": 17,
+            "stage": "post_resize",
+            "apply_splits": ["train"],
+            "variants_per_sample": 2,
+            "operations": [
+                {
+                    "name": "shadow",
+                    "probability": 1.0,
+                    "parameters": {"count_range": [1, 1], "intensity_range": [25, 25]},
+                },
+                {
+                    "name": "blur",
+                    "probability": 1.0,
+                    "parameters": {"count_range": [1, 1], "kernel_size_range": [3, 3]},
+                },
+            ],
+            "debug": {"enabled": True, "max_samples": 2},
+        },
+    })
+
+    result = DatasetPreparer(cfg).run()
+    assert result.total_pairs > 4
+    assert len(list((output_dir / "debug_augmentation").rglob("*_panel.png"))) == 2
+    assert len(list((output_dir / "debug_augmentation").rglob("*_metadata.json"))) == 2
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    augmented = [row for row in manifest["records"] if "augmentation" in row]
+    assert augmented
+    assert manifest["resolved_config"]["augmentation"]["enabled"] is True
+    qa = json.loads((output_dir / "dataset_qa_report.json").read_text(encoding="utf-8"))
+    assert qa["augmentation"]["generated_samples"] >= 1
+
+
+def test_pipeline_augmentation_is_seeded(tmp_path: Path) -> None:
+    input_dir = _build_paired_dataset(tmp_path, n=3)
+    cfg_base = {
+        "input_dir": str(input_dir),
+        "styles": ["mado"],
+        "target_size": 32,
+        "augmentation": {
+            "enabled": True,
+            "seed": 29,
+            "stage": "pre_resize",
+            "apply_splits": ["train"],
+            "variants_per_sample": 1,
+            "operations": [
+                {
+                    "name": "shadow",
+                    "probability": 1.0,
+                    "parameters": {"count_range": [1, 1], "intensity_range": [30, 30]},
+                },
+            ],
+        },
+    }
+
+    out_a = tmp_path / "seeded_a"
+    out_b = tmp_path / "seeded_b"
+    DatasetPreparer(DatasetPrepConfig.from_dict({**cfg_base, "output_dir": str(out_a)})).run()
+    DatasetPreparer(DatasetPrepConfig.from_dict({**cfg_base, "output_dir": str(out_b)})).run()
+
+    aug_a = sorted((out_a / "mado" / "train" / "images").glob("*_aug*.png"))
+    aug_b = sorted((out_b / "mado" / "train" / "images").glob("*_aug*.png"))
+    assert aug_a and aug_b
+    assert [p.name for p in aug_a] == [p.name for p in aug_b]
+    assert np.array_equal(
+        np.asarray(Image.open(aug_a[0]).convert("RGB"), dtype=np.uint8),
+        np.asarray(Image.open(aug_b[0]).convert("RGB"), dtype=np.uint8),
+    )

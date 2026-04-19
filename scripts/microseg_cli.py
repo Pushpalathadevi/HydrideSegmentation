@@ -31,6 +31,7 @@ from src.microseg.app.hpc_ga import (
 )
 from src.microseg.corrections import CorrectionDatasetPackager
 from src.microseg.data_preparation.config import DatasetPrepConfig
+from src.microseg.data_preparation.augmentation import parse_augmentation_config
 from src.microseg.data_preparation.oh5 import (
     DEFAULT_IMAGE_DATASET_CANDIDATES,
     DEFAULT_PHASE_DATASET_CANDIDATES,
@@ -191,6 +192,10 @@ def _build_dataset_prepare_config(
             cfg.get("binary_mask_normalization", args.binary_mask_normalization)
         ),
         class_map_path=str(cfg.get("class_map_path", getattr(args, "class_map_path", ""))),
+        augmentation=parse_augmentation_config(
+            cfg.get("augmentation", {}),
+            default_seed=int(cfg.get("split_seed", fallback_seed)),
+        ),
     )
 
 

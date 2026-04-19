@@ -10,13 +10,18 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 from PIL import Image
 
 from src.microseg.corrections.classes import normalize_binary_index_mask
 from src.microseg.corrections.classes import class_map_to_colormap, resolve_class_map
+from src.microseg.data_preparation.augmentation import (
+    AugmentationConfig,
+    AugmentationDebugWriter,
+    AugmentationRunner,
+)
 
 
 SUPPORTED_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
@@ -175,6 +180,7 @@ class DatasetPrepareConfig:
     mask_colormap_strict: bool = True
     binary_mask_normalization: Literal["off", "two_value_zero_background", "nonzero_foreground"] = "off"
     class_map_path: str = ""
+    augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
 
 
 @dataclass
@@ -427,6 +433,36 @@ def _write_png_pair(image_path: Path, mask_path: Path, out_image: Path, out_mask
     Image.fromarray(mask_idx).save(out_mask)
 
 
+def _load_png_pair(
+    image_path: Path,
+    mask_path: Path,
+    config: DatasetPrepareConfig,
+) -> tuple[np.ndarray, np.ndarray]:
+    image = np.asarray(Image.open(image_path).convert("RGB"), dtype=np.uint8)
+    mask_idx = _mask_to_index(mask_path, config)
+    return image, mask_idx
+
+
+def _write_png_arrays(image: np.ndarray, mask_idx: np.ndarray, out_image: Path, out_mask: Path) -> None:
+    out_image.parent.mkdir(parents=True, exist_ok=True)
+    out_mask.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(image.astype(np.uint8)).save(out_image)
+    Image.fromarray(mask_idx.astype(np.uint8)).save(out_mask)
+
+
+def _resolved_augmentation_stage(config: DatasetPrepareConfig) -> str:
+    return f"{config.augmentation.stage}:source_native"
+
+
+def _serialize_augmentation_config(config: DatasetPrepareConfig) -> dict[str, Any]:
+    return config.augmentation.to_dict()
+
+
+def _debug_aug_name(new_name: str) -> str:
+    stem = Path(new_name).stem
+    return stem.replace(".", "_")
+
+
 def _derive_source_group(stem: str, *, mode: str, regex: str) -> str:
     if mode == "stem":
         return stem
@@ -519,6 +555,43 @@ def _mask_histogram(pairs: list[tuple[str, Path, Path]], config: DatasetPrepareC
     return {str(k): int(v) for k, v in sorted(hist.items())}
 
 
+def _append_augmented_preview_rows(
+    mapping: list[dict[str, object]],
+    *,
+    split: str,
+    stem: str,
+    image_path: Path,
+    mask_path: Path,
+    global_id: str,
+    source_group: str,
+    augmentation_config: AugmentationConfig,
+) -> int:
+    if not augmentation_config.enabled:
+        return 0
+    if split not in set(augmentation_config.apply_splits):
+        return 0
+    if augmentation_config.variants_per_sample <= 0:
+        return 0
+    added = 0
+    for variant_index in range(1, int(augmentation_config.variants_per_sample) + 1):
+        mapping.append(
+            {
+                "id": f"{global_id}_aug{variant_index:03d}",
+                "global_id": global_id,
+                "original_stem": stem,
+                "original_image_path": str(image_path),
+                "original_mask_path": str(mask_path),
+                "source_group": source_group,
+                "new_name": f"{stem}_{global_id}_aug{variant_index:03d}.png",
+                "split": split,
+                "is_augmented": True,
+                "augmentation_variant_index": variant_index,
+            }
+        )
+        added += 1
+    return added
+
+
 def preview_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPreparePreview:
     """Preview dataset preparation plan and class statistics without materialization."""
 
@@ -553,7 +626,18 @@ def preview_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPrep
                         "source_group": stem,
                         "new_name": f"{stem}_{global_id}.png",
                         "split": split,
+                        "is_augmented": False,
                     }
+                )
+                split_counts[split] += _append_augmented_preview_rows(
+                    mapping,
+                    split=split,
+                    stem=stem,
+                    image_path=image_path,
+                    mask_path=mask_path,
+                    global_id=global_id,
+                    source_group=stem,
+                    augmentation_config=config.augmentation,
                 )
         return DatasetPreparePreview(
             schema_version="microseg.dataset_prepare_preview.v1",
@@ -594,7 +678,18 @@ def preview_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPrep
                 "source_group": source_group_for_index[idx - 1],
                 "new_name": f"{stem}_{global_id}.png",
                 "split": split,
+                "is_augmented": False,
             }
+        )
+        split_counts[split] += _append_augmented_preview_rows(
+            mapping,
+            split=split,
+            stem=stem,
+            image_path=image_path,
+            mask_path=mask_path,
+            global_id=global_id,
+            source_group=source_group_for_index[idx - 1],
+            augmentation_config=config.augmentation,
         )
 
     return DatasetPreparePreview(
@@ -618,22 +713,138 @@ def prepare_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPrep
     root = Path(config.dataset_dir)
     out_root = Path(config.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
+    aug_runner = AugmentationRunner(config.augmentation)
+    aug_debug_writer = AugmentationDebugWriter()
+    aug_debug_written = 0
+    augmentation_summary = {
+        "enabled": bool(config.augmentation.enabled),
+        "requested_stage": config.augmentation.stage,
+        "resolved_stage": _resolved_augmentation_stage(config),
+        "apply_splits": list(config.augmentation.apply_splits),
+        "variants_per_sample": int(config.augmentation.variants_per_sample),
+        "operations": [op.name for op in config.augmentation.operations if op.enabled],
+        "generated_samples": 0,
+        "debug_samples_written": 0,
+    }
 
     if _has_explicit_split_layout(root):
+        if not config.augmentation.enabled:
+            return DatasetPrepareResult(
+                schema_version="microseg.dataset_prepare.v1",
+                created_utc=_utc_now(),
+                dataset_dir=str(root),
+                output_dir=str(out_root),
+                used_existing_splits=True,
+                prepared=False,
+                split_counts={
+                    "train": _count_pairs(root / "train"),
+                    "val": _count_pairs(root / "val"),
+                    "test": _count_pairs(root / "test"),
+                },
+                source_layout="split_layout",
+                manifest_path="",
+            )
+
+        mapping: list[dict[str, Any]] = []
+        split_counts = {"train": 0, "val": 0, "test": 0}
+        group_to_split: dict[str, str] = {}
+        running_id = 0
+        for split in ["train", "val", "test"]:
+            split_pairs = _pairs_by_stem(root / split / "images", root / split / "masks")
+            for stem, image_path, mask_path in split_pairs:
+                running_id += 1
+                global_id = f"{running_id:0{int(config.id_width)}d}"
+                group_to_split[stem] = split
+                image_arr, mask_idx = _load_png_pair(image_path, mask_path, config)
+                new_name = f"{stem}_{global_id}.png"
+                out_img = out_root / split / "images" / new_name
+                out_msk = out_root / split / "masks" / new_name
+                _write_png_arrays(image_arr, mask_idx, out_img, out_msk)
+                split_counts[split] += 1
+                mapping.append(
+                    {
+                        "id": global_id,
+                        "global_id": global_id,
+                        "original_stem": stem,
+                        "original_image_path": str(image_path),
+                        "original_mask_path": str(mask_path),
+                        "source_group": stem,
+                        "new_name": new_name,
+                        "split": split,
+                        "is_augmented": False,
+                    }
+                )
+
+                variants = aug_runner.generate_variants(
+                    image=image_arr,
+                    mask=mask_idx,
+                    split=split,
+                    source_name=new_name,
+                    resolved_stage=_resolved_augmentation_stage(config),
+                )
+                for variant in variants:
+                    aug_name = f"{Path(new_name).stem}_aug{variant.metadata.variant_index:03d}.png"
+                    out_aug_img = out_root / split / "images" / aug_name
+                    out_aug_msk = out_root / split / "masks" / aug_name
+                    _write_png_arrays(variant.image, variant.mask, out_aug_img, out_aug_msk)
+                    split_counts[split] += 1
+                    augmentation_summary["generated_samples"] += 1
+                    mapping.append(
+                        {
+                            "id": f"{global_id}_aug{variant.metadata.variant_index:03d}",
+                            "global_id": global_id,
+                            "original_stem": stem,
+                            "original_image_path": str(image_path),
+                            "original_mask_path": str(mask_path),
+                            "source_group": stem,
+                            "new_name": aug_name,
+                            "split": split,
+                            "is_augmented": True,
+                            "augmentation_variant_index": variant.metadata.variant_index,
+                            "augmentation": variant.metadata.to_dict(),
+                        }
+                    )
+                    if config.augmentation.debug.enabled and aug_debug_written < int(config.augmentation.debug.max_samples):
+                        aug_debug_writer.write(
+                            debug_root=out_root / "debug_augmentation",
+                            split=split,
+                            stem=_debug_aug_name(aug_name),
+                            base_image=image_arr,
+                            augmented_image=variant.image,
+                            mask=mask_idx,
+                            metadata=variant.metadata,
+                        )
+                        aug_debug_written += 1
+
+        augmentation_summary["debug_samples_written"] = aug_debug_written
+        manifest = {
+            "schema_version": "microseg.dataset_prepare_manifest.v1",
+            "created_utc": _utc_now(),
+            "config": asdict(config),
+            "augmentation": augmentation_summary | {"config": _serialize_augmentation_config(config)},
+            "source_layout": "split_layout",
+            "supported_extensions": list(SUPPORTED_IMAGE_EXTENSIONS),
+            "split_strategy": "existing_split_layout",
+            "leakage_group_mode": "existing_split_layout",
+            "leakage_group_regex": "",
+            "leakage_groups": len(group_to_split),
+            "group_to_split": group_to_split,
+            "split_counts": split_counts,
+            "mapping": mapping,
+        }
+        manifest_path = out_root / "dataset_prepare_manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
         return DatasetPrepareResult(
             schema_version="microseg.dataset_prepare.v1",
             created_utc=_utc_now(),
-            dataset_dir=str(root),
+            dataset_dir=str(out_root),
             output_dir=str(out_root),
             used_existing_splits=True,
-            prepared=False,
-            split_counts={
-                "train": _count_pairs(root / "train"),
-                "val": _count_pairs(root / "val"),
-                "test": _count_pairs(root / "test"),
-            },
+            prepared=True,
+            split_counts=split_counts,
             source_layout="split_layout",
-            manifest_path="",
+            manifest_path=str(manifest_path),
         )
 
     pair_dirs = _find_unsplit_dirs(root)
@@ -647,7 +858,7 @@ def prepare_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPrep
 
     split_by_pair_index, group_to_split, source_group_for_index = _plan_split_assignments(pairs, config)
 
-    mapping: list[dict[str, object]] = []
+    mapping: list[dict[str, Any]] = []
     split_counts = {"train": 0, "val": 0, "test": 0}
     for idx, (stem, image_path, mask_path) in enumerate(pairs, start=1):
         split = split_by_pair_index[idx - 1]
@@ -655,7 +866,8 @@ def prepare_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPrep
         new_name = f"{stem}_{global_id}.png"
         out_img = out_root / split / "images" / new_name
         out_msk = out_root / split / "masks" / new_name
-        _write_png_pair(image_path, mask_path, out_img, out_msk, config)
+        image_arr, mask_idx = _load_png_pair(image_path, mask_path, config)
+        _write_png_arrays(image_arr, mask_idx, out_img, out_msk)
         split_counts[split] += 1
         mapping.append(
             {
@@ -667,13 +879,57 @@ def prepare_training_dataset_layout(config: DatasetPrepareConfig) -> DatasetPrep
                 "source_group": source_group_for_index[idx - 1],
                 "new_name": new_name,
                 "split": split,
+                "is_augmented": False,
             }
         )
 
+        variants = aug_runner.generate_variants(
+            image=image_arr,
+            mask=mask_idx,
+            split=split,
+            source_name=new_name,
+            resolved_stage=_resolved_augmentation_stage(config),
+        )
+        for variant in variants:
+            aug_name = f"{Path(new_name).stem}_aug{variant.metadata.variant_index:03d}.png"
+            out_aug_img = out_root / split / "images" / aug_name
+            out_aug_msk = out_root / split / "masks" / aug_name
+            _write_png_arrays(variant.image, variant.mask, out_aug_img, out_aug_msk)
+            split_counts[split] += 1
+            augmentation_summary["generated_samples"] += 1
+            mapping.append(
+                {
+                    "id": f"{global_id}_aug{variant.metadata.variant_index:03d}",
+                    "global_id": global_id,
+                    "original_stem": stem,
+                    "original_image_path": str(image_path),
+                    "original_mask_path": str(mask_path),
+                    "source_group": source_group_for_index[idx - 1],
+                    "new_name": aug_name,
+                    "split": split,
+                    "is_augmented": True,
+                    "augmentation_variant_index": variant.metadata.variant_index,
+                    "augmentation": variant.metadata.to_dict(),
+                }
+            )
+            if config.augmentation.debug.enabled and aug_debug_written < int(config.augmentation.debug.max_samples):
+                aug_debug_writer.write(
+                    debug_root=out_root / "debug_augmentation",
+                    split=split,
+                    stem=_debug_aug_name(aug_name),
+                    base_image=image_arr,
+                    augmented_image=variant.image,
+                    mask=mask_idx,
+                    metadata=variant.metadata,
+                )
+                aug_debug_written += 1
+
+    augmentation_summary["debug_samples_written"] = aug_debug_written
     manifest = {
         "schema_version": "microseg.dataset_prepare_manifest.v1",
         "created_utc": _utc_now(),
         "config": asdict(config),
+        "augmentation": augmentation_summary | {"config": _serialize_augmentation_config(config)},
         "source_layout": f"unsplit:{images_dir.relative_to(root)}+{masks_dir.relative_to(root)}",
         "supported_extensions": list(SUPPORTED_IMAGE_EXTENSIONS),
         "split_strategy": config.split_strategy,

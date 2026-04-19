@@ -7,20 +7,7 @@ split_seed: 42
 split_id_width: 6
 split_strategy: leakage_aware
 leakage_group_mode: suffix_aware
-leakage_group_regex: ""
 mask_input_type: indexed
-mask_colormap: {}
-mask_colormap_strict: true
 binary_mask_normalization: off
-class_map_path: ""
 augmentation:
   enabled: false
-  seed: 42
-  stage: post_resize
-  apply_splits:
-    - train
-  variants_per_sample: 1
-  operations: []
-  debug:
-    enabled: false
-    max_samples: 8

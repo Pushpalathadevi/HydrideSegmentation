@@ -14,6 +14,7 @@ It currently targets binary segmentation and is designed to extend to multiclass
 
 - Config model with YAML loading fallback to in-code dictionary defaults.
 - Default config file: `configs/data_prep.default.yml` (auto-loaded by `prep-dataset` when `--config` is omitted).
+- Shared augmentation subsystem used by both `microseg-cli dataset-prepare` and the paired `prepare_dataset` / `prep-dataset` path.
 - Pairing with strict/permissive modes and configurable mask naming patterns.
 - **Paired single-folder ingestion** (`{stem}.jpg` + `{stem}_mask.png` or `{stem}.png`).
 - Binarization modes:
@@ -42,6 +43,7 @@ It currently targets binary segmentation and is designed to extend to multiclass
 - Deterministic `manifest.json` with split counts, record-level stats, and warnings.
 - Dataset QA artifacts: `dataset_qa_report.json` and `dataset_qa_report.html`.
 - Progress + ETA logging plus `dataset_prepare.log` in output folder.
+- Optional split-targeted augmentation with deterministic seeds and machine-readable provenance.
 - Debug mode subset processing plus inspection artifacts:
   - input image + output image
   - input mask + processed mask
@@ -49,6 +51,71 @@ It currently targets binary segmentation and is designed to extend to multiclass
   - overlay
   - per-sample criteria JSON (`mode`, threshold details, foreground ratio, warnings)
   - combined panel image.
+- Augmentation debug mode writes `debug_augmentation/` before/after panels, overlays, delta views, and per-variant metadata JSON.
+
+## Canonical Leakage Policy
+
+The canonical split-layout preparation path is `microseg-cli dataset-prepare`.
+When augmentation is enabled there, the workflow is:
+
+1. pair source images and masks,
+2. create deterministic train/val/test assignments,
+3. materialize the original samples,
+4. generate augmented variants only inside the configured split targets.
+
+The default policy is train-only augmentation. This avoids leakage of near-duplicate augmented views across train/val/test.
+
+## Augmentation Schema
+
+Both dataset-preparation subsystems accept the same YAML block:
+
+```yaml
+augmentation:
+  enabled: true
+  seed: 42
+  stage: post_resize
+  apply_splits: [train]
+  variants_per_sample: 2
+  operations:
+    - name: shadow
+      probability: 0.9
+      parameters:
+        radius: 150
+        sigma: 500
+        intensity_range: [40, 50]
+        count_range: [1, 3]
+    - name: blur
+      probability: 0.8
+      parameters:
+        sigma: 120
+        kernel_size_range: [3, 9]
+        min_center_distance_ratio: 0.4
+        count_range: [1, 3]
+  debug:
+    enabled: true
+    max_samples: 6
+```
+
+Supported fields:
+
+- `enabled`: master on/off switch.
+- `seed`: deterministic augmentation seed.
+- `stage`: `pre_resize` or `post_resize`.
+  - In the paired `prep-dataset` path, this controls whether image-only augmentation runs before or after resize/crop.
+  - In the split-layout `dataset-prepare` path, there is no resize/crop stage, so the resolved stage is recorded as source-native in the manifest.
+- `apply_splits`: split names to augment.
+- `variants_per_sample`: number of augmented variants attempted per source sample.
+- `operations`: ordered augmentation list.
+- `operations[].probability`: Bernoulli application probability per variant.
+- `operations[].parameters`: per-operation parameter mapping.
+- `debug.enabled` and `debug.max_samples`: before/after inspection exports.
+
+Current built-in operations:
+
+- `shadow`: localized subtractive shadow fields.
+- `blur`: localized peripheral Gaussian blur.
+
+These two are image-only augmentations, so masks remain unchanged. The augmentation registry is structured to admit future paired geometry transforms without rewriting the orchestration layer.
 
 ## CLI Usage
 
@@ -112,6 +179,21 @@ python scripts/microseg_cli.py prepare_dataset \
   --auto-otsu-for-noisy-grayscale
 ```
 
+Canonical split-layout auto-prepare with augmentation:
+
+```bash
+microseg-cli dataset-prepare \
+  --config configs/dataset_prepare.augmentation.shadow_blur.yml
+```
+
+Ad hoc CLI override example:
+
+```bash
+microseg-cli dataset-prepare \
+  --config configs/dataset_prepare.default.yml \
+  --set 'augmentation={"enabled":true,"seed":42,"apply_splits":["train"],"variants_per_sample":1,"operations":[{"name":"shadow","probability":1.0,"parameters":{"count_range":[1,2],"intensity_range":[35,45]}},{"name":"blur","probability":0.7,"parameters":{"kernel_size_range":[3,7],"count_range":[1,2],"min_center_distance_ratio":0.4}}],"debug":{"enabled":true,"max_samples":4}}'
+```
+
 Python module invocation:
 
 ```bash
@@ -157,6 +239,7 @@ print(result.manifest_path)
 - mask stats (raw/binary unique values, foreground count/ratio)
 - mask criteria (`mode`, thresholds, auto-otsu usage, all-zero output marker)
 - item-level and overall warnings summary
+- augmentation metadata for generated variants when enabled
 
 `dataset_qa_report.json` includes:
 
@@ -166,6 +249,37 @@ print(result.manifest_path)
 - empty output mask summary (`count`, `stems`, configured action)
 - aggregate foreground coverage stats
 - elapsed stage timing
+- augmentation summary (`enabled`, split targets, variants per sample, generated count, debug count)
+
+## Debug Behavior
+
+- Classical debug artifacts remain under `debug_inspection/`.
+- Augmentation-specific before/after review artifacts are written under `debug_augmentation/`.
+- Each augmentation debug sample includes:
+  - source image
+  - augmented image
+  - mask
+  - before/after overlays
+  - difference image
+  - comparison panel
+  - metadata JSON with requested stage, resolved stage, seed, and applied operation parameters
+
+## Failure Modes And Tuning Notes
+
+- If `apply_splits` includes validation or test, you are explicitly trading away the safest leakage-default policy.
+- Large `variants_per_sample` values can inflate dataset size quickly; check split counts in `dataset_prepare_manifest.json` or `manifest.json`.
+- Strong shadows can erase faint microstructural evidence; lower `intensity_range` first before reducing `count_range`.
+- Large blur kernels can remove edge fidelity needed for thin-feature segmentation; keep `kernel_size_range` small for fine structures.
+- `pre_resize` is useful when you want resize/crop to act on already degraded images; `post_resize` is safer when you want augmentation strength controlled in model-input space.
+
+## Extension Guide
+
+Add new augmentations in `src/microseg/data_preparation/augmentation.py` by:
+
+1. implementing the augmentation contract (`apply(...) -> image, mask, metadata`),
+2. declaring whether it is `image_only` or `paired_geometry`,
+3. registering it in `DEFAULT_AUGMENTATION_REGISTRY`,
+4. adding config/tests/docs for the new operation.
 
 ## Extending To Multiclass
 

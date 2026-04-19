@@ -6,6 +6,12 @@ from dataclasses import asdict
 
 from src.microseg.domain import SegmentationRequest
 from src.microseg.inference import build_hydride_registry
+from src.microseg.inference.trained_model_loader import (
+    InferenceModelReference,
+    discover_inference_references,
+    load_reference_from_registry,
+    load_reference_from_run_dir,
+)
 from src.microseg.plugins import frozen_checkpoint_map
 from src.microseg.pipelines import SegmentationPipeline
 
@@ -112,6 +118,44 @@ def is_conventional_model(model_name: str) -> bool:
     """Return whether selected model uses conventional parameters."""
 
     return resolve_gui_model_id(model_name) == "hydride_conventional"
+
+
+def resolve_gui_model_reference(model_name: str, params: dict | None = None) -> InferenceModelReference | None:
+    """Resolve a GUI model selection to a warm-loadable ML reference when possible."""
+
+    model_id = resolve_gui_model_id(model_name)
+    cfg = dict(params or {})
+    if model_id == "hydride_conventional":
+        return None
+    if model_id == "hydride_ml":
+        run_dir = str(cfg.get("run_dir", "")).strip()
+        registry_model_id = str(cfg.get("registry_model_id", "")).strip()
+        checkpoint_path = str(cfg.get("checkpoint_path", cfg.get("weights_path", ""))).strip()
+        if run_dir:
+            return load_reference_from_run_dir(run_dir)
+        if registry_model_id:
+            return load_reference_from_registry(registry_model_id)
+        if checkpoint_path:
+            return InferenceModelReference(
+                reference_id=f"checkpoint::{checkpoint_path}",
+                display_name="Direct checkpoint",
+                source="checkpoint_path",
+                checkpoint_path=checkpoint_path,
+                architecture=str(cfg.get("model_architecture", "")).strip().lower() or "unknown",
+                backend_label=str(cfg.get("backend", "")).strip().lower() or "custom",
+            )
+        try:
+            return load_reference_from_registry("hydride_ml")
+        except Exception:
+            return None
+    try:
+        return load_reference_from_registry(model_id)
+    except Exception:
+        refs, _warnings = discover_inference_references(include_registry=True)
+        for ref in refs:
+            if ref.reference_id == model_id or ref.display_name == model_name:
+                return ref
+    return None
 
 
 def run_pipeline(

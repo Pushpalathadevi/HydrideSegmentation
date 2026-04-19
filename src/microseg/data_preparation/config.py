@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 import yaml
 
+from src.microseg.data_preparation.augmentation import AugmentationConfig, parse_augmentation_config
+
 
 @dataclass
 class MorphologyConfig:
@@ -89,6 +91,7 @@ class DatasetPrepConfig:
     path_mode: Literal["absolute", "relative"] = "relative"
     skip_sanity: bool = False
     debug: DebugConfig = field(default_factory=DebugConfig)
+    augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "DatasetPrepConfig":
@@ -117,9 +120,11 @@ class DatasetPrepConfig:
                 data["target_size"] = (int(target[0]), int(target[1]))
         morphology = MorphologyConfig(**data.pop("morphology", {}))
         debug = DebugConfig(**data.pop("debug", {}))
+        augmentation = parse_augmentation_config(data.pop("augmentation", {}), default_seed=int(data.get("seed", 42)))
         cfg = cls(**data)
         cfg.morphology = morphology
         cfg.debug = debug
+        cfg.augmentation = augmentation
         return cfg
 
     @classmethod
@@ -134,4 +139,5 @@ class DatasetPrepConfig:
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["target_size"] = list(self.target_size)
+        result["augmentation"] = self.augmentation.to_dict()
         return result
