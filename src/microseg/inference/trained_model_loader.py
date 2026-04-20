@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from .gui_preprocessing import (
     coerce_gui_inference_preprocess_config,
     load_original_inference_image,
     prepare_gui_inference_input,
+    rescale_image_to_original,
     rescale_mask_to_original,
 )
 
@@ -66,6 +68,7 @@ class ModelWarmLoadStatus:
 
 _BUNDLE_CACHE_LOCK = threading.Lock()
 _BUNDLE_CACHE: dict[tuple[str, bool, str], dict[str, Any]] = {}
+_LOGGER = logging.getLogger(__name__)
 
 
 def supported_trainable_architectures() -> tuple[str, ...]:
@@ -329,6 +332,17 @@ def run_reference_inference(
             "rescaled_to_original": False,
         }
         display_image = model_input if image.ndim == 2 else image.astype(np.uint8, copy=True)
+        _LOGGER.info(
+            "GUI_PREPROCESS | image=%s applied=false original=%dx%d preprocessed=%dx%d resize_policy=none scale=1.0000 contrast=disabled channels=%d->%d duplicated=%s",
+            image_path,
+            int(image.shape[1]),
+            int(image.shape[0]),
+            int(model_input.shape[1]),
+            int(model_input.shape[0]),
+            int(1 if image.ndim == 2 else image.shape[2]),
+            int(model_input.shape[2]),
+            bool(image.ndim == 2),
+        )
     else:
         preprocess_started = image_load_started
         prepared = prepare_gui_inference_input(
@@ -339,10 +353,27 @@ def run_reference_inference(
         image_load_seconds = 0.0
         preprocess_seconds = preprocess_elapsed
         model_input = prepared.model_ready_image
-        display_image = prepared.original_image
+        display_image = rescale_image_to_original(prepared.processed_image, prepared.original_size)
         preprocessing_manifest = dict(prepared.metadata)
         preprocessing_manifest["applied"] = True
         preprocessing_manifest["rescaled_to_original"] = True
+        resize_meta = preprocessing_manifest.get("resize", {})
+        contrast_meta = preprocessing_manifest.get("contrast", {})
+        _LOGGER.info(
+            "GUI_PREPROCESS | image=%s applied=true original=%dx%d resized=%dx%d target_long_side=%s scale=%.4f contrast_mode=%s contrast_parameters=%s channels=%d->%d duplicated=%s",
+            image_path,
+            int(prepared.original_size[0]),
+            int(prepared.original_size[1]),
+            int(prepared.preprocessed_size[0]),
+            int(prepared.preprocessed_size[1]),
+            resize_meta.get("target_long_side"),
+            float(prepared.resize_scale),
+            contrast_meta.get("mode", "disabled"),
+            json.dumps(contrast_meta.get("parameters", {}), sort_keys=True),
+            int(prepared.original_channel_count),
+            int(prepared.output_channel_count),
+            bool(prepared.channel_duplicated),
+        )
 
     bundle, cache_hit, bundle_load_seconds = get_or_load_reference_bundle(
         reference,
@@ -360,6 +391,12 @@ def run_reference_inference(
                 int(preprocessing_manifest["original_size"]["width"]),
                 int(preprocessing_manifest["original_size"]["height"]),
             ),
+        )
+        _LOGGER.info(
+            "GUI_POSTPROCESS | image=%s mask_rescaled_to_original=true output=%dx%d",
+            image_path,
+            int(pred.shape[1]),
+            int(pred.shape[0]),
         )
     postprocess_seconds = max(0.0, time.perf_counter() - postprocess_started)
     return display_image.astype(np.uint8, copy=True), pred, {

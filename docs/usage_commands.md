@@ -116,8 +116,7 @@ Folder-mode export now writes:
 - `batch_results_report.html` (input/mask/overlay per-row + key metrics)
 - `batch_metrics.csv`
 - `artifacts_manifest.json` (sha256 + size for generated artifacts)
-- `preview_images/` thumbnails for report rows
-- `runs/` per-image run folders (`input.png`, `prediction.png`, `overlay.png`, `metrics.json`, `manifest.json`)
+- `runs/` per-image result folders with previews plus full per-run exports (`results_summary.json`, optional HTML/PDF, `results_metrics.csv`, `metrics.json`, `manifest.json`)
 - `resolved_config.json` (exact config/override snapshot used for the batch)
 
 CLI progress output now emits stage-by-stage batch logs with processed-image counts, percent complete, elapsed time, and ETA while inference, provenance capture, and export are running.

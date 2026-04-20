@@ -48,7 +48,7 @@ def _fmt_metric(value: object) -> str:
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return f"{value:.6f}"
+        return f"{value:.2f}"
     return str(value)
 
 
@@ -566,6 +566,22 @@ class DesktopResultExporter:
         if bool(cfg.write_csv_report):
             self._write_metrics_csv(run_dir / "results_metrics.csv", metric_rows)
 
+        compatibility_manifest = {
+            "run_id": run.run_id,
+            "image_path": run.image_path,
+            "image_name": run.image_name,
+            "model_name": run.model_name,
+            "model_id": run.model_id,
+            "started_utc": run.started_utc,
+            "finished_utc": run.finished_utc,
+            "metrics": corrected_metrics,
+            "manifest": run.manifest,
+            "feedback_record_dir": run.feedback_record_dir,
+            "feedback_record_id": run.feedback_record_id,
+        }
+        (run_dir / "manifest.json").write_text(json.dumps(compatibility_manifest, indent=2), encoding="utf-8")
+        (run_dir / "metrics.json").write_text(json.dumps(corrected_metrics, indent=2), encoding="utf-8")
+
         summary_path = run_dir / "results_summary.json"
         summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
 
@@ -893,12 +909,23 @@ class DesktopResultExporter:
         metric_value_map: dict[str, list[float]] = {}
         selected_keys = cfg.normalized_selected_metric_keys()
         selected_set = set(selected_keys)
+        runs_dir = batch_dir / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
 
         for run in runs:
             pred_mask = to_index_mask(np.array(run.mask_image))
             corr_mask = pred_mask
             if corrected_masks and run.run_id in corrected_masks:
                 corr_mask = to_index_mask(np.asarray(corrected_masks[run.run_id]))
+            per_run_dir = self.export(
+                run,
+                output_dir=runs_dir,
+                corrected_mask=corr_mask,
+                annotator=annotator,
+                notes=notes,
+                class_map=class_map,
+                config=cfg,
+            )
             um_per_px = None if cfg.microns_per_pixel is None else float(cfg.microns_per_pixel)
             pred_stats = compute_hydride_statistics(
                 pred_mask,
@@ -927,6 +954,14 @@ class DesktopResultExporter:
                 "model_id": run.model_id,
                 "started_utc": run.started_utc,
                 "finished_utc": run.finished_utc,
+                "run_export_dir": _to_rel(per_run_dir, batch_dir),
+                "run_summary_path": _to_rel(per_run_dir / "results_summary.json", batch_dir),
+                "run_html_report_path": _to_rel(per_run_dir / "results_report.html", batch_dir) if bool(cfg.write_html_report) else "",
+                "run_pdf_report_path": _to_rel(per_run_dir / "results_report.pdf", batch_dir) if bool(cfg.write_pdf_report) else "",
+                "run_metrics_csv_path": _to_rel(per_run_dir / "results_metrics.csv", batch_dir) if bool(cfg.write_csv_report) else "",
+                "input_preview_path": _to_rel(per_run_dir / "input.png", batch_dir),
+                "mask_preview_path": _to_rel(per_run_dir / "predicted_mask_color.png", batch_dir),
+                "overlay_preview_path": _to_rel(per_run_dir / "predicted_overlay.png", batch_dir),
             }
             model_counts[run.model_name] = int(model_counts.get(run.model_name, 0)) + 1
             for key in keys:
@@ -989,27 +1024,11 @@ class DesktopResultExporter:
                 "pdf_report": "batch_results_report.pdf" if bool(cfg.write_pdf_report) else "",
                 "metrics_csv": "batch_metrics.csv" if bool(cfg.write_csv_report) else "",
                 "artifacts_manifest": "artifacts_manifest.json" if bool(cfg.include_artifact_manifest) else "",
+                "runs_dir": "runs",
             },
         }
 
         summary_path = batch_dir / "batch_results_summary.json"
-        summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
-
-        preview_dir = batch_dir / "preview_images"
-        preview_dir.mkdir(parents=True, exist_ok=True)
-        for idx, run in enumerate(runs, start=1):
-            stem = f"{idx:04d}_{Path(run.image_name).stem}"
-            input_path = preview_dir / f"{stem}_input.png"
-            mask_path = preview_dir / f"{stem}_mask.png"
-            overlay_path = preview_dir / f"{stem}_overlay.png"
-            run.input_image.save(input_path)
-            run.mask_image.save(mask_path)
-            run.overlay_image.save(overlay_path)
-            if idx - 1 < len(summary_payload["rows"]):
-                summary_payload["rows"][idx - 1]["input_preview_path"] = _to_rel(input_path, batch_dir)
-                summary_payload["rows"][idx - 1]["mask_preview_path"] = _to_rel(mask_path, batch_dir)
-                summary_payload["rows"][idx - 1]["overlay_preview_path"] = _to_rel(overlay_path, batch_dir)
-
         summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
 
         if bool(cfg.write_csv_report):
@@ -1043,11 +1062,21 @@ class DesktopResultExporter:
         rows = payload.get("rows", [])
         aggregate = payload.get("aggregate_metrics", [])
         header_fields: list[str] = []
+        hidden_fields = {
+            "input_preview_path",
+            "mask_preview_path",
+            "overlay_preview_path",
+            "run_export_dir",
+            "run_summary_path",
+            "run_html_report_path",
+            "run_pdf_report_path",
+            "run_metrics_csv_path",
+        }
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict):
                 continue
             for key in row.keys():
-                if key in {"input_preview_path", "mask_preview_path", "overlay_preview_path"}:
+                if key in hidden_fields:
                     continue
                 if key not in header_fields:
                     header_fields.append(key)
@@ -1065,12 +1094,41 @@ class DesktopResultExporter:
                 if key in row:
                     metric_bits.append(f"{html.escape(key)}={html.escape(_fmt_metric(row.get(key, '')))}")
             metrics_inline = "<br/>".join(metric_bits) if metric_bits else "n/a"
+            links_inline = " | ".join(
+                [
+                    item
+                    for item in [
+                        (
+                            f"<a href='{html.escape(str(row.get('run_summary_path', '')))}'>summary</a>"
+                            if str(row.get("run_summary_path", "")).strip()
+                            else ""
+                        ),
+                        (
+                            f"<a href='{html.escape(str(row.get('run_html_report_path', '')))}'>html</a>"
+                            if str(row.get("run_html_report_path", "")).strip()
+                            else ""
+                        ),
+                        (
+                            f"<a href='{html.escape(str(row.get('run_pdf_report_path', '')))}'>pdf</a>"
+                            if str(row.get("run_pdf_report_path", "")).strip()
+                            else ""
+                        ),
+                        (
+                            f"<a href='{html.escape(str(row.get('run_metrics_csv_path', '')))}'>csv</a>"
+                            if str(row.get("run_metrics_csv_path", "")).strip()
+                            else ""
+                        ),
+                    ]
+                    if item
+                ]
+            )
             run_rows.append(
                 "<tr>"
-                f"<td><img src='{html.escape(str(row.get('input_preview_path', '')))}' alt='input' style='max-width:220px;max-height:140px;'/></td>"
-                f"<td><img src='{html.escape(str(row.get('mask_preview_path', '')))}' alt='mask' style='max-width:220px;max-height:140px;'/></td>"
-                f"<td><img src='{html.escape(str(row.get('overlay_preview_path', '')))}' alt='overlay' style='max-width:220px;max-height:140px;'/></td>"
+                f"<td><a href='{html.escape(str(row.get('run_summary_path', '')))}'><img src='{html.escape(str(row.get('input_preview_path', '')))}' alt='input' style='max-width:220px;max-height:140px;'/></a></td>"
+                f"<td><a href='{html.escape(str(row.get('run_summary_path', '')))}'><img src='{html.escape(str(row.get('mask_preview_path', '')))}' alt='mask' style='max-width:220px;max-height:140px;'/></a></td>"
+                f"<td><a href='{html.escape(str(row.get('run_summary_path', '')))}'><img src='{html.escape(str(row.get('overlay_preview_path', '')))}' alt='overlay' style='max-width:220px;max-height:140px;'/></a></td>"
                 f"<td>{metrics_inline}</td>"
+                f"<td>{links_inline or 'n/a'}</td>"
                 + "".join(f"<td>{html.escape(_fmt_metric(row.get(k, '')))}</td>" for k in header_fields)
                 + "</tr>"
             )
@@ -1105,13 +1163,14 @@ class DesktopResultExporter:
             f"<div class='card'><b>Batch ID</b><div>{html.escape(str(payload.get('batch_id', '')))}</div></div>"
             f"<div class='card'><b>Run Count</b><div>{html.escape(str(payload.get('run_count', 0)))}</div></div>"
             f"<div class='card'><b>Annotator</b><div>{html.escape(str(payload.get('annotator', '')))}</div></div>"
+            f"<div class='card'><b>Per-run packages</b><div><a href='runs/'>Open runs folder</a></div></div>"
             "</div>"
             "<h2>Aggregate Metrics</h2>"
             "<table><thead><tr><th>Metric</th><th>Count</th><th>Mean</th><th>Median</th><th>Std</th><th>Min</th><th>Max</th></tr></thead>"
             f"<tbody>{''.join(agg_rows) if agg_rows else '<tr><td colspan=7>n/a</td></tr>'}</tbody></table>"
             "<h2>Run Rows</h2>"
             "<table><thead><tr>"
-            "<th>Input</th><th>Mask</th><th>Overlay</th><th>Key Stats</th>"
+            "<th>Input</th><th>Mask</th><th>Overlay</th><th>Key Stats</th><th>Links</th>"
             + "".join(f"<th>{html.escape(field)}</th>" for field in header_fields)
             + "</tr></thead><tbody>"
             + ("".join(run_rows) if run_rows else "<tr><td>n/a</td></tr>")

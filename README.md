@@ -484,6 +484,9 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
   - The Qt sidebar now defaults to a compact `Quick Start` + `Active Run` rail, with a separate `Run Setup / Status` card for model metadata, preprocessing summary, warm-load state, and progress.
   - The desktop log now lives in a shared bottom workspace strip instead of the left sidebar, and it is visible on startup.
   - `Run Batch` now performs recursive folder inference, writes the full batch export package in one pass (`runs/`, `batch_results_summary.json`, `batch_results_report.html`, `artifacts_manifest.json`, `resolved_config.json`), and opens the batch summary inspector automatically when the job finishes.
+  - Batch export packages now place one complete per-image result bundle under `runs/` and link those per-run summaries from the root batch HTML/JSON package.
+  - ML contrast adjustment now previews the actual processed-for-inference image in split view against the raw source, and desktop preprocessing logs explicitly report resize, contrast, channel duplication, and mask rescaling steps.
+  - Desktop result tables and reports now round floating scientific metrics to two decimals for consistent operator-facing output.
   - Input, mask, overlay, and batch-inspector views now ship with local zoom/pan/display-contrast tools; active-run image views keep pan/zoom synchronized during review.
   - The main window opens maximized by default when the UI config keeps `start_maximized: true`, and the image canvas now re-fits on tab switches and resize events.
 - A live status banner shows the current stage, processed-image counts, elapsed time, percent complete, and ETA during batch jobs.

@@ -10,6 +10,8 @@ from PIL import Image
 
 from src.microseg.app.desktop_workflow import DesktopWorkflowManager
 from hydride_segmentation.microseg_adapter import resolve_gui_model_id
+from src.microseg.inference.predictors import HydrideMLPredictor
+from src.microseg.inference.trained_model_loader import InferenceModelReference, run_reference_inference
 
 
 def _synthetic_image_a() -> np.ndarray:
@@ -36,6 +38,7 @@ def test_phase2_model_registry_options_available() -> None:
     mgr = DesktopWorkflowManager()
     options = mgr.model_options()
     assert options
+    assert options == ["Hydride ML (UNet)", "Hydride Conventional"]
     assert any(resolve_gui_model_id(name) == "hydride_conventional" for name in options)
     assert any(resolve_gui_model_id(name) == "hydride_ml" for name in options)
 
@@ -87,3 +90,71 @@ def test_phase2_batch_runs_recorded_in_history() -> None:
     assert len(records) == 2
     assert len(mgr.history()) == 2
     assert mgr.latest() is not None
+
+
+def test_phase2_hydride_ml_predictor_defaults_to_registry_checkpoint(monkeypatch) -> None:
+    predictor = HydrideMLPredictor()
+    calls: dict[str, object] = {}
+
+    def _fake_load_reference_from_registry(model_id: str):
+        calls["model_id"] = model_id
+        return object()
+
+    def _fake_run_reference_inference(image_path, ref, *, enable_gpu, device_policy, preprocess_config):
+        calls["image_path"] = image_path
+        calls["ref"] = ref
+        return np.zeros((4, 4), dtype=np.uint8), np.zeros((4, 4), dtype=np.uint8), {"timing": {}}
+
+    monkeypatch.setattr("src.microseg.inference.predictors.load_reference_from_registry", _fake_load_reference_from_registry)
+    monkeypatch.setattr("src.microseg.inference.predictors.run_reference_inference", _fake_run_reference_inference)
+    output = predictor.predict("synthetic.png", params={"device_policy": "cpu"})
+    assert calls["model_id"] == "hydride_ml"
+    assert calls["image_path"] == "synthetic.png"
+    assert output.manifest["timing"]["model_resolution_seconds"] >= 0.0
+
+
+def test_phase2_ml_preprocess_display_image_preserves_original_size(tmp_path: Path, monkeypatch) -> None:
+    image_path = tmp_path / "ml_input.png"
+    Image.fromarray(_synthetic_image_a()).save(image_path)
+
+    reference = InferenceModelReference(
+        reference_id="registry::hydride_ml",
+        display_name="Hydride ML (UNet)",
+        source="registry",
+        checkpoint_path="fake.ckpt",
+        architecture="unet_binary",
+        backend_label="torch",
+    )
+
+    def _fake_get_or_load_reference_bundle(_reference, *, enable_gpu: bool, device_policy: str):
+        _ = enable_gpu, device_policy
+        return ({"device": "cpu"}, True, 0.0)
+
+    def _fake_predict_unet_binary_mask(image: np.ndarray, bundle: dict[str, object]) -> np.ndarray:
+        _ = bundle
+        return np.ones(image.shape[:2], dtype=np.uint8)
+
+    monkeypatch.setattr(
+        "src.microseg.inference.trained_model_loader.get_or_load_reference_bundle",
+        _fake_get_or_load_reference_bundle,
+    )
+    monkeypatch.setattr(
+        "src.microseg.inference.trained_model_loader.predict_unet_binary_mask",
+        _fake_predict_unet_binary_mask,
+    )
+
+    display, mask, manifest = run_reference_inference(
+        str(image_path),
+        reference,
+        preprocess_config={
+            "target_long_side": 64,
+            "auto_contrast_enabled": True,
+            "contrast_mode": "histogram_stretch",
+        },
+    )
+
+    assert display.shape == _synthetic_image_a().shape
+    assert mask.shape == _synthetic_image_a().shape
+    assert manifest["preprocessing"]["applied"] is True
+    assert manifest["preprocessing"]["rescaled_to_original"] is True
+    assert manifest["preprocessing"]["preprocessed_size"]["width"] == 64

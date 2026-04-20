@@ -240,7 +240,7 @@ def _fmt_metric(value: object) -> str:
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return f"{value:.6f}"
+        return f"{value:.2f}"
     return str(value)
 
 
@@ -318,14 +318,14 @@ class _ContrastAdjustmentDialog(QDialog):
         preview_row = QHBoxLayout()
         self.original_preview = QLabel("Original")
         self.original_preview.setAlignment(Qt.AlignCenter)
-        self.base_preview = QLabel("Resized")
-        self.base_preview.setAlignment(Qt.AlignCenter)
-        self.adjusted_preview = QLabel("Adjusted")
+        self.adjusted_preview = QLabel("Processed For Inference")
         self.adjusted_preview.setAlignment(Qt.AlignCenter)
         preview_row.addWidget(self.original_preview, stretch=1)
-        preview_row.addWidget(self.base_preview, stretch=1)
         preview_row.addWidget(self.adjusted_preview, stretch=1)
         layout.addLayout(preview_row)
+        self.preview_meta = QLabel("")
+        self.preview_meta.setWordWrap(True)
+        layout.addWidget(self.preview_meta)
 
         form = QFormLayout()
         seed = adjustment or ManualContrastAdjustment()
@@ -391,8 +391,13 @@ class _ContrastAdjustmentDialog(QDialog):
             ),
         )
         self._set_preview(self.original_preview, base.original_image)
-        self._set_preview(self.base_preview, base.resized_image)
-        self._set_preview(self.adjusted_preview, adjusted.resized_image)
+        self._set_preview(self.adjusted_preview, adjusted.processed_image)
+        self.preview_meta.setText(
+            "Split view: raw source on the left, actual ML preprocessing result on the right. "
+            f"Resize {adjusted.original_size[0]}x{adjusted.original_size[1]} -> "
+            f"{adjusted.preprocessed_size[0]}x{adjusted.preprocessed_size[1]} | "
+            f"contrast={adjusted.metadata.get('contrast', {}).get('mode', 'disabled')}."
+        )
 
     def _accept_adjustment(self) -> None:
         self.result_adjustment = self._current_adjustment()
@@ -1634,6 +1639,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._update_inference_preprocess_summary()
         self._update_calibration_status_label()
         self._refresh_segmentation_progress()
+        self.logger.info("Scheduling startup warm-load for %s", self.model_combo.currentText().strip())
         QTimer.singleShot(0, lambda: self._start_model_warm_load(self.model_combo.currentText()))
 
     def _load_ui_config(self, ui_config_path: str | None) -> None:
@@ -2190,6 +2196,7 @@ class QtSegmentationMainWindow(QMainWindow):
 
         self.workspace_splitter = QSplitter(Qt.Vertical)
         self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.setHandleWidth(12)
         workspace_layout.addWidget(self.workspace_splitter, stretch=1)
 
         controls = QVBoxLayout()
@@ -2242,7 +2249,7 @@ class QtSegmentationMainWindow(QMainWindow):
         preprocess_row.setSpacing(6)
         self.chk_auto_contrast = QCheckBox("Auto maximize contrast before inference")
         self.chk_auto_contrast.setChecked(True)
-        self.chk_auto_contrast.toggled.connect(self._update_inference_preprocess_summary)
+        self.chk_auto_contrast.toggled.connect(self._on_auto_contrast_toggled)
         preprocess_row.addWidget(self.chk_auto_contrast)
         self.btn_adjust_contrast = QPushButton("Adjust Contrast Before Inference")
         self.btn_adjust_contrast.clicked.connect(self.on_adjust_contrast_before_inference)
@@ -3551,16 +3558,18 @@ class QtSegmentationMainWindow(QMainWindow):
         status_bar.addWidget(self.tool_label)
 
         self.log_panel = QGroupBox("Desktop Log")
+        self.log_panel.setMinimumHeight(180)
         log_layout = QVBoxLayout(self.log_panel)
         log_layout.setContentsMargins(6, 6, 6, 6)
         self.log_box = QPlainTextEdit()
         self.log_box.setReadOnly(True)
         self.log_box.setMaximumBlockCount(1200)
+        self.log_box.setMinimumHeight(130)
         log_layout.addWidget(self.log_box)
         self.workspace_splitter.addWidget(self.log_panel)
         self.workspace_splitter.setStretchFactor(0, 1)
         self.workspace_splitter.setStretchFactor(1, 0)
-        self.workspace_splitter.setSizes([980, 160])
+        self.workspace_splitter.setSizes([860, 240])
 
         self._workspace_toggle_actions: dict[str, QAction] = {}
         self.model_desc.hide()
@@ -3987,6 +3996,11 @@ class QtSegmentationMainWindow(QMainWindow):
                 continue
             widget.setVisible(bool(visible))
             widget.setEnabled(bool(visible))
+
+    def _refresh_loaded_image_preview(self) -> None:
+        path = self.path_edit.text().strip()
+        if path and Path(path).exists():
+            self._preview_input_image(path)
 
     def _update_inference_preprocess_summary(self) -> None:
         if not hasattr(self, "inference_preprocess_summary_label"):
@@ -4442,6 +4456,7 @@ class QtSegmentationMainWindow(QMainWindow):
             lines.append(f"<b>Checkpoint sha256:</b> {spec.get('file_sha256')}")
         self.model_desc.setText("<br>".join([line for line in lines if line]))
         self.logger.info("Selected model: %s (%s)", model_name, spec.get("model_id", ""))
+        self._refresh_loaded_image_preview()
         self._update_inference_preprocess_summary()
         self._start_model_warm_load(model_name)
         self._update_progressive_disclosure()
@@ -4656,6 +4671,12 @@ class QtSegmentationMainWindow(QMainWindow):
             enable_gpu=bool(params.get("enable_gpu", False)),
             message=f"Loading {model_name} in background.",
         )
+        self.logger.info(
+            "Starting background warm-load for %s (device_policy=%s, enable_gpu=%s)",
+            model_name,
+            params.get("device_policy", "cpu"),
+            bool(params.get("enable_gpu", False)),
+        )
         self.model_warm_load_status_label.setText(f"Model warm-load: loading {model_name} in background...")
         thread = QThread(self)
         worker = _WarmLoadWorker(
@@ -4737,6 +4758,11 @@ class QtSegmentationMainWindow(QMainWindow):
         if dialog.exec() != QDialog.Accepted:
             return
         self._inference_manual_contrast_adjustment = dialog.result_adjustment
+        self._refresh_loaded_image_preview()
+        self._update_inference_preprocess_summary()
+
+    def _on_auto_contrast_toggled(self, _checked: bool) -> None:
+        self._refresh_loaded_image_preview()
         self._update_inference_preprocess_summary()
 
     def _start_orchestration_job(self, command: list[str], job_name: str) -> None:
@@ -4918,7 +4944,7 @@ class QtSegmentationMainWindow(QMainWindow):
         ]
         if summary.metrics:
             for key in sorted(summary.metrics.keys()):
-                lines.append(f"  - {key}: {summary.metrics[key]:.6f}")
+                lines.append(f"  - {key}: {_fmt_metric(summary.metrics[key])}")
         else:
             lines.append("  - (none)")
         return "\n".join(lines)
@@ -4979,9 +5005,9 @@ class QtSegmentationMainWindow(QMainWindow):
             delta_pct = row.get("delta_pct")
             vals = [
                 metric,
-                "" if baseline is None else f"{float(baseline):.6f}",
-                "" if candidate is None else f"{float(candidate):.6f}",
-                "" if delta is None else f"{float(delta):+.6f}",
+                "" if baseline is None else _fmt_metric(float(baseline)),
+                "" if candidate is None else _fmt_metric(float(candidate)),
+                "" if delta is None else f"{float(delta):+.2f}",
                 "" if delta_pct is None else f"{float(delta_pct):+.2f}%",
             ]
             for c, value in enumerate(vals):
@@ -5492,8 +5518,13 @@ class QtSegmentationMainWindow(QMainWindow):
         run = self.state.current_run
         if run is None:
             return
-        assets = self._display_assets_for_record(run)
-        self._set_image_preview(self.raw_corr_view, assets.input_pixmap, zoom=self.corrected_canvas.zoom_value())
+        try:
+            with Image.open(run.image_path) as img:
+                raw = np.array(img)
+            self._set_image_preview(self.raw_corr_view, raw, zoom=self.corrected_canvas.zoom_value())
+        except Exception:
+            assets = self._display_assets_for_record(run)
+            self._set_image_preview(self.raw_corr_view, assets.input_pixmap, zoom=self.corrected_canvas.zoom_value())
 
     def _update_action_label(self) -> None:
         sess = self.state.correction_session
@@ -5740,9 +5771,21 @@ class QtSegmentationMainWindow(QMainWindow):
     def _preview_input_image(self, path: str) -> None:
         try:
             with Image.open(path) as img:
-                arr = np.array(img)
-            self._set_image_preview(self.input_view, arr)
-            self._set_image_preview(self.raw_corr_view, arr, zoom=self.corrected_canvas.zoom_value())
+                raw = np.array(img)
+            display = raw
+            if self._selected_model_is_ml():
+                prepared = prepare_gui_inference_input(path, self._current_ml_preprocess_config())
+                display = prepared.processed_image
+                self.logger.info(
+                    "Input preview updated for ML preprocessing: raw=%dx%d preview=%dx%d contrast=%s",
+                    int(prepared.original_size[0]),
+                    int(prepared.original_size[1]),
+                    int(prepared.preprocessed_size[0]),
+                    int(prepared.preprocessed_size[1]),
+                    prepared.metadata.get("contrast", {}).get("mode", "disabled"),
+                )
+            self._set_image_preview(self.input_view, display)
+            self._set_image_preview(self.raw_corr_view, raw, zoom=self.corrected_canvas.zoom_value())
         except Exception as exc:
             self.logger.warning("Failed to preview input image: %s", exc)
 

@@ -1,0 +1,13 @@
+metric,predicted,corrected,delta,delta_pct
+equivalent_diameter_mean_px,18.772229318329572,18.772229318329572,0.0,0.0
+excluded_small_features,0,0,0.0,
+hydride_area_fraction_percent,0.4231770833333333,0.4231770833333333,0.0,0.0
+hydride_count,12,12,0.0,0.0
+hydride_density_per_megapixel,5.787037037037037,5.787037037037037,0.0,0.0
+hydride_total_area_pixels,8775,8775,0.0,0.0
+orientation_alignment_index,0.5778754460995448,0.5778754460995448,0.0,0.0
+orientation_entropy_bits,2.355388542207534,2.355388542207534,0.0,0.0
+orientation_mean_deg,28.720261309519746,28.720261309519746,0.0,0.0
+orientation_std_deg,30.59867830686165,30.59867830686165,0.0,0.0
+size_mean_pixels,731.25,731.25,0.0,0.0
+size_p90_pixels,915.0,915.0,0.0,0.0

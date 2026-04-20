@@ -68,9 +68,7 @@ class HydrideMLPredictor:
                 backend_label=str(cfg.get("backend", "")).strip().lower() or "custom",
             )
         else:
-            raise ValueError(
-                "hydride_ml requires one of: params.run_dir, params.registry_model_id, or params.checkpoint_path"
-            )
+            ref = load_reference_from_registry("hydride_ml")
 
         resolve_seconds = max(0.0, time.perf_counter() - resolve_started)
         image, mask, manifest = run_reference_inference(

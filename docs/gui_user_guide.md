@@ -91,7 +91,8 @@ Report customization controls:
 Batch export:
 - `Export Batch Summary` (menu/button) exports selected history runs or all runs if none selected.
 - outputs: `batch_results_summary.json`, `batch_results_report.html`, optional `batch_results_report.pdf`, `batch_metrics.csv`
-- batch summary now also includes `artifacts_manifest.json` and `preview_images/` for row-by-row visual inspection.
+- batch summary now also includes `artifacts_manifest.json` plus `runs/` with one full per-image result package each; the root HTML links directly into those per-run summaries.
+- desktop scalar displays and report tables round floating metrics to two decimals for consistent scientific readability.
 
 ## Recursive Folder Inference (GUI + CLI parity)
 
@@ -110,6 +111,13 @@ The exported batch HTML includes one aligned row per image with:
 - predicted mask preview
 - overlay preview
 - key scalar metrics (including hydride area fraction/count when available)
+- direct links to the corresponding per-run `results_summary.json` / HTML report package under `runs/`
+
+ML preprocessing preview:
+
+- when `Hydride ML (UNet)` is selected, the live input preview shows the actual processed image being fed to inference rather than only the raw file
+- `Adjust Contrast Before Inference` now shows a two-panel split view: raw source on the left, processed-for-inference image on the right
+- desktop logs now write explicit preprocessing records for original size, resized size, resize scale, contrast mode/parameters, channel duplication, and mask rescaling back to source size
 
 GUI-native batch summary inspector:
 

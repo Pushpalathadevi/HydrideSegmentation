@@ -34,7 +34,9 @@ class GuiInferencePreprocessResult:
     """Prepared arrays and provenance metadata for one ML inference input."""
 
     original_image: np.ndarray
+    resized_image_before_contrast: np.ndarray
     resized_image: np.ndarray
+    processed_image: np.ndarray
     model_ready_image: np.ndarray
     original_size: tuple[int, int]
     preprocessed_size: tuple[int, int]
@@ -98,23 +100,23 @@ def prepare_gui_inference_input(
 
     cfg = coerce_gui_inference_preprocess_config(config)
     original_image, original_channel_count = load_original_inference_image(image_path)
-    resized_image, resize_scale = _resize_preserve_aspect(original_image, cfg.target_long_side)
+    resized_image_before_contrast, resize_scale = _resize_preserve_aspect(original_image, cfg.target_long_side)
 
     contrast_metadata: dict[str, Any] = {
         "enabled": False,
         "mode": "disabled",
         "parameters": {},
     }
-    processed = resized_image
+    processed = resized_image_before_contrast
     if cfg.manual_adjustment is not None:
-        processed = _apply_manual_contrast(resized_image, cfg.manual_adjustment)
+        processed = _apply_manual_contrast(resized_image_before_contrast, cfg.manual_adjustment)
         contrast_metadata = {
             "enabled": True,
             "mode": "manual",
             "parameters": asdict(cfg.manual_adjustment),
         }
     elif cfg.auto_contrast_enabled:
-        processed = _apply_auto_contrast(resized_image)
+        processed = _apply_auto_contrast(resized_image_before_contrast)
         contrast_metadata = {
             "enabled": True,
             "mode": cfg.contrast_mode,
@@ -135,12 +137,18 @@ def prepare_gui_inference_input(
             "policy": "preserve_aspect_ratio_long_side",
             "target_long_side": int(cfg.target_long_side),
             "scale": float(resize_scale),
+            "resized_size_before_contrast": {
+                "width": int(resized_image_before_contrast.shape[1]),
+                "height": int(resized_image_before_contrast.shape[0]),
+            },
         },
         "contrast": contrast_metadata,
     }
     return GuiInferencePreprocessResult(
         original_image=original_image,
+        resized_image_before_contrast=resized_image_before_contrast,
         resized_image=processed,
+        processed_image=processed,
         model_ready_image=model_ready_image,
         original_size=original_size,
         preprocessed_size=preprocessed_size,
@@ -157,6 +165,17 @@ def rescale_mask_to_original(mask: np.ndarray, original_size: tuple[int, int]) -
 
     pil_mask = Image.fromarray(mask.astype(np.uint8), mode="L")
     restored = pil_mask.resize((int(original_size[0]), int(original_size[1])), Image.Resampling.NEAREST)
+    return np.asarray(restored, dtype=np.uint8)
+
+
+def rescale_image_to_original(image: np.ndarray, original_size: tuple[int, int]) -> np.ndarray:
+    """Resize a display image back to the source size with bicubic interpolation."""
+
+    mode = "L" if image.ndim == 2 else "RGB"
+    restored = Image.fromarray(image.astype(np.uint8), mode=mode).resize(
+        (int(original_size[0]), int(original_size[1])),
+        Image.Resampling.BICUBIC,
+    )
     return np.asarray(restored, dtype=np.uint8)
 
 

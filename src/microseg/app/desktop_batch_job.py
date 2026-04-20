@@ -106,7 +106,7 @@ def run_desktop_batch_job(
 
     started_at = time.monotonic()
     total_images = len(resolved_paths)
-    total_steps = total_images + total_images + 1 + total_images + 1
+    total_steps = total_images + total_images + 1 + 1
     completed_steps = 0
     completed_images = 0
     records: list[DesktopRunRecord] = []
@@ -210,24 +210,6 @@ def run_desktop_batch_job(
         batch_dir=batch_dir,
     )
 
-    runs_dir = batch_dir / "runs"
-    for index, record in enumerate(records, start=1):
-        image_name = Path(record.image_path).name
-        _emit(
-            "export",
-            f"[{index}/{total_images}] Writing per-run artifacts for {image_name}.",
-            current_image=image_name,
-            batch_dir=batch_dir,
-        )
-        workflow.export_run(record, runs_dir)
-        completed_steps += 1
-        _emit(
-            "export",
-            f"[{index}/{total_images}] Exported per-run artifacts for {image_name}.",
-            current_image=image_name,
-            batch_dir=batch_dir,
-        )
-
     resolved_config_path = batch_dir / "resolved_config.json"
     _emit("export", "Writing resolved batch configuration manifest.", batch_dir=batch_dir)
     resolved_payload = resolved_config if isinstance(resolved_config, dict) else {}
@@ -256,5 +238,5 @@ def run_desktop_batch_job(
         batch_dir=batch_dir,
         summary_json_path=summary_json_path,
         resolved_config_path=resolved_config_path,
-        runs_dir=runs_dir,
+        runs_dir=batch_dir / "runs",
     )

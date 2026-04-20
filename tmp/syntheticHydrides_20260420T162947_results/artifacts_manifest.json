@@ -1,0 +1,105 @@
+{
+  "schema_version": "microseg.artifact_manifest.v1",
+  "generated_utc": "2026-04-20T16:31:05.674396+00:00",
+  "file_count": 14,
+  "files": [
+    {
+      "artifact_key": "corrected_mask_color",
+      "path": "corrected_mask_color.png",
+      "exists": true,
+      "size_bytes": 7968,
+      "sha256": "5c31a100016447654ef6eb07be7e9744604efdf78cc98f3cb6ac72767bc2ffa3"
+    },
+    {
+      "artifact_key": "corrected_mask_indexed",
+      "path": "corrected_mask_indexed.png",
+      "exists": true,
+      "size_bytes": 3718,
+      "sha256": "76e7cc84910940d07f9d5acf72e7436c7475d54d6e1701c46b51aa20db178c78"
+    },
+    {
+      "artifact_key": "corrected_orientation_distribution",
+      "path": "corrected_orientation_distribution.png",
+      "exists": true,
+      "size_bytes": 21177,
+      "sha256": "5636a4c2cd75cdf59e4687990b69ce581df75846069eaff1f3250c557e6fae42"
+    },
+    {
+      "artifact_key": "corrected_orientation_map",
+      "path": "corrected_orientation_map.png",
+      "exists": true,
+      "size_bytes": 22485,
+      "sha256": "b1786ef8430a6a1b59027c48503376bbf836d2009f6d688d981d2152fc4241fe"
+    },
+    {
+      "artifact_key": "corrected_overlay",
+      "path": "corrected_overlay.png",
+      "exists": true,
+      "size_bytes": 19801,
+      "sha256": "d114a9d9ba078ac10ed6feef860552761670c44fbe7ee84305a02b544ec44218"
+    },
+    {
+      "artifact_key": "corrected_size_distribution",
+      "path": "corrected_size_distribution.png",
+      "exists": true,
+      "size_bytes": 15847,
+      "sha256": "a6ccb58ba7f80287dc847fbf7a3f94a047b14a0e5f28b46d6bad585cd3daaf42"
+    },
+    {
+      "artifact_key": "diff_mask",
+      "path": "diff_mask.png",
+      "exists": true,
+      "size_bytes": 2090,
+      "sha256": "ba066b09aee8ba319e67e36883944ba5285b1a48941baa79ecd144182737c41d"
+    },
+    {
+      "artifact_key": "input",
+      "path": "input.png",
+      "exists": true,
+      "size_bytes": 19517,
+      "sha256": "037e5c49d5cfd7bd2ad8a0db5545943286769ef4ae19a40b7c26fc88ac16e110"
+    },
+    {
+      "artifact_key": "predicted_mask_color",
+      "path": "predicted_mask_color.png",
+      "exists": true,
+      "size_bytes": 7968,
+      "sha256": "5c31a100016447654ef6eb07be7e9744604efdf78cc98f3cb6ac72767bc2ffa3"
+    },
+    {
+      "artifact_key": "predicted_mask_indexed",
+      "path": "predicted_mask_indexed.png",
+      "exists": true,
+      "size_bytes": 3718,
+      "sha256": "76e7cc84910940d07f9d5acf72e7436c7475d54d6e1701c46b51aa20db178c78"
+    },
+    {
+      "artifact_key": "predicted_orientation_distribution",
+      "path": "predicted_orientation_distribution.png",
+      "exists": true,
+      "size_bytes": 21177,
+      "sha256": "5636a4c2cd75cdf59e4687990b69ce581df75846069eaff1f3250c557e6fae42"
+    },
+    {
+      "artifact_key": "predicted_orientation_map",
+      "path": "predicted_orientation_map.png",
+      "exists": true,
+      "size_bytes": 22485,
+      "sha256": "b1786ef8430a6a1b59027c48503376bbf836d2009f6d688d981d2152fc4241fe"
+    },
+    {
+      "artifact_key": "predicted_overlay",
+      "path": "predicted_overlay.png",
+      "exists": true,
+      "size_bytes": 19801,
+      "sha256": "d114a9d9ba078ac10ed6feef860552761670c44fbe7ee84305a02b544ec44218"
+    },
+    {
+      "artifact_key": "predicted_size_distribution",
+      "path": "predicted_size_distribution.png",
+      "exists": true,
+      "size_bytes": 15847,
+      "sha256": "a6ccb58ba7f80287dc847fbf7a3f94a047b14a0e5f28b46d6bad585cd3daaf42"
+    }
+  ]
+}
