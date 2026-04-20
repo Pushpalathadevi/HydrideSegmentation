@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import sys
@@ -19,7 +20,14 @@ from PIL import Image
 from skimage.draw import disk, line
 
 from hydride_segmentation.microseg_adapter import resolve_gui_model_reference
-from PySide6.QtCore import QEvent, QObject, QProcess, QSettings, QThread, QTimer, Qt, Signal, Slot
+from hydride_segmentation.qt.viewer_support import (
+    DisplayAssetCacheEntry,
+    LinkedViewerController,
+    ModelWarmLoadState,
+    ResultsDashboardCacheEntry,
+    ViewerState,
+)
+from PySide6.QtCore import QEvent, QObject, QPoint, QProcess, QSettings, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QFont, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -174,6 +182,52 @@ def _scale_pixmap(pix: QPixmap, zoom: float) -> QPixmap:
     w = max(1, int(pix.width() * zoom))
     h = max(1, int(pix.height() * zoom))
     return pix.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+
+
+def _stretch_display_image(
+    image: np.ndarray,
+    *,
+    black_percentile: float,
+    white_percentile: float,
+    gamma: float,
+) -> np.ndarray:
+    arr = np.asarray(image, dtype=np.uint8)
+    if arr.ndim == 2:
+        return _stretch_display_channel(
+            arr,
+            black_percentile=black_percentile,
+            white_percentile=white_percentile,
+            gamma=gamma,
+        )
+    if arr.ndim == 3:
+        channels = [
+            _stretch_display_channel(
+                arr[:, :, idx],
+                black_percentile=black_percentile,
+                white_percentile=white_percentile,
+                gamma=gamma,
+            )
+            for idx in range(arr.shape[2])
+        ]
+        return np.stack(channels, axis=2).astype(np.uint8)
+    return arr
+
+
+def _stretch_display_channel(
+    channel: np.ndarray,
+    *,
+    black_percentile: float,
+    white_percentile: float,
+    gamma: float,
+) -> np.ndarray:
+    low = float(np.percentile(channel, black_percentile))
+    high = float(np.percentile(channel, white_percentile))
+    if not np.isfinite(low) or not np.isfinite(high) or high <= low:
+        return channel.astype(np.uint8, copy=True)
+    scaled = np.clip((channel.astype(np.float32) - low) / max(1e-6, (high - low)), 0.0, 1.0)
+    if abs(float(gamma) - 1.0) > 1e-6:
+        scaled = np.power(scaled, 1.0 / max(0.1, float(gamma)))
+    return np.round(scaled * 255.0).astype(np.uint8)
 
 
 def _mask_to_pixmap(mask: np.ndarray, class_map: SegmentationClassMap) -> QPixmap:
@@ -349,17 +403,93 @@ class _ContrastAdjustmentDialog(QDialog):
         self.accept()
 
 
+class _DisplayContrastDialog(QDialog):
+    """Viewer-only contrast controls for local inspection."""
+
+    def __init__(self, state: ViewerState, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Display Contrast")
+        self.result_state = state
+
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.black_spin = QDoubleSpinBox()
+        self.black_spin.setRange(0.0, 20.0)
+        self.black_spin.setSingleStep(0.5)
+        self.black_spin.setValue(float(state.black_percentile))
+        form.addRow("Black percentile", self.black_spin)
+
+        self.white_spin = QDoubleSpinBox()
+        self.white_spin.setRange(80.0, 100.0)
+        self.white_spin.setSingleStep(0.5)
+        self.white_spin.setValue(float(state.white_percentile))
+        form.addRow("White percentile", self.white_spin)
+
+        self.gamma_spin = QDoubleSpinBox()
+        self.gamma_spin.setRange(0.2, 3.0)
+        self.gamma_spin.setSingleStep(0.1)
+        self.gamma_spin.setValue(float(state.gamma))
+        form.addRow("Gamma", self.gamma_spin)
+        root.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.reset_button = buttons.addButton("Reset", QDialogButtonBox.ResetRole)
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        self.reset_button.clicked.connect(self._reset)
+        root.addWidget(buttons)
+
+    def _accept(self) -> None:
+        black = float(self.black_spin.value())
+        white = max(black + 0.1, float(self.white_spin.value()))
+        self.result_state = ViewerState(
+            zoom=float(self.result_state.zoom),
+            pan_x=int(self.result_state.pan_x),
+            pan_y=int(self.result_state.pan_y),
+            fit_mode=bool(self.result_state.fit_mode),
+            black_percentile=black,
+            white_percentile=white,
+            gamma=float(self.gamma_spin.value()),
+            sync_group_id=str(self.result_state.sync_group_id),
+        )
+        self.accept()
+
+    def _reset(self) -> None:
+        self.result_state = ViewerState(
+            zoom=float(self.result_state.zoom),
+            pan_x=int(self.result_state.pan_x),
+            pan_y=int(self.result_state.pan_y),
+            fit_mode=bool(self.result_state.fit_mode),
+            black_percentile=0.0,
+            white_percentile=100.0,
+            gamma=1.0,
+            sync_group_id=str(self.result_state.sync_group_id),
+        )
+        self.accept()
+
+
 class ZoomableImageViewport(QWidget):
     """Compact image viewport with in-panel zoom controls and scroll-based panning."""
 
     zoom_changed = Signal(float)
+    view_state_changed = Signal(object)
 
     def __init__(self, title: str, parent=None) -> None:
         super().__init__(parent)
         self._title = title
+        self._base_image: np.ndarray | None = None
         self._base_pixmap: QPixmap | None = None
+        self._display_pixmap: QPixmap | None = None
         self._zoom = 1.0
         self._fit_mode = True
+        self._black_percentile = 0.0
+        self._white_percentile = 100.0
+        self._gamma = 1.0
+        self._sync_group_id = ""
+        self._dragging = False
+        self._last_drag_pos = QPoint()
+        self._suspend_state_emit = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -399,14 +529,22 @@ class ZoomableImageViewport(QWidget):
 
         self.zoom_label = QLabel("100%")
         toolbar.addWidget(self.zoom_label)
+
+        self.btn_contrast = QToolButton()
+        self.btn_contrast.setText("Contrast")
+        self.btn_contrast.setToolTip("Adjust display contrast for this viewer")
+        self.btn_contrast.clicked.connect(self._open_display_contrast_dialog)
+        toolbar.addWidget(self.btn_contrast)
         root.addLayout(toolbar)
 
         self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidgetResizable(False)
         self.scroll_area.setFrameShape(QFrame.StyledPanel)
         self.scroll_area.setAlignment(Qt.AlignCenter)
         self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.scroll_area.viewport().installEventFilter(self)
+        self.scroll_area.horizontalScrollBar().valueChanged.connect(lambda _value: self._emit_view_state())
+        self.scroll_area.verticalScrollBar().valueChanged.connect(lambda _value: self._emit_view_state())
 
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
@@ -427,6 +565,26 @@ class ZoomableImageViewport(QWidget):
                 else:
                     self.zoom_out()
                 return True
+        if obj is viewport and event.type() == QEvent.MouseButtonPress:
+            if getattr(event, "button", lambda: None)() == Qt.LeftButton:
+                self._dragging = True
+                self._last_drag_pos = event.position().toPoint()
+                viewport.setCursor(Qt.ClosedHandCursor)
+                return True
+        if obj is viewport and event.type() == QEvent.MouseMove and self._dragging:
+            current = event.position().toPoint()
+            delta = current - self._last_drag_pos
+            self._last_drag_pos = current
+            self.scroll_area.horizontalScrollBar().setValue(self.scroll_area.horizontalScrollBar().value() - delta.x())
+            self.scroll_area.verticalScrollBar().setValue(self.scroll_area.verticalScrollBar().value() - delta.y())
+            self._emit_view_state()
+            return True
+        if obj is viewport and event.type() in (QEvent.MouseButtonRelease, QEvent.Leave):
+            if self._dragging:
+                self._dragging = False
+                viewport.unsetCursor()
+                self._emit_view_state()
+                return True
         if obj is viewport and event.type() in (QEvent.Resize, QEvent.Show) and self._fit_mode:
             QTimer.singleShot(0, self._apply_fit_zoom)
         return super().eventFilter(obj, event)
@@ -438,10 +596,12 @@ class ZoomableImageViewport(QWidget):
 
     def set_image(self, image: np.ndarray | QPixmap) -> None:
         if isinstance(image, QPixmap):
-            pix = image
+            self._base_pixmap = image
+            self._base_image = None
         else:
-            pix = _rgb_to_pixmap(np.asarray(image))
-        self._base_pixmap = pix
+            self._base_image = np.asarray(image).astype(np.uint8, copy=True)
+            self._base_pixmap = _rgb_to_pixmap(self._base_image)
+        self._display_pixmap = None
         self._fit_mode = True
         self.fit_to_view()
         QTimer.singleShot(0, self._apply_fit_zoom)
@@ -453,7 +613,7 @@ class ZoomableImageViewport(QWidget):
         self._fit_mode = False
         self._zoom = max(0.05, min(20.0, float(value)))
         self._refresh()
-        self.zoom_changed.emit(self._zoom)
+        self._emit_view_state()
 
     def zoom_in(self) -> None:
         self.set_zoom(self._zoom * 1.15)
@@ -481,14 +641,96 @@ class ZoomableImageViewport(QWidget):
         )
         self._zoom = max(0.05, min(20.0, float(zoom)))
         self._refresh()
+        self._emit_view_state()
+
+    def snapshot_view_state(self) -> ViewerState:
+        return ViewerState(
+            zoom=float(self._zoom),
+            pan_x=int(self.scroll_area.horizontalScrollBar().value()),
+            pan_y=int(self.scroll_area.verticalScrollBar().value()),
+            fit_mode=bool(self._fit_mode),
+            black_percentile=float(self._black_percentile),
+            white_percentile=float(self._white_percentile),
+            gamma=float(self._gamma),
+            sync_group_id=str(self._sync_group_id),
+        )
+
+    def restore_view_state(self, state: ViewerState, *, emit_change: bool = False) -> None:
+        self._suspend_state_emit = not emit_change
+        try:
+            self._black_percentile = float(state.black_percentile)
+            self._white_percentile = float(state.white_percentile)
+            self._gamma = float(state.gamma)
+            self._sync_group_id = str(state.sync_group_id)
+            if bool(state.fit_mode):
+                self._fit_mode = True
+                self._refresh_base_pixmap()
+                self._apply_fit_zoom()
+            else:
+                self._fit_mode = False
+                self._zoom = max(0.05, min(20.0, float(state.zoom)))
+                self._refresh()
+                self.scroll_area.horizontalScrollBar().setValue(int(state.pan_x))
+                self.scroll_area.verticalScrollBar().setValue(int(state.pan_y))
+        finally:
+            self._suspend_state_emit = False
+        if emit_change:
+            self._emit_view_state()
+
+    def set_sync_group_id(self, sync_group_id: str) -> None:
+        self._sync_group_id = str(sync_group_id)
+
+    def set_display_contrast(self, *, black_percentile: float, white_percentile: float, gamma: float) -> None:
+        self._black_percentile = float(black_percentile)
+        self._white_percentile = float(white_percentile)
+        self._gamma = float(gamma)
+        self._refresh_base_pixmap()
+        self._refresh()
+        self._emit_view_state()
+
+    def _refresh_base_pixmap(self) -> None:
+        if self._base_image is None:
+            self._display_pixmap = self._base_pixmap
+            return
+        if (
+            abs(self._black_percentile) < 1e-6
+            and abs(self._white_percentile - 100.0) < 1e-6
+            and abs(self._gamma - 1.0) < 1e-6
+        ):
+            self._display_pixmap = _rgb_to_pixmap(self._base_image)
+            return
+        stretched = _stretch_display_image(
+            self._base_image,
+            black_percentile=self._black_percentile,
+            white_percentile=self._white_percentile,
+            gamma=self._gamma,
+        )
+        self._display_pixmap = _rgb_to_pixmap(stretched)
+
+    def _open_display_contrast_dialog(self) -> None:
+        dialog = _DisplayContrastDialog(self.snapshot_view_state(), parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        state = dialog.result_state
+        self.set_display_contrast(
+            black_percentile=float(state.black_percentile),
+            white_percentile=float(state.white_percentile),
+            gamma=float(state.gamma),
+        )
+
+    def _emit_view_state(self) -> None:
         self.zoom_changed.emit(self._zoom)
+        if self._suspend_state_emit:
+            return
+        self.view_state_changed.emit(self.snapshot_view_state())
 
     def _refresh(self) -> None:
-        if self._base_pixmap is None or self._base_pixmap.isNull():
+        base = self._display_pixmap or self._base_pixmap
+        if base is None or base.isNull():
             self.image_label.clear()
             self.zoom_label.setText("0%")
             return
-        pix = _scale_pixmap(self._base_pixmap, self._zoom)
+        pix = _scale_pixmap(base, self._zoom)
         self.image_label.setPixmap(pix)
         self.image_label.setFixedSize(pix.size())
         self.zoom_label.setText(f"{int(round(self._zoom * 100))}%")
@@ -505,6 +747,8 @@ class BatchResultsInspectorDialog(QDialog):
         self.rows: list[dict[str, object]] = [
             row for row in self.payload.get("rows", []) if isinstance(row, dict)
         ]
+        self._path_cache: dict[str, QPixmap] = {}
+        self._linked_viewers = LinkedViewerController(self)
         self.setWindowTitle(f"Batch Results Inspector — {self.summary_path.name}")
         self.resize(1520, 920)
 
@@ -540,6 +784,10 @@ class BatchResultsInspectorDialog(QDialog):
         self.preview_split.addWidget(self.input_view)
         self.preview_split.addWidget(self.mask_view)
         self.preview_split.addWidget(self.overlay_view)
+        self._linked_viewers.register("input", self.input_view)
+        self._linked_viewers.register("mask", self.mask_view)
+        self._linked_viewers.register("overlay", self.overlay_view)
+        self._linked_viewers.set_active_names({"input", "mask", "overlay"})
         right_layout.addWidget(self.preview_split, stretch=4)
 
         self.detail_text = QPlainTextEdit()
@@ -634,8 +882,12 @@ class BatchResultsInspectorDialog(QDialog):
             view.zoom_label.setText("0%")
             return
         try:
-            with Image.open(image_path) as img:
-                view.set_image(np.array(img))
+            cached = self._path_cache.get(str(image_path))
+            if cached is None:
+                with Image.open(image_path) as img:
+                    cached = _rgb_to_pixmap(np.array(img))
+                self._path_cache[str(image_path)] = cached
+            view.set_image(cached)
         except Exception:
             view.image_label.setText(f"Failed to load\n{image_path.name}")
             view.zoom_label.setText("0%")
@@ -1295,10 +1547,15 @@ class QtSegmentationMainWindow(QMainWindow):
         self._warm_load_generation: int = 0
         self._warm_load_target_model: str = ""
         self._last_warm_load_status: ModelWarmLoadStatus | None = None
+        self._warm_load_state = ModelWarmLoadState()
         self._inference_manual_contrast_adjustment: ManualContrastAdjustment | None = None
         self._inference_process: QProcess | None = None
         self._inference_stdout: list[str] = []
         self._inference_output_dir: Path | None = None
+        self._display_asset_cache: dict[str, DisplayAssetCacheEntry] = {}
+        self._results_dashboard_cache: dict[str, ResultsDashboardCacheEntry] = {}
+        self._viewer_state_by_run: dict[str, ViewerState] = {}
+        self._linked_viewers = LinkedViewerController(self)
         self._busy_cursor_active = False
         self._segmentation_started_at: float | None = None
         self._segmentation_estimate_seconds: float | None = None
@@ -1377,6 +1634,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._update_inference_preprocess_summary()
         self._update_calibration_status_label()
         self._refresh_segmentation_progress()
+        QTimer.singleShot(0, lambda: self._start_model_warm_load(self.model_combo.currentText()))
 
     def _load_ui_config(self, ui_config_path: str | None) -> None:
         cfg, warnings, source_path = load_desktop_ui_config(ui_config_path)
@@ -1930,6 +2188,10 @@ class QtSegmentationMainWindow(QMainWindow):
         self._apply_main_splitter_sizes()
         self.main_splitter.setSizes([500, 1200])
 
+        self.workspace_splitter = QSplitter(Qt.Vertical)
+        self.workspace_splitter.setChildrenCollapsible(False)
+        workspace_layout.addWidget(self.workspace_splitter, stretch=1)
+
         controls = QVBoxLayout()
         controls.setSpacing(10)
 
@@ -1976,12 +2238,12 @@ class QtSegmentationMainWindow(QMainWindow):
         model_row.addWidget(self.model_combo, stretch=1)
         controls.addLayout(model_row)
 
-        preprocess_row = QHBoxLayout()
-        preprocess_row.setSpacing(8)
+        preprocess_row = QVBoxLayout()
+        preprocess_row.setSpacing(6)
         self.chk_auto_contrast = QCheckBox("Auto maximize contrast before inference")
         self.chk_auto_contrast.setChecked(True)
         self.chk_auto_contrast.toggled.connect(self._update_inference_preprocess_summary)
-        preprocess_row.addWidget(self.chk_auto_contrast, stretch=1)
+        preprocess_row.addWidget(self.chk_auto_contrast)
         self.btn_adjust_contrast = QPushButton("Adjust Contrast Before Inference")
         self.btn_adjust_contrast.clicked.connect(self.on_adjust_contrast_before_inference)
         self.btn_adjust_contrast.setMinimumHeight(34)
@@ -2013,22 +2275,6 @@ class QtSegmentationMainWindow(QMainWindow):
         self.btn_workspace_gear.setMinimumSize(34, 34)
         action_grid.addWidget(self.btn_workspace_gear, 1, 1)
         controls.addLayout(action_grid)
-
-        self.current_image_summary_label = QLabel("Image: none loaded")
-        self.current_image_summary_label.setWordWrap(True)
-        controls.addWidget(self.current_image_summary_label)
-
-        self.current_model_summary_label = QLabel(f"Model: {self.model_combo.currentText().strip()}")
-        self.current_model_summary_label.setWordWrap(True)
-        controls.addWidget(self.current_model_summary_label)
-
-        self.inference_preprocess_summary_label = QLabel("ML preprocessing: waiting for image metadata.")
-        self.inference_preprocess_summary_label.setWordWrap(True)
-        controls.addWidget(self.inference_preprocess_summary_label)
-
-        self.model_warm_load_status_label = QLabel("Model warm-load: idle")
-        self.model_warm_load_status_label.setWordWrap(True)
-        controls.addWidget(self.model_warm_load_status_label)
 
         self.model_desc = QLabel("")
         self.model_desc.setWordWrap(True)
@@ -2096,9 +2342,34 @@ class QtSegmentationMainWindow(QMainWindow):
         project_layout.setContentsMargins(10, 12, 10, 10)
         project_layout.setSpacing(8)
         project_layout.addLayout(controls)
-        project_layout.addWidget(self.model_desc)
-        project_layout.addWidget(self.segmentation_status_panel)
         sidebar_layout.addWidget(project_box)
+
+        self.setup_status_box = QGroupBox("Run Setup / Status")
+        self.setup_status_box.setCheckable(True)
+        self.setup_status_box.setChecked(True)
+        setup_status_layout = QVBoxLayout(self.setup_status_box)
+        setup_status_layout.setContentsMargins(10, 12, 10, 10)
+        setup_status_layout.setSpacing(8)
+
+        self.current_image_summary_label = QLabel("Image: none loaded")
+        self.current_image_summary_label.setWordWrap(True)
+        setup_status_layout.addWidget(self.current_image_summary_label)
+
+        self.current_model_summary_label = QLabel(f"Model: {self.model_combo.currentText().strip()}")
+        self.current_model_summary_label.setWordWrap(True)
+        setup_status_layout.addWidget(self.current_model_summary_label)
+
+        self.inference_preprocess_summary_label = QLabel("ML preprocessing: waiting for image metadata.")
+        self.inference_preprocess_summary_label.setWordWrap(True)
+        setup_status_layout.addWidget(self.inference_preprocess_summary_label)
+
+        self.model_warm_load_status_label = QLabel("Model warm-load: idle")
+        self.model_warm_load_status_label.setWordWrap(True)
+        setup_status_layout.addWidget(self.model_warm_load_status_label)
+
+        setup_status_layout.addWidget(self.model_desc)
+        setup_status_layout.addWidget(self.segmentation_status_panel)
+        sidebar_layout.addWidget(self.setup_status_box)
 
         self.annotator_edit = QLineEdit()
         self.annotator_edit.setPlaceholderText("Annotator")
@@ -2535,7 +2806,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.tabs.tabBar().setUsesScrollButtons(True)
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setElideMode(Qt.ElideRight)
-        workspace_layout.addWidget(self.tabs, stretch=1)
+        self.workspace_splitter.addWidget(self.tabs)
 
         self.input_view = ZoomableImageViewport("Input")
         self.mask_view = ZoomableImageViewport("Predicted Mask")
@@ -3279,10 +3550,17 @@ class QtSegmentationMainWindow(QMainWindow):
         status_bar.addWidget(self.action_label)
         status_bar.addWidget(self.tool_label)
 
+        self.log_panel = QGroupBox("Desktop Log")
+        log_layout = QVBoxLayout(self.log_panel)
+        log_layout.setContentsMargins(6, 6, 6, 6)
         self.log_box = QPlainTextEdit()
         self.log_box.setReadOnly(True)
         self.log_box.setMaximumBlockCount(1200)
-        sidebar_layout.addWidget(self.log_box)
+        log_layout.addWidget(self.log_box)
+        self.workspace_splitter.addWidget(self.log_panel)
+        self.workspace_splitter.setStretchFactor(0, 1)
+        self.workspace_splitter.setStretchFactor(1, 0)
+        self.workspace_splitter.setSizes([980, 160])
 
         self._workspace_toggle_actions: dict[str, QAction] = {}
         self.model_desc.hide()
@@ -3292,10 +3570,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.correction_tools_group.hide()
         self.export_group.hide()
         self.workflow_aux_group.hide()
-        self.log_box.hide()
-
-        if bool(self._ui_config.window.show_log_dock_on_start):
-            self.log_box.show()
+        self.log_panel.show()
         if bool(self._ui_config.window.show_workflow_dock_on_start):
             self.tabs.setCurrentWidget(self.workflow_widget)
 
@@ -3321,16 +3596,19 @@ class QtSegmentationMainWindow(QMainWindow):
         _add_toggle_action("Correction Tools", [self.correction_tools_group], checked=False)
         _add_toggle_action("Export & Session", [self.export_group], checked=False)
         _add_toggle_action("Workflow Extras", [self.workflow_aux_group], checked=False)
+        _add_toggle_action("Run Setup / Status", [self.setup_status_box], checked=True)
         _add_toggle_action(
             "Advanced report options",
             [self.report_advanced_group],
             checked=False,
         )
-        _add_toggle_action("Desktop log", [self.log_box], checked=False)
+        _add_toggle_action("Desktop log", [self.log_panel], checked=True)
         workspace_menu.addSeparator()
         workspace_menu.addAction("Workflow Hub", self.on_open_workflow_hub)
         workspace_menu.addAction("Results Dashboard", self.on_open_results_dashboard)
         self.btn_workspace_gear.setMenu(workspace_menu)
+        self.tabs.currentChanged.connect(self._on_main_tab_changed)
+        self._register_linked_viewers()
         self._update_progressive_disclosure()
 
     def _apply_main_splitter_sizes(self) -> None:
@@ -3349,12 +3627,13 @@ class QtSegmentationMainWindow(QMainWindow):
         mapping = {
             "Model summary": [self.model_desc] if hasattr(self, "model_desc") else [],
             "Inference Setup": [self.inference_options_group] if hasattr(self, "inference_options_group") else [],
+            "Run Setup / Status": [self.setup_status_box] if hasattr(self, "setup_status_box") else [],
             "Recent Runs": [self.history_box] if hasattr(self, "history_box") else [],
             "Correction Tools": [self.correction_tools_group] if hasattr(self, "correction_tools_group") else [],
             "Export & Session": [self.export_group] if hasattr(self, "export_group") else [],
             "Workflow Extras": [self.workflow_aux_group] if hasattr(self, "workflow_aux_group") else [],
             "Advanced report options": [self.report_advanced_group] if hasattr(self, "report_advanced_group") else [],
-            "Desktop log": [self.log_box] if hasattr(self, "log_box") else [],
+            "Desktop log": [self.log_panel] if hasattr(self, "log_panel") else [],
         }
         for widget in mapping.get(title, []):
             widget.setVisible(bool(visible))
@@ -3468,6 +3747,94 @@ class QtSegmentationMainWindow(QMainWindow):
 
     def _log(self, message: str) -> None:
         self.log_box.appendPlainText(message)
+
+    def _register_linked_viewers(self) -> None:
+        self._linked_viewers.register("input", self.input_view)
+        self._linked_viewers.register("mask", self.mask_view)
+        self._linked_viewers.register("overlay", self.overlay_view)
+        self._linked_viewers.register("split_raw", self.raw_corr_view)
+        self._linked_viewers.set_active_names({"input", "mask", "overlay", "split_raw"})
+        self.raw_corr_view.zoom_changed.connect(self._sync_corrected_canvas_zoom_from_raw)
+
+    def _sync_corrected_canvas_zoom_from_raw(self, zoom: float) -> None:
+        if abs(self.corrected_canvas.zoom_value() - float(zoom)) < 1e-6:
+            return
+        self.corrected_canvas.set_zoom(float(zoom))
+
+    @staticmethod
+    def _mask_digest(mask: np.ndarray) -> str:
+        return hashlib.sha1(np.asarray(mask, dtype=np.uint8).tobytes()).hexdigest()
+
+    @staticmethod
+    def _results_cache_key(
+        *,
+        run_id: str,
+        pred_mask: np.ndarray,
+        corr_mask: np.ndarray,
+        calibration: SpatialCalibration | None,
+        cfg: HydrideVisualizationConfig,
+    ) -> str:
+        payload = {
+            "run_id": str(run_id),
+            "pred": QtSegmentationMainWindow._mask_digest(pred_mask),
+            "corr": QtSegmentationMainWindow._mask_digest(corr_mask),
+            "calibration": None if calibration is None else calibration.as_dict(),
+            "cfg": {
+                "orientation_bins": int(cfg.orientation_bins),
+                "size_bins": int(cfg.size_bins),
+                "min_feature_pixels": int(cfg.min_feature_pixels),
+                "orientation_cmap": str(cfg.orientation_cmap),
+                "size_scale": str(cfg.size_scale),
+            },
+        }
+        return hashlib.sha1(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def _display_assets_for_record(self, record: DesktopRunRecord) -> DisplayAssetCacheEntry:
+        cached = self._display_asset_cache.get(str(record.run_id))
+        if cached is not None:
+            return cached
+        started = time.perf_counter()
+        base = np.array(record.input_image)
+        pred_mask = to_index_mask(np.array(record.mask_image))
+        entry = DisplayAssetCacheEntry(
+            run_id=str(record.run_id),
+            input_pixmap=_rgb_to_pixmap(base),
+            mask_pixmap=_mask_to_pixmap(pred_mask, self.state.class_map),
+            overlay_pixmap=_rgb_to_pixmap(np.array(record.overlay_image)),
+            base_image_rgb=base,
+            predicted_mask=pred_mask,
+            overlay_image_rgb=np.array(record.overlay_image),
+        )
+        self._display_asset_cache[str(record.run_id)] = entry
+        self.logger.info(
+            "Display asset cache miss for %s prepared in %.3fs",
+            record.run_id,
+            max(0.0, time.perf_counter() - started),
+        )
+        return entry
+
+    def _save_active_viewer_state(self) -> None:
+        run = self.state.current_run
+        if run is None:
+            return
+        self._viewer_state_by_run[str(run.run_id)] = self._linked_viewers.snapshot(preferred_name="input")
+
+    def _restore_viewer_state_for_run(self, run_id: str) -> None:
+        state = self._viewer_state_by_run.get(str(run_id))
+        if state is None:
+            state = ViewerState(sync_group_id="active_run")
+        self._linked_viewers.restore_all(
+            ViewerState(
+                zoom=float(state.zoom),
+                pan_x=int(state.pan_x),
+                pan_y=int(state.pan_y),
+                fit_mode=bool(state.fit_mode),
+                black_percentile=float(state.black_percentile),
+                white_percentile=float(state.white_percentile),
+                gamma=float(state.gamma),
+                sync_group_id="active_run",
+            )
+        )
 
     def _set_image_preview(self, label: QLabel, arr: np.ndarray | QPixmap, *, zoom: float = 1.0) -> None:
         if hasattr(label, "set_image"):
@@ -3858,8 +4225,7 @@ class QtSegmentationMainWindow(QMainWindow):
             )
 
     def _queue_results_refresh(self, *_args) -> None:
-        self._results_dirty = True
-        self._results_refresh_timer.start(250)
+        self._mark_results_dashboard_dirty()
 
     def _update_results_dashboard(self) -> None:
         run = self.state.current_run
@@ -3873,33 +4239,62 @@ class QtSegmentationMainWindow(QMainWindow):
         cfg = self._analysis_config_from_ui()
         cal = self.state.spatial_calibration
         um_per_px = None if cal is None else float(cal.microns_per_pixel)
+        cache_key = self._results_cache_key(
+            run_id=str(run.run_id),
+            pred_mask=pred_mask,
+            corr_mask=corr_mask,
+            calibration=cal,
+            cfg=cfg,
+        )
         try:
-            pred_stats = compute_hydride_statistics(
-                pred_mask,
-                orientation_bins=cfg.orientation_bins,
-                size_bins=cfg.size_bins,
-                min_feature_pixels=cfg.min_feature_pixels,
-                microns_per_pixel=um_per_px,
-            )
-            corr_stats = compute_hydride_statistics(
-                corr_mask,
-                orientation_bins=cfg.orientation_bins,
-                size_bins=cfg.size_bins,
-                min_feature_pixels=cfg.min_feature_pixels,
-                microns_per_pixel=um_per_px,
-            )
-            pred_visuals = render_hydride_visualizations(pred_stats, cfg)
-            corr_visuals = render_hydride_visualizations(corr_stats, cfg)
+            cache_entry = self._results_dashboard_cache.get(cache_key)
+            if cache_entry is None:
+                started = time.perf_counter()
+                pred_stats = compute_hydride_statistics(
+                    pred_mask,
+                    orientation_bins=cfg.orientation_bins,
+                    size_bins=cfg.size_bins,
+                    min_feature_pixels=cfg.min_feature_pixels,
+                    microns_per_pixel=um_per_px,
+                )
+                corr_stats = compute_hydride_statistics(
+                    corr_mask,
+                    orientation_bins=cfg.orientation_bins,
+                    size_bins=cfg.size_bins,
+                    min_feature_pixels=cfg.min_feature_pixels,
+                    microns_per_pixel=um_per_px,
+                )
+                pred_visuals = render_hydride_visualizations(pred_stats, cfg)
+                corr_visuals = render_hydride_visualizations(corr_stats, cfg)
+                pred_metrics = dict(pred_stats.scalar_metrics)
+                corr_metrics = dict(corr_stats.scalar_metrics)
+                cache_entry = ResultsDashboardCacheEntry(
+                    run_id=str(run.run_id),
+                    cache_key=cache_key,
+                    predicted_metrics=pred_metrics,
+                    corrected_metrics=corr_metrics,
+                    predicted_visuals=pred_visuals,
+                    corrected_visuals=corr_visuals,
+                )
+                self._results_dashboard_cache[cache_key] = cache_entry
+                self.logger.info(
+                    "Results dashboard cache miss for %s computed in %.3fs",
+                    run.run_id,
+                    max(0.0, time.perf_counter() - started),
+                )
+            else:
+                self.logger.info("Results dashboard cache hit for %s", run.run_id)
 
+            pred_visuals = cache_entry.predicted_visuals
+            corr_visuals = cache_entry.corrected_visuals
+            pred_metrics = dict(cache_entry.predicted_metrics)
+            corr_metrics = dict(cache_entry.corrected_metrics)
             self._set_image_preview(self.results_pred_orientation_view, pred_visuals["orientation_map_rgb"])
             self._set_image_preview(self.results_pred_size_view, pred_visuals["size_distribution_rgb"])
             self._set_image_preview(self.results_pred_angle_view, pred_visuals["orientation_distribution_rgb"])
             self._set_image_preview(self.results_corr_orientation_view, corr_visuals["orientation_map_rgb"])
             self._set_image_preview(self.results_corr_size_view, corr_visuals["size_distribution_rgb"])
             self._set_image_preview(self.results_corr_angle_view, corr_visuals["orientation_distribution_rgb"])
-
-            pred_metrics = dict(pred_stats.scalar_metrics)
-            corr_metrics = dict(corr_stats.scalar_metrics)
             preferred = [
                 "hydride_area_fraction_percent",
                 "hydride_count",
@@ -4225,18 +4620,42 @@ class QtSegmentationMainWindow(QMainWindow):
         if not hasattr(self, "model_warm_load_status_label"):
             return
         if not self._selected_model_is_ml(model_name):
+            self._warm_load_state = ModelWarmLoadState(
+                status="idle",
+                model_id=str(self._selected_model_id(model_name)),
+                display_name=str(model_name),
+                device_policy=str(self._current_warm_load_params().get("device_policy", "cpu")),
+                enable_gpu=bool(self._current_warm_load_params().get("enable_gpu", False)),
+                message="Conventional inference selected.",
+            )
             self.model_warm_load_status_label.setText("Model warm-load: not needed for conventional inference.")
             self._last_warm_load_status = None
             return
         params = self._current_warm_load_params()
         reference = resolve_gui_model_reference(model_name, params)
         if reference is None:
+            self._warm_load_state = ModelWarmLoadState(
+                status="failed",
+                model_id=str(self._selected_model_id(model_name)),
+                display_name=str(model_name),
+                device_policy=str(params.get("device_policy", "cpu")),
+                enable_gpu=bool(params.get("enable_gpu", False)),
+                message="No resolvable checkpoint for current model.",
+            )
             self.model_warm_load_status_label.setText("Model warm-load: no resolvable checkpoint for this model yet.")
             self._last_warm_load_status = None
             return
         self._warm_load_generation += 1
         generation = self._warm_load_generation
         self._warm_load_target_model = model_name
+        self._warm_load_state = ModelWarmLoadState(
+            status="loading",
+            model_id=str(self._selected_model_id(model_name)),
+            display_name=str(model_name),
+            device_policy=str(params.get("device_policy", "cpu")),
+            enable_gpu=bool(params.get("enable_gpu", False)),
+            message=f"Loading {model_name} in background.",
+        )
         self.model_warm_load_status_label.setText(f"Model warm-load: loading {model_name} in background...")
         thread = QThread(self)
         worker = _WarmLoadWorker(
@@ -4263,10 +4682,21 @@ class QtSegmentationMainWindow(QMainWindow):
         self._warm_load_worker = None
         if isinstance(payload, ModelWarmLoadStatus):
             self._last_warm_load_status = payload
+            self._warm_load_state = ModelWarmLoadState(
+                status=str(payload.status),
+                model_id=str(self._selected_model_id(self._warm_load_target_model)),
+                display_name=str(payload.display_name),
+                device_policy=str(self._current_warm_load_params().get("device_policy", "cpu")),
+                enable_gpu=bool(self._current_warm_load_params().get("enable_gpu", False)),
+                message=str(payload.message),
+                cache_hit=bool(payload.cache_hit),
+                elapsed_seconds=float(payload.load_duration_seconds),
+            )
             self.model_warm_load_status_label.setText(f"Model warm-load: {payload.message}")
             self.logger.info("Warm-loaded model %s (%s)", payload.display_name, payload.message)
             return
         if payload is None:
+            self._warm_load_state = ModelWarmLoadState(status="idle", display_name=str(self._warm_load_target_model))
             self.model_warm_load_status_label.setText("Model warm-load: skipped for current selection.")
             self._last_warm_load_status = None
             return
@@ -4279,6 +4709,14 @@ class QtSegmentationMainWindow(QMainWindow):
         self._warm_load_thread = None
         self._warm_load_worker = None
         self._last_warm_load_status = None
+        self._warm_load_state = ModelWarmLoadState(
+            status="failed",
+            model_id=str(self._selected_model_id(self._warm_load_target_model)),
+            display_name=str(self._warm_load_target_model),
+            device_policy=str(self._current_warm_load_params().get("device_policy", "cpu")),
+            enable_gpu=bool(self._current_warm_load_params().get("enable_gpu", False)),
+            message=str(message),
+        )
         self.model_warm_load_status_label.setText(f"Model warm-load: failed ({message}).")
         self.logger.warning("Model warm-load failed for %s: %s", self._warm_load_target_model, message)
 
@@ -5043,6 +5481,7 @@ class QtSegmentationMainWindow(QMainWindow):
         try:
             cmap = self._class_map_from_text(text.toPlainText())
             self.state.class_map = cmap
+            self._display_asset_cache.clear()
             self.corrected_canvas.set_class_map(cmap)
             self._reload_class_combo()
             self.logger.info("Updated class map with %d classes", len(cmap.classes))
@@ -5053,7 +5492,8 @@ class QtSegmentationMainWindow(QMainWindow):
         run = self.state.current_run
         if run is None:
             return
-        self._set_image_preview(self.raw_corr_view, np.array(run.input_image), zoom=self.corrected_canvas.zoom_value())
+        assets = self._display_assets_for_record(run)
+        self._set_image_preview(self.raw_corr_view, assets.input_pixmap, zoom=self.corrected_canvas.zoom_value())
 
     def _update_action_label(self) -> None:
         sess = self.state.correction_session
@@ -5065,7 +5505,8 @@ class QtSegmentationMainWindow(QMainWindow):
 
     def _on_zoom_changed(self, zoom: float) -> None:
         self.zoom_label.setText(f"Zoom: {int(round(zoom * 100))}%")
-        self._update_split_input_view()
+        if abs(self.raw_corr_view.current_zoom() - float(zoom)) > 1e-6:
+            self.raw_corr_view.set_zoom(float(zoom))
 
     def _on_cursor_changed(self, x: int, y: int) -> None:
         self.cursor_label.setText(f"Cursor: {x},{y}")
@@ -5668,7 +6109,18 @@ class QtSegmentationMainWindow(QMainWindow):
         except Exception:
             self.logger.exception("Failed to link correction export to feedback record: %s", record_dir)
 
+    def _mark_results_dashboard_dirty(self) -> None:
+        self._results_dirty = True
+        if self.tabs.currentWidget() is self.results_widget:
+            self._results_refresh_timer.start(50)
+
+    def _on_main_tab_changed(self, _index: int) -> None:
+        if self.tabs.currentWidget() is self.results_widget and self._results_dirty:
+            self._results_refresh_timer.start(10)
+
     def _show_record(self, record: DesktopRunRecord, corrected_mask: np.ndarray | None = None) -> None:
+        started = time.perf_counter()
+        self._save_active_viewer_state()
         self.state.current_run = record
         if not str(record.feedback_record_dir).strip():
             params = {}
@@ -5689,25 +6141,31 @@ class QtSegmentationMainWindow(QMainWindow):
         self._try_auto_calibration_from_metadata(record.image_path, user_initiated=False)
         if self.model_combo.findText(record.model_name) >= 0:
             self.model_combo.setCurrentText(record.model_name)
-        base = np.array(record.input_image)
-        pred_mask = to_index_mask(np.array(record.mask_image))
+        assets = self._display_assets_for_record(record)
+        base = assets.base_image_rgb
+        pred_mask = assets.predicted_mask
         self.state.correction_session = CorrectionSession(pred_mask)
         if corrected_mask is not None:
             self.state.correction_session.current_mask = to_index_mask(corrected_mask)
 
-        self._set_image_preview(self.input_view, base)
-        self._set_image_preview(self.mask_view, _mask_to_pixmap(pred_mask, self.state.class_map))
-        self._set_image_preview(self.overlay_view, np.array(record.overlay_image))
-
+        self._set_image_preview(self.input_view, assets.input_pixmap)
+        self._set_image_preview(self.mask_view, assets.mask_pixmap)
+        self._set_image_preview(self.overlay_view, assets.overlay_pixmap)
         self.corrected_canvas.bind(base, pred_mask, self.state.correction_session, self.state.class_map)
         self.corrected_canvas.update_layer_settings(self._layer_settings())
         self._update_split_input_view()
+        self._restore_viewer_state_for_run(str(record.run_id))
         self._update_action_label()
-        self._update_results_dashboard()
+        self._mark_results_dashboard_dirty()
         self._load_feedback_for_record(record)
         self._update_progressive_disclosure()
 
         self.logger.info("Active run: %s", record.history_label)
+        self.logger.info(
+            "History switch render for %s completed in %.3fs",
+            record.run_id,
+            max(0.0, time.perf_counter() - started),
+        )
         if record.metrics:
             self.logger.info("Metrics: %s", record.metrics)
 

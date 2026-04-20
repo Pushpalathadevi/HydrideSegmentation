@@ -73,11 +73,17 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     assert win.model_combo.minimumWidth() >= 320
     assert win.inference_options_group.isCheckable() is True
     assert win.inference_options_group.isChecked() is True
+    assert win.setup_status_box.isCheckable() is True
     assert win.correction_tools_group.isCheckable() is True
     assert win.export_group.isCheckable() is True
     assert win.workflow_aux_group.isCheckable() is True
     assert win.active_run_box.isHidden() is True
     assert win.history_box.isHidden() is True
+    assert win.log_panel.isHidden() is False
+    assert win.model_combo.count() == 2
+    assert win.model_combo.itemText(0) == "Hydride ML (UNet)"
+    assert win.model_combo.itemText(1) == "Hydride Conventional"
+    assert win.model_combo.currentText() == "Hydride ML (UNet)"
     screen = app.primaryScreen()
     assert screen is not None
     assert win.width() <= screen.availableGeometry().width()
@@ -89,7 +95,7 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     win.close()
 
 
-def test_phase27_qt_inference_launches_subprocess(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_phase27_qt_inference_uses_background_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("PySide6")
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
@@ -108,18 +114,81 @@ def test_phase27_qt_inference_launches_subprocess(tmp_path: Path, monkeypatch: p
 
     captured = {}
 
-    def _fake_start(*, label, model_name, image_path, cfg):
+    def _fake_start(*, label, job, on_finished):
         captured["label"] = label
-        captured["model_name"] = model_name
-        captured["image_path"] = image_path
-        captured["cfg"] = dict(cfg)
+        captured["job"] = job
+        captured["on_finished"] = on_finished
 
-    monkeypatch.setattr(win, "_start_inference_subprocess", _fake_start)
+    monkeypatch.setattr(win, "_start_background_job", _fake_start)
     win.on_run_segmentation()
     assert captured["label"] == "single"
-    assert captured["model_name"] == model_name
-    assert captured["image_path"] == str(image_path)
-    assert captured["cfg"]["operator_id"] == str(win.feedback_writer.config.operator_id)
+    assert callable(captured["job"])
+    assert callable(captured["on_finished"])
+    win.close()
+
+
+def test_phase27_qt_history_selection_defers_results_dashboard(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from hydride_segmentation.qt.main_window import QtSegmentationMainWindow
+    from src.microseg.app.desktop_workflow import DesktopRunRecord
+
+    app = QApplication.instance() or QApplication([])
+    win = QtSegmentationMainWindow()
+    image = Image.new("RGB", (32, 32), (120, 120, 120))
+    mask = Image.new("L", (32, 32), 0)
+    overlay = Image.new("RGB", (32, 32), (100, 80, 60))
+    record = DesktopRunRecord(
+        run_id="run_lazy_dashboard",
+        image_path="test_data/example.png",
+        image_name="example.png",
+        model_name=win.model_combo.currentText(),
+        model_id="hydride_ml",
+        started_utc="2026-04-20T00:00:00+00:00",
+        finished_utc="2026-04-20T00:00:01+00:00",
+        input_image=image,
+        mask_image=mask,
+        overlay_image=overlay,
+        metrics={},
+        manifest={},
+    )
+    win.workflow.append_history(record)
+    win.history_list.addItem(record.history_label)
+
+    calls = {"count": 0}
+
+    def _fake_update() -> None:
+        calls["count"] += 1
+
+    monkeypatch.setattr(win, "_update_results_dashboard", _fake_update)
+    win.tabs.setCurrentWidget(win.input_view)
+    win._show_record(record)  # noqa: SLF001
+    assert calls["count"] == 0
+    assert win._results_dirty is True  # noqa: SLF001
+    win.close()
+
+
+def test_phase27_qt_startup_requests_model_warm_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from hydride_segmentation.qt.main_window import QtSegmentationMainWindow
+
+    calls: list[str] = []
+    original = QtSegmentationMainWindow._start_model_warm_load
+
+    def _tracked(self, model_name: str) -> None:
+        calls.append(str(model_name))
+        return original(self, model_name)
+
+    monkeypatch.setattr(QtSegmentationMainWindow, "_start_model_warm_load", _tracked)
+    app = QApplication.instance() or QApplication([])
+    win = QtSegmentationMainWindow()
+    app.processEvents()
+    assert any(name == win.model_combo.currentText() for name in calls)
     win.close()
 
 

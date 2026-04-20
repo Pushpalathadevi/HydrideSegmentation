@@ -1,23 +1,52 @@
 {
   "schema_version": "microseg.frozen_checkpoint_registry.v1",
-  "updated_utc": "2026-02-17T00:00:00Z",
+  "updated_utc": "2026-04-20T00:00:00Z",
   "models": [
     {
       "model_id": "hydride_ml",
-      "model_nickname": "hydride_unet_optical_v1",
-      "model_type": "binary_unet",
+      "model_nickname": "hydride_unet_optical_default_v1",
+      "model_type": "unet_binary",
       "framework": "pytorch",
       "input_size": "variable",
       "input_dimensions": "H x W x 3",
-      "checkpoint_path_hint": "frozen_checkpoints/candidates/hydride_unet_optical_v1/model.pth",
-      "application_remarks": "Suitable for optical microscopy hydride segmentation after contrast normalization.",
-      "short_description": "Recommended for optical hydride segmentation when a validated checkpoint is available.",
-      "detailed_description": "Learns hydride morphology from labeled masks. Validate on representative samples and use correction workflow for edge cases before production reporting.",
+      "checkpoint_path_hint": "frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt",
+      "application_remarks": "Default ML model for optical microscopy hydride segmentation. Used as the repo-native trained checkpoint for GUI and CLI inference.",
+      "short_description": "Default trained hydride checkpoint. Recommended before falling back to the conventional baseline.",
+      "detailed_description": "Binary UNet checkpoint for hydride segmentation. The GUI now prefers this trained model at startup when the checkpoint is present locally; conventional inference remains available as an interactive fallback.",
       "artifact_stage": "candidate",
       "source_run_manifest": "",
       "quality_report_path": "",
-      "file_sha256": "",
-      "file_size_bytes": null,
+      "file_sha256": "5023DAD431D0E9D86930669B43549AC4D9BF318BE7BA5F1733D6FF151B1638FD",
+      "file_size_bytes": 1467523,
+      "classes": [
+        {
+          "index": 0,
+          "name": "background",
+          "color_hex": "#000000"
+        },
+        {
+          "index": 1,
+          "name": "hydride",
+          "color_hex": "#00FFFF"
+        }
+      ]
+    },
+    {
+      "model_id": "hydride_ml_Unet",
+      "model_nickname": "hydride_unet_optical_legacy_alias_v1",
+      "model_type": "unet_binary",
+      "framework": "pytorch",
+      "input_size": "variable",
+      "input_dimensions": "H x W x 3",
+      "checkpoint_path_hint": "frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt",
+      "application_remarks": "Compatibility alias for historical GUI records and CLI references that still use hydride_ml_Unet.",
+      "short_description": "Legacy alias pointing to the default trained hydride checkpoint.",
+      "detailed_description": "Retained for backward compatibility with older exported runs, docs, and scripts. Functionally resolves to the same candidate UNet checkpoint as hydride_ml.",
+      "artifact_stage": "candidate",
+      "source_run_manifest": "",
+      "quality_report_path": "",
+      "file_sha256": "5023DAD431D0E9D86930669B43549AC4D9BF318BE7BA5F1733D6FF151B1638FD",
+      "file_size_bytes": 1467523,
       "classes": [
         {
           "index": 0,

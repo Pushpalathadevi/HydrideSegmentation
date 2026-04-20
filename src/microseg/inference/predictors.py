@@ -112,10 +112,13 @@ def discover_dynamic_ml_model_bindings() -> tuple[list[_DynamicModelBinding], li
 
     refs, warnings = discover_inference_references(include_registry=True)
     bindings: list[_DynamicModelBinding] = []
+    reserved_ids = {"hydride_conventional", "hydride_ml"}
     for ref in refs:
         model_id = ref.reference_id
         if ref.source == "registry" and ref.reference_id.startswith("registry::"):
             model_id = ref.reference_id.removeprefix("registry::") or ref.reference_id
+        if model_id in reserved_ids:
+            continue
         bindings.append(
             _DynamicModelBinding(
                 model_id=model_id,
@@ -151,10 +154,13 @@ def build_hydride_registry(registry: ModelRegistry | None = None) -> ModelRegist
     reg.register(
         ModelSpec(
             model_id="hydride_ml",
-            display_name="Hydride ML (legacy adapter)",
+            display_name="Hydride ML (UNet)",
             feature_family="hydride",
-            description="Legacy adapter redirected to unified trained-model loader",
-            details="Use run_dir/registry_model_id/checkpoint_path params for architecture-aware loading.",
+            description="Default trained UNet checkpoint",
+            details=(
+                "Repo-native trained checkpoint routed through the unified architecture-aware loader. "
+                "Uses the frozen-checkpoint registry entry hydride_ml by default."
+            ),
         ),
         factory=HydrideMLPredictor,
     )

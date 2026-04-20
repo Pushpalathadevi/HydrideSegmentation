@@ -39,6 +39,7 @@ python scripts/generate_smoke_checkpoint.py --force
 ```
 2. Add or update local checkpoint file under lifecycle folders (`frozen_checkpoints/smoke`, `frozen_checkpoints/candidates`, `frozen_checkpoints/promoted`), outside git tracking.
 3. Update `frozen_checkpoints/model_registry.json`.
+   The canonical default trained hydride model in this repo is `hydride_ml`, which currently points at `frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt`. Keep the binary itself out of git, but keep its metadata entry committed.
 4. Verify with:
 ```bash
 microseg-cli models --details

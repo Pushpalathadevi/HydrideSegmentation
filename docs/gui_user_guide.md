@@ -16,12 +16,17 @@
 
 While inference is running, the top status banner shows the current stage, elapsed time, and an ETA estimate when the app has enough history to infer one.
 During recursive batch jobs it also shows processed-image counts, percent complete, and rolling ETA updates as inference, feedback/provenance capture, and export steps finish.
-The run is launched as a CLI subprocess, which keeps the GUI responsive and avoids thread-safety crashes; the exported result is loaded back into the window after completion.
+Single-image and batch inference now both run through the in-process background worker path, which keeps the GUI responsive while allowing warmed ML bundles to be reused across runs.
+The main model selector is intentionally narrow for deployment use: `Hydride ML (UNet)` is the default trained checkpoint, and `Hydride Conventional` remains available as the fallback baseline.
 The desktop now uses a split layout: the left sidebar holds project/model/correction controls, while the right workspace keeps the image tabs large and readable.
 The left control rail now defaults to a narrower progressive-disclosure layout:
-- `Quick Start` stays visible with load/select/run/status controls
+- `Quick Start` stays visible with load/select/run controls
+- `Run Setup / Status` carries model metadata, preprocessing summary, warm-load status, and segmentation progress
 - `Active Run` appears after inference with review/export shortcuts plus annotator/feedback fields
 - advanced setup, correction tools, export/session, workflow extras, and logs stay hidden behind the gear menu until explicitly opened
+
+The desktop log now appears in a shared bottom strip under the main workspace instead of consuming sidebar width, and it is shown by default on startup.
+Input, mask, overlay, and batch-summary image views all expose local zoom, pan, fit, and display-contrast controls. The main active-run image views keep pan and zoom synchronized so inspection stays aligned across tabs.
 
 The control rail keeps image loading, sample selection, and model selection on separate rows so the ML model list remains readable without forcing the image workspace to collapse.
 Advanced controls are grouped behind collapsible sections:

@@ -72,7 +72,7 @@ class DesktopWorkflowManager:
         for spec in specs:
             model_id = str(spec.get("model_id", "")).strip()
             name = str(spec.get("display_name", "")).strip()
-            if not name or model_id in {"", "hydride_conventional", "hydride_ml"}:
+            if not name or model_id in {"", "hydride_conventional"}:
                 if model_id == "hydride_conventional" and not conventional_name:
                     conventional_name = name
                 continue

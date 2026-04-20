@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-
 from src.microseg.domain import SegmentationRequest
 from src.microseg.inference import build_hydride_registry
 from src.microseg.inference.trained_model_loader import (
@@ -19,74 +17,66 @@ from src.microseg.pipelines import SegmentationPipeline
 LEGACY_GUI_MODEL_TO_ID = {
     "Conventional Model": "hydride_conventional",
     "ML Model": "hydride_ml",
+    "Hydride ML (legacy adapter)": "hydride_ml",
+    "Registry: legacy hydride_ml_Unet": "hydride_ml",
+    "hydride_ml_Unet": "hydride_ml",
 }
+
+_GUI_MODEL_ORDER = ("hydride_ml", "hydride_conventional")
+
+
+def _build_gui_model_specs() -> list[dict[str, str]]:
+    """Return the small public model list exposed in GUI/Tk selectors."""
+
+    specs_by_id = {spec.model_id: spec for spec in build_hydride_registry().specs()}
+    try:
+        frozen = frozen_checkpoint_map()
+    except Exception:
+        frozen = {}
+
+    payload: list[dict[str, str]] = []
+    for model_id in _GUI_MODEL_ORDER:
+        spec = specs_by_id.get(model_id)
+        if spec is None:
+            continue
+        frozen_record = frozen.get(model_id)
+        display_name = "Hydride ML (UNet)" if model_id == "hydride_ml" else spec.display_name
+        payload.append(
+            {
+                "model_id": spec.model_id,
+                "display_name": display_name,
+                "feature_family": spec.feature_family,
+                "description": spec.description,
+                "details": spec.details,
+                "model_nickname": frozen_record.model_nickname if frozen_record is not None else "",
+                "model_type": frozen_record.model_type if frozen_record is not None else "",
+                "framework": frozen_record.framework if frozen_record is not None else "",
+                "input_size": frozen_record.input_size if frozen_record is not None else "",
+                "input_dimensions": frozen_record.input_dimensions if frozen_record is not None else "",
+                "checkpoint_path_hint": frozen_record.checkpoint_path_hint if frozen_record is not None else "",
+                "application_remarks": frozen_record.application_remarks if frozen_record is not None else "",
+                "short_description": frozen_record.short_description if frozen_record is not None else "",
+                "detailed_description": frozen_record.detailed_description if frozen_record is not None else "",
+                "artifact_stage": frozen_record.artifact_stage if frozen_record is not None else "",
+                "source_run_manifest": frozen_record.source_run_manifest if frozen_record is not None else "",
+                "quality_report_path": frozen_record.quality_report_path if frozen_record is not None else "",
+                "file_sha256": frozen_record.file_sha256 if frozen_record is not None else "",
+                "file_size_bytes": str(frozen_record.file_size_bytes) if frozen_record is not None else "",
+            }
+        )
+    return payload
 
 
 def get_gui_model_options() -> list[str]:
     """Return model display names for desktop GUI selectors."""
 
-    specs = build_hydride_registry().specs()
-    return [spec.display_name for spec in specs]
+    return [spec["display_name"] for spec in _build_gui_model_specs()]
 
 
 def get_gui_model_specs() -> list[dict[str, str]]:
     """Return model metadata for GUI descriptions and selection help."""
 
-    specs = build_hydride_registry().specs()
-    try:
-        frozen = frozen_checkpoint_map()
-    except Exception:
-        frozen = {}
-    gui_specs = [
-        {
-            "model_id": spec.model_id,
-            "display_name": spec.display_name,
-            "feature_family": spec.feature_family,
-            "description": spec.description,
-            "details": spec.details,
-            "model_nickname": frozen[spec.model_id].model_nickname if spec.model_id in frozen else "",
-            "model_type": frozen[spec.model_id].model_type if spec.model_id in frozen else "",
-            "framework": frozen[spec.model_id].framework if spec.model_id in frozen else "",
-            "input_size": frozen[spec.model_id].input_size if spec.model_id in frozen else "",
-            "input_dimensions": frozen[spec.model_id].input_dimensions if spec.model_id in frozen else "",
-            "checkpoint_path_hint": frozen[spec.model_id].checkpoint_path_hint if spec.model_id in frozen else "",
-            "application_remarks": frozen[spec.model_id].application_remarks if spec.model_id in frozen else "",
-            "short_description": frozen[spec.model_id].short_description if spec.model_id in frozen else "",
-            "detailed_description": frozen[spec.model_id].detailed_description if spec.model_id in frozen else "",
-            "artifact_stage": frozen[spec.model_id].artifact_stage if spec.model_id in frozen else "",
-            "source_run_manifest": frozen[spec.model_id].source_run_manifest if spec.model_id in frozen else "",
-            "quality_report_path": frozen[spec.model_id].quality_report_path if spec.model_id in frozen else "",
-            "file_sha256": frozen[spec.model_id].file_sha256 if spec.model_id in frozen else "",
-            "file_size_bytes": str(frozen[spec.model_id].file_size_bytes) if spec.model_id in frozen else "",
-        }
-        for spec in specs
-    ]
-    if "hydride_ml" in frozen and not any(spec["model_id"] == "hydride_ml_Unet" for spec in gui_specs):
-        legacy = dict(asdict(frozen["hydride_ml"]))
-        gui_specs.append(
-            {
-                "model_id": "hydride_ml_Unet",
-                "display_name": "Registry: legacy hydride_ml_Unet",
-                "feature_family": "hydride",
-                "description": "Legacy UNet-compatible frozen-checkpoint alias",
-                "details": "Compatibility alias for historical GUI/export records that referenced hydride_ml_Unet.",
-                "model_nickname": str(legacy.get("model_nickname", "")),
-                "model_type": str(legacy.get("model_type", "")),
-                "framework": str(legacy.get("framework", "")),
-                "input_size": str(legacy.get("input_size", "")),
-                "input_dimensions": str(legacy.get("input_dimensions", "")),
-                "checkpoint_path_hint": str(legacy.get("checkpoint_path_hint", "")),
-                "application_remarks": str(legacy.get("application_remarks", "")),
-                "short_description": str(legacy.get("short_description", "")),
-                "detailed_description": str(legacy.get("detailed_description", "")),
-                "artifact_stage": str(legacy.get("artifact_stage", "")),
-                "source_run_manifest": str(legacy.get("source_run_manifest", "")),
-                "quality_report_path": str(legacy.get("quality_report_path", "")),
-                "file_sha256": str(legacy.get("file_sha256") or "metadata-unavailable"),
-                "file_size_bytes": str(legacy.get("file_size_bytes") or "unknown"),
-            }
-        )
-    return gui_specs
+    return _build_gui_model_specs()
 
 def resolve_gui_model_id(model_name: str) -> str:
     """Resolve a GUI model label (new or legacy) to a model identifier."""

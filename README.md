@@ -49,6 +49,7 @@ See `docs/mission_statement.md`.
 - Per-inference feedback evidence schema `microseg.feedback_record.v1` (GUI + CLI + deployment worker)
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
+- Default trained hydride inference checkpoint is registered via `frozen_checkpoints/model_registry.json` and resolved from `frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt` when present locally
 - Deployment operations tooling (`preflight`, `deploy-package`, `deploy-validate`, `deploy-smoke`, `promote-model`, `support-bundle`)
 - GPU-compatible training/inference/evaluation with CPU default + safe fallback
 - UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`, `smp_unet_resnet18`, `smp_deeplabv3plus_resnet101`, `smp_unetplusplus_resnet101`, `smp_pspnet_resnet101`, `smp_fpn_resnet101`, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
@@ -478,9 +479,12 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Use GUI `Dataset Prep + QA` tab or CLI `dataset-prepare` / `dataset-qa`.
 2. Run baseline inference:
 - GUI `Input` + `Run Segmentation` or CLI `microseg-cli infer`.
-  - The desktop `Run Segmentation` action launches a CLI subprocess for inference, so the window remains responsive while the model runs; the exported result is loaded back into the GUI after completion.
-  - The Qt sidebar now defaults to a compact `Quick Start` + `Active Run` rail; advanced setup, correction, export/session, logs, and workflow extras stay hidden behind the gear menu until explicitly opened.
+  - The desktop `Run Segmentation` action now uses the same in-process background worker path as batch inference, so the window stays responsive while warmed ML checkpoints and cached bundles are reused across runs.
+  - The primary selector now exposes only two inference choices: `Hydride ML (UNet)` as the default trained checkpoint and `Hydride Conventional` as the deterministic fallback.
+  - The Qt sidebar now defaults to a compact `Quick Start` + `Active Run` rail, with a separate `Run Setup / Status` card for model metadata, preprocessing summary, warm-load state, and progress.
+  - The desktop log now lives in a shared bottom workspace strip instead of the left sidebar, and it is visible on startup.
   - `Run Batch` now performs recursive folder inference, writes the full batch export package in one pass (`runs/`, `batch_results_summary.json`, `batch_results_report.html`, `artifacts_manifest.json`, `resolved_config.json`), and opens the batch summary inspector automatically when the job finishes.
+  - Input, mask, overlay, and batch-inspector views now ship with local zoom/pan/display-contrast tools; active-run image views keep pan/zoom synchronized during review.
   - The main window opens maximized by default when the UI config keeps `start_maximized: true`, and the image canvas now re-fits on tab switches and resize events.
 - A live status banner shows the current stage, processed-image counts, elapsed time, percent complete, and ETA during batch jobs.
 3. Correct masks:

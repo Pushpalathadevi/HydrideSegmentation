@@ -40,6 +40,13 @@ def test_phase2_model_registry_options_available() -> None:
     assert any(resolve_gui_model_id(name) == "hydride_ml" for name in options)
 
 
+def test_phase2_preferred_default_model_prefers_trained_ml_checkpoint() -> None:
+    mgr = DesktopWorkflowManager()
+    preferred = mgr.preferred_default_model_name()
+    assert preferred
+    assert resolve_gui_model_id(preferred) != "hydride_conventional"
+
+
 def test_phase2_single_run_and_export_package() -> None:
     mgr = DesktopWorkflowManager()
     conv_name = next(name for name in mgr.model_options() if resolve_gui_model_id(name) == "hydride_conventional")
