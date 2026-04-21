@@ -61,7 +61,7 @@ def _component_orientations_and_sizes(
     for idx in range(1, total_components + 1):
         region = labels == idx
         filled = binary_fill_holes(region)
-        dilated = morphology.binary_dilation(filled, morphology.disk(1))
+        dilated = morphology.dilation(filled, morphology.disk(1))
         skel = morphology.skeletonize(dilated)
         coords = np.column_stack(np.nonzero(skel))[:, ::-1]
         if len(coords) < 2:

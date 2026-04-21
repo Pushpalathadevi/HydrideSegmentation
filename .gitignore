@@ -114,6 +114,7 @@ transfer_bundle/
 # Coverage reports
 htmlcov/
 .tox/
+.pytest_cache/
 .coverage
 .coverage.*
 .cache
@@ -124,6 +125,9 @@ coverage.xml
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# Local scratch / probe workspace
+tmp/
 
 # Distribution / packaging
 .Python

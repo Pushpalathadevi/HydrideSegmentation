@@ -10,6 +10,8 @@ import sys
 import time
 import traceback
 import tempfile
+import base64
+from io import BytesIO
 from dataclasses import dataclass, field
 from datetime import datetime
 from math import hypot
@@ -244,6 +246,10 @@ def _fmt_metric(value: object) -> str:
     return str(value)
 
 
+def _fmt_metrics_dict(metrics: dict[str, object]) -> dict[str, str]:
+    return {str(key): _fmt_metric(value) for key, value in metrics.items()}
+
+
 class _UiLogHandler(logging.Handler):
     """Logging handler that forwards records to a GUI callback."""
 
@@ -295,6 +301,62 @@ class _WarmLoadWorker(QObject):
             self.failed.emit(self._generation, str(exc))
             return
         self.finished.emit(self._generation, result)
+
+
+class _ResultsDashboardWorker(QObject):
+    """Compute results-dashboard metrics and plots off the Qt main thread."""
+
+    finished = Signal(int, str, object)
+    failed = Signal(int, str)
+
+    def __init__(
+        self,
+        generation: int,
+        *,
+        run_id: str,
+        cache_key: str,
+        pred_mask: np.ndarray,
+        corr_mask: np.ndarray,
+        cfg: HydrideVisualizationConfig,
+        microns_per_pixel: float | None,
+    ) -> None:
+        super().__init__()
+        self._generation = generation
+        self._run_id = run_id
+        self._cache_key = cache_key
+        self._pred_mask = np.asarray(pred_mask)
+        self._corr_mask = np.asarray(corr_mask)
+        self._cfg = cfg
+        self._microns_per_pixel = microns_per_pixel
+
+    def run(self) -> None:
+        try:
+            pred_stats = compute_hydride_statistics(
+                self._pred_mask,
+                orientation_bins=self._cfg.orientation_bins,
+                size_bins=self._cfg.size_bins,
+                min_feature_pixels=self._cfg.min_feature_pixels,
+                microns_per_pixel=self._microns_per_pixel,
+            )
+            corr_stats = compute_hydride_statistics(
+                self._corr_mask,
+                orientation_bins=self._cfg.orientation_bins,
+                size_bins=self._cfg.size_bins,
+                min_feature_pixels=self._cfg.min_feature_pixels,
+                microns_per_pixel=self._microns_per_pixel,
+            )
+            entry = ResultsDashboardCacheEntry(
+                run_id=str(self._run_id),
+                cache_key=str(self._cache_key),
+                predicted_metrics=dict(pred_stats.scalar_metrics),
+                corrected_metrics=dict(corr_stats.scalar_metrics),
+                predicted_visuals=render_hydride_visualizations(pred_stats, self._cfg),
+                corrected_visuals=render_hydride_visualizations(corr_stats, self._cfg),
+            )
+        except Exception as exc:  # pragma: no cover - defensive GUI path
+            self.failed.emit(self._generation, str(exc))
+            return
+        self.finished.emit(self._generation, self._cache_key, entry)
 
 
 class _ContrastAdjustmentDialog(QDialog):
@@ -1553,6 +1615,10 @@ class QtSegmentationMainWindow(QMainWindow):
         self._warm_load_target_model: str = ""
         self._last_warm_load_status: ModelWarmLoadStatus | None = None
         self._warm_load_state = ModelWarmLoadState()
+        self._results_thread: QThread | None = None
+        self._results_worker: _ResultsDashboardWorker | None = None
+        self._results_generation: int = 0
+        self._results_pending_cache_key: str = ""
         self._inference_manual_contrast_adjustment: ManualContrastAdjustment | None = None
         self._inference_process: QProcess | None = None
         self._inference_stdout: list[str] = []
@@ -3798,6 +3864,168 @@ class QtSegmentationMainWindow(QMainWindow):
         }
         return hashlib.sha1(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _decode_analysis_png(payload_b64: str) -> np.ndarray:
+        raw = base64.b64decode(payload_b64.encode("utf-8"))
+        return np.asarray(Image.open(BytesIO(raw)).convert("RGB"), dtype=np.uint8)
+
+    def _results_entry_from_run_record(
+        self,
+        *,
+        run: DesktopRunRecord,
+        cache_key: str,
+        pred_mask: np.ndarray,
+        corr_mask: np.ndarray,
+        cfg: HydrideVisualizationConfig,
+        cal: SpatialCalibration | None,
+    ) -> ResultsDashboardCacheEntry | None:
+        if cal is not None or not np.array_equal(pred_mask, corr_mask):
+            return None
+        if (
+            int(cfg.orientation_bins) != 18
+            or int(cfg.size_bins) != 20
+            or int(cfg.min_feature_pixels) != 1
+            or str(cfg.orientation_cmap) != "coolwarm"
+            or str(cfg.size_scale) != "linear"
+        ):
+            return None
+        images = dict(run.analysis_images_b64 or {})
+        needed = {"orientation_map_png_b64", "size_histogram_png_b64", "angle_histogram_png_b64"}
+        if not needed.issubset(images.keys()) or not run.metrics:
+            return None
+        try:
+            pred_visuals = {
+                "orientation_map_rgb": self._decode_analysis_png(images["orientation_map_png_b64"]),
+                "size_distribution_rgb": self._decode_analysis_png(images["size_histogram_png_b64"]),
+                "orientation_distribution_rgb": self._decode_analysis_png(images["angle_histogram_png_b64"]),
+            }
+        except Exception:
+            return None
+        pred_metrics = dict(run.metrics)
+        return ResultsDashboardCacheEntry(
+            run_id=str(run.run_id),
+            cache_key=str(cache_key),
+            predicted_metrics=pred_metrics,
+            corrected_metrics=dict(pred_metrics),
+            predicted_visuals=pred_visuals,
+            corrected_visuals=dict(pred_visuals),
+            payload={"source": "run_record"},
+        )
+
+    def _start_results_dashboard_worker(
+        self,
+        *,
+        run_id: str,
+        cache_key: str,
+        pred_mask: np.ndarray,
+        corr_mask: np.ndarray,
+        cfg: HydrideVisualizationConfig,
+        microns_per_pixel: float | None,
+    ) -> None:
+        if self._results_thread is not None and self._results_thread.isRunning():
+            self._results_dirty = True
+            self._results_pending_cache_key = str(cache_key)
+            self.results_summary_label.setText("Results: computing analysis in background...")
+            return
+
+        self._results_generation += 1
+        generation = self._results_generation
+        self._results_pending_cache_key = str(cache_key)
+        thread = QThread(self)
+        worker = _ResultsDashboardWorker(
+            generation,
+            run_id=str(run_id),
+            cache_key=str(cache_key),
+            pred_mask=pred_mask,
+            corr_mask=corr_mask,
+            cfg=cfg,
+            microns_per_pixel=microns_per_pixel,
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_results_dashboard_worker_finished)
+        worker.failed.connect(self._on_results_dashboard_worker_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        self._results_thread = thread
+        self._results_worker = worker
+        self.results_summary_label.setText("Results: computing analysis in background...")
+        thread.start()
+
+    def _apply_results_dashboard_entry(
+        self,
+        cache_entry: ResultsDashboardCacheEntry,
+        *,
+        cfg: HydrideVisualizationConfig,
+        cal: SpatialCalibration | None,
+    ) -> None:
+        um_per_px = None if cal is None else float(cal.microns_per_pixel)
+        pred_visuals = cache_entry.predicted_visuals
+        corr_visuals = cache_entry.corrected_visuals
+        pred_metrics = dict(cache_entry.predicted_metrics)
+        corr_metrics = dict(cache_entry.corrected_metrics)
+        self._set_image_preview(self.results_pred_orientation_view, pred_visuals["orientation_map_rgb"])
+        self._set_image_preview(self.results_pred_size_view, pred_visuals["size_distribution_rgb"])
+        self._set_image_preview(self.results_pred_angle_view, pred_visuals["orientation_distribution_rgb"])
+        self._set_image_preview(self.results_corr_orientation_view, corr_visuals["orientation_map_rgb"])
+        self._set_image_preview(self.results_corr_size_view, corr_visuals["size_distribution_rgb"])
+        self._set_image_preview(self.results_corr_angle_view, corr_visuals["orientation_distribution_rgb"])
+        preferred = [
+            "hydride_area_fraction_percent",
+            "hydride_count",
+            "hydride_total_area_um2" if um_per_px is not None else "hydride_total_area_pixels",
+            "equivalent_diameter_mean_um" if um_per_px is not None else "equivalent_diameter_mean_px",
+            "hydride_density_per_megapixel",
+            "size_mean_um2" if um_per_px is not None else "size_mean_pixels",
+            "size_p90_um2" if um_per_px is not None else "size_p90_pixels",
+            "orientation_mean_deg",
+            "orientation_std_deg",
+            "orientation_alignment_index",
+            "orientation_entropy_bits",
+            "excluded_small_features",
+        ]
+        metric_keys = [k for k in preferred if k in pred_metrics or k in corr_metrics]
+        extra_keys = sorted((set(pred_metrics.keys()) | set(corr_metrics.keys())) - set(metric_keys))
+        metric_keys.extend(extra_keys)
+        selected_defaults = (
+            self._selected_report_metric_keys()
+            if hasattr(self, "report_metric_list") and self.report_metric_list.count() > 0
+            else tuple(self._ui_config.export_defaults.selected_metric_keys)
+        )
+        self._refresh_report_metric_checklist(metric_keys, selected=selected_defaults)
+        self.results_table.setRowCount(len(metric_keys))
+        for r, key in enumerate(metric_keys):
+            self.results_table.setItem(r, 0, QTableWidgetItem(str(key)))
+            self.results_table.setItem(r, 1, QTableWidgetItem(_fmt_metric(pred_metrics.get(key, ""))))
+            self.results_table.setItem(r, 2, QTableWidgetItem(_fmt_metric(corr_metrics.get(key, ""))))
+
+        self.results_summary_label.setText(
+            "Results | predicted area={} count={} | corrected area={} count={} | bins(o={}, s={}) | units={}".format(
+                _fmt_metric(float(pred_metrics.get("hydride_area_fraction_percent", 0.0))),
+                int(pred_metrics.get("hydride_count", 0)),
+                _fmt_metric(float(corr_metrics.get("hydride_area_fraction_percent", 0.0))),
+                int(corr_metrics.get("hydride_count", 0)),
+                int(cfg.orientation_bins),
+                int(cfg.size_bins),
+                "um (calibrated)" if um_per_px is not None else "pixels",
+            )
+        )
+        self._latest_results_payload = {
+            "predicted_metrics": pred_metrics,
+            "corrected_metrics": corr_metrics,
+            "analysis_config": {
+                "orientation_bins": cfg.orientation_bins,
+                "size_bins": cfg.size_bins,
+                "min_feature_pixels": cfg.min_feature_pixels,
+                "orientation_cmap": cfg.orientation_cmap,
+                "size_scale": cfg.size_scale,
+            },
+            "spatial_calibration": None if cal is None else cal.as_dict(),
+        }
+        self._results_dirty = False
+
     def _display_assets_for_record(self, record: DesktopRunRecord) -> DisplayAssetCacheEntry:
         cached = self._display_asset_cache.get(str(record.run_id))
         if cached is not None:
@@ -4263,105 +4491,31 @@ class QtSegmentationMainWindow(QMainWindow):
         try:
             cache_entry = self._results_dashboard_cache.get(cache_key)
             if cache_entry is None:
-                started = time.perf_counter()
-                pred_stats = compute_hydride_statistics(
-                    pred_mask,
-                    orientation_bins=cfg.orientation_bins,
-                    size_bins=cfg.size_bins,
-                    min_feature_pixels=cfg.min_feature_pixels,
-                    microns_per_pixel=um_per_px,
+                cache_entry = self._results_entry_from_run_record(
+                    run=run,
+                    cache_key=cache_key,
+                    pred_mask=pred_mask,
+                    corr_mask=corr_mask,
+                    cfg=cfg,
+                    cal=cal,
                 )
-                corr_stats = compute_hydride_statistics(
-                    corr_mask,
-                    orientation_bins=cfg.orientation_bins,
-                    size_bins=cfg.size_bins,
-                    min_feature_pixels=cfg.min_feature_pixels,
-                    microns_per_pixel=um_per_px,
-                )
-                pred_visuals = render_hydride_visualizations(pred_stats, cfg)
-                corr_visuals = render_hydride_visualizations(corr_stats, cfg)
-                pred_metrics = dict(pred_stats.scalar_metrics)
-                corr_metrics = dict(corr_stats.scalar_metrics)
-                cache_entry = ResultsDashboardCacheEntry(
+                if cache_entry is not None:
+                    self._results_dashboard_cache[cache_key] = cache_entry
+                    self.logger.info("Results dashboard fast-path hit for %s using run-record analysis", run.run_id)
+                    self._apply_results_dashboard_entry(cache_entry, cfg=cfg, cal=cal)
+                    return
+                self.logger.info("Results dashboard cache miss for %s; computing in background", run.run_id)
+                self._start_results_dashboard_worker(
                     run_id=str(run.run_id),
                     cache_key=cache_key,
-                    predicted_metrics=pred_metrics,
-                    corrected_metrics=corr_metrics,
-                    predicted_visuals=pred_visuals,
-                    corrected_visuals=corr_visuals,
+                    pred_mask=pred_mask,
+                    corr_mask=corr_mask,
+                    cfg=cfg,
+                    microns_per_pixel=um_per_px,
                 )
-                self._results_dashboard_cache[cache_key] = cache_entry
-                self.logger.info(
-                    "Results dashboard cache miss for %s computed in %.3fs",
-                    run.run_id,
-                    max(0.0, time.perf_counter() - started),
-                )
-            else:
-                self.logger.info("Results dashboard cache hit for %s", run.run_id)
-
-            pred_visuals = cache_entry.predicted_visuals
-            corr_visuals = cache_entry.corrected_visuals
-            pred_metrics = dict(cache_entry.predicted_metrics)
-            corr_metrics = dict(cache_entry.corrected_metrics)
-            self._set_image_preview(self.results_pred_orientation_view, pred_visuals["orientation_map_rgb"])
-            self._set_image_preview(self.results_pred_size_view, pred_visuals["size_distribution_rgb"])
-            self._set_image_preview(self.results_pred_angle_view, pred_visuals["orientation_distribution_rgb"])
-            self._set_image_preview(self.results_corr_orientation_view, corr_visuals["orientation_map_rgb"])
-            self._set_image_preview(self.results_corr_size_view, corr_visuals["size_distribution_rgb"])
-            self._set_image_preview(self.results_corr_angle_view, corr_visuals["orientation_distribution_rgb"])
-            preferred = [
-                "hydride_area_fraction_percent",
-                "hydride_count",
-                "hydride_total_area_um2" if um_per_px is not None else "hydride_total_area_pixels",
-                "equivalent_diameter_mean_um" if um_per_px is not None else "equivalent_diameter_mean_px",
-                "hydride_density_per_megapixel",
-                "size_mean_um2" if um_per_px is not None else "size_mean_pixels",
-                "size_p90_um2" if um_per_px is not None else "size_p90_pixels",
-                "orientation_mean_deg",
-                "orientation_std_deg",
-                "orientation_alignment_index",
-                "orientation_entropy_bits",
-                "excluded_small_features",
-            ]
-            metric_keys = [k for k in preferred if k in pred_metrics or k in corr_metrics]
-            extra_keys = sorted((set(pred_metrics.keys()) | set(corr_metrics.keys())) - set(metric_keys))
-            metric_keys.extend(extra_keys)
-            selected_defaults = (
-                self._selected_report_metric_keys()
-                if hasattr(self, "report_metric_list") and self.report_metric_list.count() > 0
-                else tuple(self._ui_config.export_defaults.selected_metric_keys)
-            )
-            self._refresh_report_metric_checklist(metric_keys, selected=selected_defaults)
-            self.results_table.setRowCount(len(metric_keys))
-            for r, key in enumerate(metric_keys):
-                self.results_table.setItem(r, 0, QTableWidgetItem(str(key)))
-                self.results_table.setItem(r, 1, QTableWidgetItem(_fmt_metric(pred_metrics.get(key, ""))))
-                self.results_table.setItem(r, 2, QTableWidgetItem(_fmt_metric(corr_metrics.get(key, ""))))
-
-            self.results_summary_label.setText(
-                "Results | predicted area={:.3f}% count={} | corrected area={:.3f}% count={} | bins(o={}, s={}) | units={}".format(
-                    float(pred_metrics.get("hydride_area_fraction_percent", 0.0)),
-                    int(pred_metrics.get("hydride_count", 0)),
-                    float(corr_metrics.get("hydride_area_fraction_percent", 0.0)),
-                    int(corr_metrics.get("hydride_count", 0)),
-                    int(cfg.orientation_bins),
-                    int(cfg.size_bins),
-                    "um (calibrated)" if um_per_px is not None else "pixels",
-                )
-            )
-            self._latest_results_payload = {
-                "predicted_metrics": pred_metrics,
-                "corrected_metrics": corr_metrics,
-                "analysis_config": {
-                    "orientation_bins": cfg.orientation_bins,
-                    "size_bins": cfg.size_bins,
-                    "min_feature_pixels": cfg.min_feature_pixels,
-                    "orientation_cmap": cfg.orientation_cmap,
-                    "size_scale": cfg.size_scale,
-                },
-                "spatial_calibration": None if cal is None else cal.as_dict(),
-            }
-            self._results_dirty = False
+                return
+            self.logger.info("Results dashboard cache hit for %s", run.run_id)
+            self._apply_results_dashboard_entry(cache_entry, cfg=cfg, cal=cal)
         except Exception as exc:
             self.logger.exception("Results dashboard update failed")
             self.results_summary_label.setText(f"Results update failed: {exc}")
@@ -4740,6 +4894,37 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         self.model_warm_load_status_label.setText(f"Model warm-load: failed ({message}).")
         self.logger.warning("Model warm-load failed for %s: %s", self._warm_load_target_model, message)
+
+    @Slot(int, str, object)
+    def _on_results_dashboard_worker_finished(self, generation: int, cache_key: str, payload: object) -> None:
+        self._results_thread = None
+        self._results_worker = None
+        if generation != self._results_generation:
+            self._results_dirty = True
+            self._results_refresh_timer.start(10)
+            return
+        if not isinstance(payload, ResultsDashboardCacheEntry):
+            self.results_summary_label.setText("Results update failed: unexpected background payload")
+            return
+        self._results_dashboard_cache[str(cache_key)] = payload
+        run = self.state.current_run
+        if run is None or str(run.run_id) != str(payload.run_id):
+            self._results_dirty = True
+            self._results_refresh_timer.start(10)
+            return
+        self.logger.info("Results dashboard background compute finished for %s", payload.run_id)
+        self._apply_results_dashboard_entry(payload, cfg=self._analysis_config_from_ui(), cal=self.state.spatial_calibration)
+        if self._results_dirty:
+            self._results_refresh_timer.start(10)
+
+    @Slot(int, str)
+    def _on_results_dashboard_worker_failed(self, generation: int, message: str) -> None:
+        self._results_thread = None
+        self._results_worker = None
+        if generation != self._results_generation:
+            return
+        self.results_summary_label.setText(f"Results update failed: {message}")
+        self.logger.warning("Results dashboard background compute failed: %s", message)
 
     def on_adjust_contrast_before_inference(self) -> None:
         path = self.path_edit.text().strip()
@@ -5941,8 +6126,10 @@ class QtSegmentationMainWindow(QMainWindow):
             path,
             model_name=model_name,
             params=params,
-            include_analysis=include_analysis,
+            include_analysis=False,
         )
+        if include_analysis:
+            record.manifest["analysis_deferred"] = True
         report_status("Inference complete. Capturing feedback metadata and preparing the view.")
         self._capture_feedback_for_record(
             record,
@@ -5951,7 +6138,10 @@ class QtSegmentationMainWindow(QMainWindow):
             source="desktop_gui",
             operator_id=operator_id,
         )
-        report_status("Rendering result in the GUI.")
+        if include_analysis:
+            report_status("Rendering result in the GUI. Scientific statistics will compute asynchronously when needed.")
+        else:
+            report_status("Rendering result in the GUI.")
         return record
 
     def _run_desktop_batch_job(
@@ -6210,7 +6400,41 @@ class QtSegmentationMainWindow(QMainWindow):
             max(0.0, time.perf_counter() - started),
         )
         if record.metrics:
-            self.logger.info("Metrics: %s", record.metrics)
+            self.logger.info("Metrics: %s", _fmt_metrics_dict(record.metrics))
+        manifest_timing = record.manifest.get("timing", {}) if isinstance(record.manifest, dict) else {}
+        pipeline_timing = record.manifest.get("pipeline_timing", {}) if isinstance(record.manifest, dict) else {}
+        cache_info = record.manifest.get("cache", {}) if isinstance(record.manifest, dict) else {}
+        preprocessing_info = record.manifest.get("preprocessing", {}) if isinstance(record.manifest, dict) else {}
+        if preprocessing_info:
+            original_size = preprocessing_info.get("original_size", {})
+            preprocessed_size = preprocessing_info.get("preprocessed_size", {})
+            resize_info = preprocessing_info.get("resize", {})
+            contrast_info = preprocessing_info.get("contrast", {})
+            self.logger.info(
+                "Preprocessing | applied=%s original=%sx%s preprocessed=%sx%s policy=%s target_long_side=%s scale=%s contrast=%s duplicated=%s",
+                bool(preprocessing_info.get("applied", False)),
+                original_size.get("width", ""),
+                original_size.get("height", ""),
+                preprocessed_size.get("width", ""),
+                preprocessed_size.get("height", ""),
+                resize_info.get("policy", "none"),
+                resize_info.get("target_long_side", ""),
+                _fmt_metric(resize_info.get("scale", 1.0)),
+                contrast_info.get("mode", "disabled"),
+                bool(preprocessing_info.get("channel_duplicated", False)),
+            )
+        if manifest_timing or pipeline_timing:
+            self.logger.info(
+                "Run timing | bundle_cache_hit=%s | image_load=%ss preprocess=%ss bundle_lookup=%ss forward=%ss postprocess=%ss analysis=%ss total=%ss",
+                bool(cache_info.get("bundle_cache_hit", False)),
+                _fmt_metric(manifest_timing.get("image_load_seconds", 0.0)),
+                _fmt_metric(manifest_timing.get("preprocess_seconds", 0.0)),
+                _fmt_metric(manifest_timing.get("bundle_lookup_or_load_seconds", 0.0)),
+                _fmt_metric(manifest_timing.get("forward_pass_seconds", 0.0)),
+                _fmt_metric(manifest_timing.get("postprocess_seconds", 0.0)),
+                _fmt_metric(pipeline_timing.get("analysis_seconds", 0.0)),
+                _fmt_metric(pipeline_timing.get("total_seconds", 0.0)),
+            )
 
     def on_history_selected(self, index: int) -> None:
         if index < 0:

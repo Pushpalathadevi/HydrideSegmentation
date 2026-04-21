@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import base64
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -167,6 +169,105 @@ def test_phase27_qt_history_selection_defers_results_dashboard(monkeypatch: pyte
     win._show_record(record)  # noqa: SLF001
     assert calls["count"] == 0
     assert win._results_dirty is True  # noqa: SLF001
+    win.close()
+
+
+def test_phase27_qt_results_dashboard_uses_background_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from hydride_segmentation.qt.main_window import QtSegmentationMainWindow
+    from src.microseg.app.desktop_workflow import DesktopRunRecord
+
+    app = QApplication.instance() or QApplication([])
+    win = QtSegmentationMainWindow()
+    image = Image.new("RGB", (32, 32), (120, 120, 120))
+    mask = Image.new("L", (32, 32), 0)
+    overlay = Image.new("RGB", (32, 32), (100, 80, 60))
+    record = DesktopRunRecord(
+        run_id="run_async_dashboard",
+        image_path="test_data/example.png",
+        image_name="example.png",
+        model_name=win.model_combo.currentText(),
+        model_id="hydride_ml",
+        started_utc="2026-04-20T00:00:00+00:00",
+        finished_utc="2026-04-20T00:00:01+00:00",
+        input_image=image,
+        mask_image=mask,
+        overlay_image=overlay,
+        metrics={},
+        manifest={},
+    )
+    win.state.current_run = record
+    win.state.correction_session = None
+
+    calls: dict[str, object] = {}
+
+    def _fake_start_results_dashboard_worker(**kwargs) -> None:
+        calls.update(kwargs)
+
+    monkeypatch.setattr(win, "_start_results_dashboard_worker", _fake_start_results_dashboard_worker)
+    win._update_results_dashboard()  # noqa: SLF001
+    assert calls["run_id"] == "run_async_dashboard"
+    assert "cache_key" in calls
+    assert win.results_summary_label.text() in {
+        "Results: computing analysis in background...",
+        "Results: run segmentation to populate dashboard",
+    } or "computing analysis" in win.results_summary_label.text()
+    win.close()
+
+
+def test_phase27_qt_results_dashboard_uses_run_record_fast_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from hydride_segmentation.qt.main_window import QtSegmentationMainWindow
+    from src.microseg.app.desktop_workflow import DesktopRunRecord
+
+    app = QApplication.instance() or QApplication([])
+    win = QtSegmentationMainWindow()
+    image = Image.new("RGB", (32, 32), (120, 120, 120))
+    mask = Image.new("L", (32, 32), 0)
+    overlay = Image.new("RGB", (32, 32), (100, 80, 60))
+
+    def _b64_png(rgb: tuple[int, int, int]) -> str:
+        buf = BytesIO()
+        Image.new("RGB", (16, 16), rgb).save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    record = DesktopRunRecord(
+        run_id="run_fast_path_dashboard",
+        image_path="test_data/example.png",
+        image_name="example.png",
+        model_name=win.model_combo.currentText(),
+        model_id="hydride_ml",
+        started_utc="2026-04-20T00:00:00+00:00",
+        finished_utc="2026-04-20T00:00:01+00:00",
+        input_image=image,
+        mask_image=mask,
+        overlay_image=overlay,
+        metrics={"hydride_area_fraction_percent": 12.3456, "hydride_count": 4},
+        manifest={},
+        analysis_images_b64={
+            "orientation_map_png_b64": _b64_png((255, 0, 0)),
+            "size_histogram_png_b64": _b64_png((0, 255, 0)),
+            "angle_histogram_png_b64": _b64_png((0, 0, 255)),
+        },
+    )
+    win.state.current_run = record
+    win.state.correction_session = None
+
+    called = {"worker": False}
+
+    def _fake_start_results_dashboard_worker(**kwargs) -> None:
+        called["worker"] = True
+
+    monkeypatch.setattr(win, "_start_results_dashboard_worker", _fake_start_results_dashboard_worker)
+    win._update_results_dashboard()  # noqa: SLF001
+    assert called["worker"] is False
+    assert "predicted area=12.35" in win.results_summary_label.text()
     win.close()
 
 

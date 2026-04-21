@@ -399,6 +399,16 @@ def run_reference_inference(
             int(pred.shape[0]),
         )
     postprocess_seconds = max(0.0, time.perf_counter() - postprocess_started)
+    _LOGGER.info(
+        "GUI_INFERENCE_TIMING | image=%s bundle_cache_hit=%s image_load=%0.2fs preprocess=%0.2fs bundle_lookup=%0.2fs forward=%0.2fs postprocess=%0.2fs",
+        image_path,
+        bool(cache_hit),
+        float(image_load_seconds),
+        float(preprocess_seconds),
+        float(bundle_load_seconds),
+        float(forward_seconds),
+        float(postprocess_seconds),
+    )
     return display_image.astype(np.uint8, copy=True), pred, {
         "reference_id": reference.reference_id,
         "architecture": reference.architecture,
