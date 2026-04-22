@@ -55,3 +55,4 @@ Current phase coverage includes:
 
 - `test_phase30_unified_inference_loader.py` unified architecture-aware inference discovery/loading across run folders, failed-run rejection, and GUI model option integration
 - `test_phase31_oh5_workflow.py` raw `.oh5` extraction plus end-to-end phaseId workflow orchestration contract checks
+- `test_phase32_beginner_tutorial_workflow.py` beginner paired-folder tutorial dataset generation, leakage-aware prep, tiny UNet training smoke, and Sphinx build checks

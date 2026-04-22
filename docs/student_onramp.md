@@ -8,17 +8,19 @@ This repository is meant to be usable by students and new contributors, not only
 
 If you are new to the project, read these in order:
 
-1. [`docs/mission_statement.md`](mission_statement.md)
-2. [`docs/documentation_principles.md`](documentation_principles.md)
-3. [`docs/learning_path.md`](learning_path.md)
-4. [`docs/glossary.md`](glossary.md)
-5. [`docs/student_notebooks.md`](student_notebooks.md)
-6. [`docs/usage_commands.md`](usage_commands.md)
-7. [`docs/why_tradeoffs.md`](why_tradeoffs.md)
-8. [`docs/results_analysis.md`](results_analysis.md)
-9. [`docs/scientific_validation.md`](scientific_validation.md)
+1. [`docs/cli_windows_linux.md`](cli_windows_linux.md)
+2. [`docs/tutorials/05_paired_dataset_preparation_and_training_cli.md`](tutorials/05_paired_dataset_preparation_and_training_cli.md)
+3. [`docs/mission_statement.md`](mission_statement.md)
+4. [`docs/documentation_principles.md`](documentation_principles.md)
+5. [`docs/learning_path.md`](learning_path.md)
+6. [`docs/glossary.md`](glossary.md)
+7. [`docs/student_notebooks.md`](student_notebooks.md)
+8. [`docs/usage_commands.md`](usage_commands.md)
+9. [`docs/why_tradeoffs.md`](why_tradeoffs.md)
+10. [`docs/results_analysis.md`](results_analysis.md)
+11. [`docs/scientific_validation.md`](scientific_validation.md)
 
-That sequence goes from purpose, to vocabulary, to guided practice, to method choice, to interpretation.
+That sequence goes from environment setup, to a first successful dataset/training run, to purpose, vocabulary, guided practice, method choice, and interpretation.
 
 If your immediate task is to use a trained checkpoint in the GUI on an air-gapped machine, jump to
 [`gui_model_integration_guide.md`](gui_model_integration_guide.md) after the mission statement and
@@ -28,13 +30,12 @@ documentation principles. That page is the shortest path from `.pth` file to des
 
 Use this sequence when you want your first successful run:
 
-1. Open the sample image or the bundled notebook tutorial data.
-2. Run the classical baseline or preprocessing step first.
-3. Inspect the mask and overlay visually.
-4. Train or load the lightweight ML baseline.
-5. Compare the baseline with the ML result.
-6. Read the metrics together with the image outputs.
-7. Only then change hyperparameters or switch architectures.
+1. Activate the environment and verify imports using [`cli_windows_linux.md`](cli_windows_linux.md).
+2. Generate the tiny paired tutorial dataset.
+3. Prepare the dataset with the paired-folder CLI.
+4. Train the tiny CPU-safe UNet tutorial run.
+5. Inspect the manifests, QA report, and training report.
+6. Only then switch to your own real dataset or increase training complexity.
 
 This order prevents the common mistake of tuning a complex model before you understand the baseline.
 If you want a lower-risk sandbox before opening the GUI, start with the student notebooks and work through the sample data there first.

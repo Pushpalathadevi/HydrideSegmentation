@@ -35,6 +35,15 @@ class DebugConfig:
 
 
 @dataclass
+class SameStemPairingConfig:
+    """Optional same-stem cross-extension pairing rules."""
+
+    enabled: bool = False
+    image_extensions: list[str] = field(default_factory=list)
+    mask_extensions: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DatasetPrepConfig:
     """Resolved configuration for data preparation pipeline."""
 
@@ -46,11 +55,15 @@ class DatasetPrepConfig:
     max_val_examples: int | None = None
     max_test_examples: int | None = None
     seed: int = 42
+    split_strategy: Literal["leakage_aware", "random"] = "leakage_aware"
+    leakage_group_mode: Literal["suffix_aware", "stem", "regex"] = "suffix_aware"
+    leakage_group_regex: str = ""
     dry_run: bool = False
     strict_pairing: bool = True
     image_extensions: list[str] = field(default_factory=lambda: [".jpg", ".jpeg", ".png", ".tif", ".tiff"])
     mask_extensions: list[str] = field(default_factory=lambda: [".png", ".tif", ".tiff", ".jpg", ".jpeg"])
     mask_name_patterns: list[str] = field(default_factory=lambda: ["{stem}.png", "{stem}_mask.png", "{stem}.tif", "{stem}.tiff"])
+    same_stem_pairing: SameStemPairingConfig = field(default_factory=SameStemPairingConfig)
     binarization_mode: Literal["nonzero", "threshold", "value_equals", "otsu", "percentile"] = "nonzero"
     rgb_mask_mode: bool = False
     mask_r_min: int = 200
@@ -120,10 +133,12 @@ class DatasetPrepConfig:
                 data["target_size"] = (int(target[0]), int(target[1]))
         morphology = MorphologyConfig(**data.pop("morphology", {}))
         debug = DebugConfig(**data.pop("debug", {}))
+        same_stem_pairing = SameStemPairingConfig(**data.pop("same_stem_pairing", {}))
         augmentation = parse_augmentation_config(data.pop("augmentation", {}), default_seed=int(data.get("seed", 42)))
         cfg = cls(**data)
         cfg.morphology = morphology
         cfg.debug = debug
+        cfg.same_stem_pairing = same_stem_pairing
         cfg.augmentation = augmentation
         return cfg
 
@@ -133,7 +148,7 @@ class DatasetPrepConfig:
             path = Path(config_path)
             if path.exists():
                 loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-                return cls.from_dict({**fallback, **loaded})
+                return cls.from_dict({**loaded, **fallback})
         return cls.from_dict(fallback)
 
     def to_dict(self) -> dict[str, Any]:

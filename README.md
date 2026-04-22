@@ -131,7 +131,7 @@ microseg-cli infer --config configs/inference.default.yml --set params.area_thre
 ## Documentation
 
 The canonical documentation landing page is [`docs/index.md`](docs/index.md).
-For students and new contributors, start with [`docs/learning_path.md`](docs/learning_path.md) and [`docs/student_notebooks.md`](docs/student_notebooks.md).
+For students and new contributors, start with [`docs/cli_windows_linux.md`](docs/cli_windows_linux.md), [`docs/tutorials/05_paired_dataset_preparation_and_training_cli.md`](docs/tutorials/05_paired_dataset_preparation_and_training_cli.md), and [`docs/learning_path.md`](docs/learning_path.md).
 For core terminology, use [`docs/glossary.md`](docs/glossary.md).
 
 Build the docs locally:
@@ -249,7 +249,7 @@ python scripts/microseg_cli.py prepare_dataset \
 Use `--dry-run` to validate pairing and inspect planned outputs without writing dataset files.
 `--max-val-examples` and `--max-test-examples` are optional caps; any remainder is assigned to `train`.
 
-`prepare_dataset` supports `{stem}.jpg + {stem}_mask.png` (and `{stem}.png`) pairing in one folder.
+`prepare_dataset` supports `{stem}.jpg + {stem}_mask.png` by default, and it can also support `{stem}.jpg + {stem}.png` with the explicit `same_stem_pairing` YAML block documented in [docs/data_preparation.md](docs/data_preparation.md).
 In debug mode (`--debug --num-debug N`), dataset preparation exports input/output images, input/processed masks, mask-difference views, overlay panels, and per-sample criteria JSON.
 All-zero output masks are now explicitly flagged (`--empty-mask-action warn|error`), and noisy near-binary grayscale masks can auto-switch to Otsu (`--auto-otsu-for-noisy-grayscale`).
 

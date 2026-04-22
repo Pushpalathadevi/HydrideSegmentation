@@ -1,0 +1,52 @@
+# Beginner tutorial config for training from the prepared paired-folder dataset.
+# The dataset is expected to be created by:
+#   python scripts/generate_tutorial_dataset.py
+#   python scripts/microseg_cli.py prepare_dataset --config configs/tutorials/prepare_dataset.paired_tutorial.shadow_blur.yml
+
+dataset_dir: tmp/tutorial_demo/prepared_dataset/mado
+output_dir: tmp/tutorial_demo/training_unet
+backend: unet_binary
+model_architecture: unet_binary
+backend_label: tutorial_tiny_unet
+
+auto_prepare_dataset: false
+train_split: train
+val_split: val
+
+epochs: 1
+batch_size: 2
+learning_rate: 0.001
+weight_decay: 0.00001
+checkpoint_every: 1
+early_stopping_patience: 1
+early_stopping_min_delta: 0.0001
+max_samples: 64
+seed: 42
+
+enable_gpu: false
+device_policy: cpu
+amp_enabled: false
+grad_accum_steps: 1
+torch_compile: false
+deterministic: true
+
+input_hw: [64, 64]
+input_policy: random_crop
+val_input_policy: letterbox
+keep_aspect: true
+pad_value_image: 0.0
+pad_value_mask: 0
+image_interpolation: bilinear
+mask_interpolation: nearest
+require_divisible_by: 32
+
+model_base_channels: 8
+num_workers: 0
+pin_memory: false
+persistent_workers: false
+
+write_html_report: true
+progress_log_interval_pct: 25
+val_tracking_samples: 2
+val_tracking_fixed_samples: []
+val_tracking_seed: 17

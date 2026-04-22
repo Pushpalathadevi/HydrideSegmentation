@@ -1,4 +1,4 @@
-"""CLI for segmentation dataset preparation."""
+"""CLI for paired-folder segmentation dataset preparation."""
 
 from __future__ import annotations
 
@@ -11,14 +11,21 @@ from src.microseg.data_preparation.pipeline import DatasetPreparer
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Prepare segmentation datasets (binary masks).")
+    parser = argparse.ArgumentParser(description="Prepare a segmentation dataset from a paired image+mask folder.")
     parser.add_argument("--input", "--input-dir", required=True, dest="input_dir")
     parser.add_argument("--output", "--output-dir", "--output-root", required=True, dest="output_dir")
     parser.add_argument("--style", default="oxford,mado", help="Comma-separated styles: oxford,mado")
-    parser.add_argument("--config", default=None, help="Optional YAML config. Defaults to configs/data_prep.default.yml when present.")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Optional YAML config. Defaults to configs/hydride/prepare_dataset.paired_rgb_mask.mado.yml when present.",
+    )
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split-strategy", choices=["leakage_aware", "random"], default="leakage_aware")
+    parser.add_argument("--leakage-group-mode", choices=["suffix_aware", "stem", "regex"], default="suffix_aware")
+    parser.add_argument("--leakage-group-regex", type=str, default="")
     parser.add_argument("--train-pct", "--train-frac", type=float, default=0.8)
     parser.add_argument("--val-pct", "--val-frac", type=float, default=0.1)
     parser.add_argument("--max-val-examples", type=int, default=None, help="Optional cap on validation split count")
@@ -53,7 +60,12 @@ def main(argv: list[str] | None = None) -> int:
         handlers=[logging.StreamHandler()],
     )
     args = build_parser().parse_args(argv)
-    default_config_path = Path(__file__).resolve().parents[3] / "configs" / "data_prep.default.yml"
+    default_config_path = (
+        Path(__file__).resolve().parents[3]
+        / "configs"
+        / "hydride"
+        / "prepare_dataset.paired_rgb_mask.mado.yml"
+    )
     resolved_config_path: str | None = args.config
     if resolved_config_path is None and default_config_path.exists():
         resolved_config_path = str(default_config_path)
@@ -65,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         "styles": [part.strip() for part in args.style.split(",") if part.strip()],
         "dry_run": args.dry_run,
         "seed": args.seed,
+        "split_strategy": args.split_strategy,
+        "leakage_group_mode": args.leakage_group_mode,
+        "leakage_group_regex": args.leakage_group_regex,
         "train_pct": args.train_pct,
         "val_pct": args.val_pct,
         "max_val_examples": args.max_val_examples,

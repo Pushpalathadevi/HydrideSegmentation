@@ -12,7 +12,18 @@ from typing import Any
 class ManifestWriter:
     """Write deterministic manifest JSON files."""
 
-    def write(self, *, output_root: Path, config: dict[str, Any], input_dir: Path, records: list[dict[str, Any]], split_counts: dict[str, int], warnings: list[str]) -> Path:
+    def write(
+        self,
+        *,
+        output_root: Path,
+        config: dict[str, Any],
+        input_dir: Path,
+        records: list[dict[str, Any]],
+        source_split_counts: dict[str, int],
+        split_counts: dict[str, int],
+        group_to_split: dict[str, str],
+        warnings: list[str],
+    ) -> Path:
         manifest = {
             "schema_version": "microseg.data_preparation_manifest.v1",
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -21,7 +32,10 @@ class ManifestWriter:
             "input_dir": str(input_dir),
             "output_dir": str(output_root),
             "resolved_config": config,
+            "source_split_counts": source_split_counts,
             "split_counts": split_counts,
+            "leakage_groups": len(group_to_split),
+            "group_to_split": group_to_split,
             "records": records,
             "warnings_summary": sorted(warnings),
         }

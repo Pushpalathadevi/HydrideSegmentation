@@ -775,6 +775,15 @@ def _prepare_dataset_paired(args: argparse.Namespace) -> int:
             return None
         return int(value)
 
+    def _target_size_value(value: Any, fallback: int) -> Any:
+        if value is None or value == "":
+            return fallback
+        if isinstance(value, (list, tuple)):
+            if len(value) == 1:
+                return int(value[0])
+            return [int(value[0]), int(value[1])]
+        return int(value)
+
     max_val_examples_raw = cfg.get("max_val_examples", cfg.get("val_max_examples", args.max_val_examples))
     max_test_examples_raw = cfg.get("max_test_examples", cfg.get("test_max_examples", args.max_test_examples))
     max_val_examples = _optional_int(max_val_examples_raw)
@@ -790,8 +799,11 @@ def _prepare_dataset_paired(args: argparse.Namespace) -> int:
         "max_val_examples": max_val_examples,
         "max_test_examples": max_test_examples,
         "seed": int(cfg.get("seed", args.seed)),
+        "split_strategy": str(cfg.get("split_strategy", args.split_strategy)),
+        "leakage_group_mode": str(cfg.get("leakage_group_mode", args.leakage_group_mode)),
+        "leakage_group_regex": str(cfg.get("leakage_group_regex", args.leakage_group_regex)),
         "dry_run": bool(cfg.get("dry_run", args.dry_run)),
-        "target_size": int(cfg.get("target_size", args.target_size)),
+        "target_size": _target_size_value(cfg.get("target_size"), args.target_size),
         "resize_policy": str(cfg.get("resize_policy", "short_side_to_target_crop")),
         "crop_mode_train": str(cfg.get("crop_mode_train", args.crop_train)),
         "crop_mode_eval": str(cfg.get("crop_mode_eval", args.crop_eval)),
@@ -814,9 +826,12 @@ def _prepare_dataset_paired(args: argparse.Namespace) -> int:
             cfg.get("noisy_grayscale_min_extreme_ratio", args.noisy_grayscale_min_extreme_ratio)
         ),
         "empty_mask_action": str(cfg.get("empty_mask_action", args.empty_mask_action)),
-        "image_extensions": cfg.get("image_extensions", [".jpg", ".jpeg"]),
-        "mask_extensions": cfg.get("mask_extensions", [".png"]),
-        "mask_name_patterns": cfg.get("mask_name_patterns", ["{stem}_mask.png", "{stem}.png"]),
+        "image_extensions": cfg.get("image_extensions", [".jpg", ".jpeg", ".png", ".tif", ".tiff"]),
+        "mask_extensions": cfg.get("mask_extensions", [".png", ".jpg", ".jpeg", ".tif", ".tiff"]),
+        "mask_name_patterns": cfg.get(
+            "mask_name_patterns",
+            ["{stem}_mask.png", "{stem}.png", "{stem}_mask.tif", "{stem}.tif"],
+        ),
         "debug": {
             **(cfg.get("debug", {}) if isinstance(cfg.get("debug"), dict) else {}),
             "enabled": bool(cfg.get("debug", {}).get("enabled", args.debug)) if isinstance(cfg.get("debug"), dict) else bool(args.debug),
@@ -1914,7 +1929,10 @@ def _build_parser() -> argparse.ArgumentParser:
     qa.add_argument("--strict", action="store_true", help="Exit non-zero when QA fails")
     qa.set_defaults(handler=_dataset_qa)
 
-    prep = sub.add_parser("dataset-prepare", help="Prepare split layout from unsplit source/masks dataset")
+    prep = sub.add_parser(
+        "dataset-prepare",
+        help="Prepare split layout from an already organized source/masks or split-layout dataset",
+    )
     prep.add_argument("--config", type=str, help="YAML config path")
     prep.add_argument("--set", action="append", default=[], help="Override key=value")
     prep.add_argument("--dataset-dir", type=str, help="Input dataset root")
@@ -1938,7 +1956,10 @@ def _build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--class-map-path", type=str, default="")
     prep.set_defaults(handler=_dataset_prepare)
 
-    paired = sub.add_parser("prepare_dataset", help="Prepare paired JPG + RGB PNG masks into MaDo/Oxford layout")
+    paired = sub.add_parser(
+        "prepare_dataset",
+        help="Beginner paired-folder dataset prep: read image+mask pairs, split, resize, and export MaDo/Oxford layouts",
+    )
     paired.add_argument("--config", type=str, help="YAML config path")
     paired.add_argument("--set", action="append", default=[], help="Override key=value")
     paired.add_argument("--input-dir", type=str, help="Input paired folder containing {stem}.jpg + {stem}_mask.png (or {stem}.png)")
@@ -1965,6 +1986,9 @@ def _build_parser() -> argparse.ArgumentParser:
     paired.add_argument("--debug-show-plots", action="store_true", help="Show matplotlib debug panels during run")
     paired.add_argument("--debug-draw-contours", action="store_true", help="Draw contours on overlay debug output")
     paired.add_argument("--seed", type=int, default=42)
+    paired.add_argument("--split-strategy", choices=["leakage_aware", "random"], default="leakage_aware")
+    paired.add_argument("--leakage-group-mode", choices=["suffix_aware", "stem", "regex"], default="suffix_aware")
+    paired.add_argument("--leakage-group-regex", type=str, default="")
     paired.add_argument("--train-frac", type=float, default=0.8)
     paired.add_argument("--val-frac", type=float, default=0.1)
     paired.add_argument("--max-val-examples", type=int, default=None, help="Optional cap on validation split count")

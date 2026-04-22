@@ -80,6 +80,7 @@ Schematic view of the desktop results workspace and export surfaces.
 :maxdepth: 1
 :caption: Start Here
 
+cli_windows_linux
 learning_path
 student_onramp
 documentation_principles
@@ -111,6 +112,7 @@ worked_example_conventional_vs_ml
 :caption: Reference
 
 usage_commands
+data_preparation
 results_analysis
 gui_user_guide
 configuration_workflow

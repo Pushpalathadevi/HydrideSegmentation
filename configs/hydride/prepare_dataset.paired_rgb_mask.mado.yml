@@ -5,6 +5,7 @@ styles:
 strict_pairing: true
 
 image_extensions:
+  - .png
   - .jpg
   - .jpeg
 mask_extensions:

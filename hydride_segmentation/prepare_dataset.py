@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backward-compatible wrapper for dataset preparation CLI."""
+"""Backward-compatible wrapper for paired-folder dataset preparation CLI."""
 
 from __future__ import annotations
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +20,7 @@ from src.microseg.data_preparation.exporters import MadoExporter, OxfordExporter
 from src.microseg.data_preparation.manifest import ManifestWriter
 from src.microseg.data_preparation.pairing import PairCollectionReport, PairCollector
 from src.microseg.data_preparation.resizing import Resizer
+from src.microseg.data_preparation.splitting import build_split_map
 
 
 @dataclass
@@ -36,11 +36,13 @@ class DatasetPreparer:
     def __init__(self, cfg: DatasetPrepConfig) -> None:
         self.cfg = cfg
         self.log = logging.getLogger("microseg.data_preparation")
-        self.rng = random.Random(cfg.seed)
         self.collector = PairCollector(
             image_extensions=cfg.image_extensions,
             mask_extensions=cfg.mask_extensions,
             mask_name_patterns=cfg.mask_name_patterns,
+            same_stem_pairing_enabled=cfg.same_stem_pairing.enabled,
+            same_stem_image_extensions=cfg.same_stem_pairing.image_extensions,
+            same_stem_mask_extensions=cfg.same_stem_pairing.mask_extensions,
             strict=cfg.strict_pairing,
         )
         self.binarizer = MaskBinarizer(cfg)
@@ -65,8 +67,19 @@ class DatasetPreparer:
         if not self.cfg.skip_sanity and not (self.cfg.debug.enabled and self.cfg.debug.skip_sanity_checks):
             self._sanity_check(pairs)
 
-        split_map = self._build_splits(len(pairs))
-        split_counts = {k: len(v) for k, v in split_map.items()}
+        split_map, source_group_for_index, group_to_split = build_split_map(
+            pairs,
+            train_pct=float(self.cfg.train_pct),
+            val_pct=float(self.cfg.val_pct),
+            max_val_examples=self.cfg.max_val_examples,
+            max_test_examples=self.cfg.max_test_examples,
+            seed=int(self.cfg.seed),
+            split_strategy=str(self.cfg.split_strategy),
+            leakage_group_mode=str(self.cfg.leakage_group_mode),
+            leakage_group_regex=str(self.cfg.leakage_group_regex),
+        )
+        base_split_counts = {k: len(v) for k, v in split_map.items()}
+        split_counts = dict(base_split_counts)
         warnings_all: list[str] = []
         split_for_index = {idx: split for split, idxs in split_map.items() for idx in idxs}
         records: list[dict[str, Any]] = []
@@ -116,6 +129,7 @@ class DatasetPreparer:
             rec = {
                 "stem": pair.stem,
                 "split": split,
+                "source_group": source_group_for_index[idx],
                 "source_image_path": self._fmt_path(pair.image_path, output_dir),
                 "source_mask_path": self._fmt_path(pair.mask_path, output_dir),
                 "image_file_name": image_file_name,
@@ -159,6 +173,7 @@ class DatasetPreparer:
                         "stem": aug_stem,
                         "source_stem": pair.stem,
                         "split": split,
+                        "source_group": source_group_for_index[idx],
                         "source_image_path": self._fmt_path(pair.image_path, output_dir),
                         "source_mask_path": self._fmt_path(pair.mask_path, output_dir),
                         "image_file_name": aug_image_file_name,
@@ -223,12 +238,15 @@ class DatasetPreparer:
             config=self.cfg.to_dict(),
             input_dir=input_dir,
             records=manifest_records,
+            source_split_counts=base_split_counts,
             split_counts=split_counts,
+            group_to_split=group_to_split,
             warnings=warnings_all,
         )
         self._write_qa_reports(
             output_dir=output_dir,
             records=records,
+            base_split_counts=base_split_counts,
             split_counts=split_counts,
             pairing_report=pairing_report,
             read_failures=read_failures,
@@ -254,6 +272,7 @@ class DatasetPreparer:
         *,
         output_dir: Path,
         records: list[dict[str, Any]],
+        base_split_counts: dict[str, int],
         split_counts: dict[str, int],
         pairing_report: PairCollectionReport,
         read_failures: list[str],
@@ -273,6 +292,7 @@ class DatasetPreparer:
                 "missing_masks": pairing_report.missing_masks,
                 "missing_images": pairing_report.missing_images,
             },
+            "base_split_counts": base_split_counts,
             "split_counts": split_counts,
             "split_policy": {
                 "train_pct": float(self.cfg.train_pct),
@@ -313,6 +333,7 @@ class DatasetPreparer:
         html_path.write_text(
             "<html><body><h1>Dataset Preparation QA</h1>"
             f"<p>processed_pairs={len(records)}</p>"
+            f"<p>base_split_counts={base_split_counts}</p>"
             f"<p>split_counts={split_counts}</p>"
             f"<p>missing_masks={len(pairing_report.missing_masks)}</p>"
             f"<p>missing_images={len(pairing_report.missing_images)}</p>"
@@ -346,32 +367,6 @@ class DatasetPreparer:
         if self.cfg.path_mode == "absolute":
             return str(path.resolve())
         return str(path.resolve().relative_to(output_dir.resolve().parent)) if path.is_absolute() else str(path)
-
-    def _build_splits(self, n: int) -> dict[str, list[int]]:
-        idx = list(range(n))
-        self.rng.shuffle(idx)
-        n_trainval_ratio = int(round(n * self.cfg.train_pct))
-        n_trainval_ratio = max(0, min(n, n_trainval_ratio))
-        n_test_ratio = n - n_trainval_ratio
-        n_val_ratio = int(round(n_trainval_ratio * self.cfg.val_pct))
-        n_val_ratio = max(0, min(n_trainval_ratio, n_val_ratio))
-
-        n_test = n_test_ratio
-        if self.cfg.max_test_examples is not None:
-            n_test = min(n_test, int(self.cfg.max_test_examples))
-        n_test = max(0, min(n, n_test))
-
-        n_remaining = n - n_test
-        n_val = min(n_val_ratio, n_remaining)
-        if self.cfg.max_val_examples is not None:
-            n_val = min(n_val, int(self.cfg.max_val_examples))
-        n_val = max(0, min(n_remaining, n_val))
-
-        trainval = idx[:n_remaining]
-        test = idx[n_remaining:]
-        val = trainval[:n_val]
-        train = trainval[n_val:]
-        return {"train": sorted(train), "val": sorted(val), "test": sorted(test)}
 
     def _sanity_check(self, pairs: list[Any]) -> None:
         for pair in pairs:

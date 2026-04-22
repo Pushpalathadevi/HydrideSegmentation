@@ -35,6 +35,8 @@ Additional workflow config:
   - includes `.oh5` dataset-path resolution, phase-ID foreground mapping, dataset split/QA policy, benchmark template selection, and PPTX generation settings
 - `data_prep.default.yml` for `prep-dataset` binary segmentation data preparation (`src/microseg/data_preparation`)
   - includes binarization mode/threshold controls, red-dominance RGB fallback, auto-Otsu fallback for noisy near-binary grayscale masks, empty-mask warn/error policy, resizing policy, debug inspection options, warning-related raw-mask expectations, and the shared `augmentation` block
+- `tutorials/prepare_dataset.paired_tutorial.shadow_blur.yml` for the beginner paired-folder dataset tutorial
+- `tutorials/train.tiny_unet_from_prepared.yml` for the matching tiny UNet training smoke/tutorial run
 - `segmentation_classes.json` repo-level default class definitions used by correction/export and RGB-mask class-color fallback
 - `hpc_ga.default.yml` for GA-based HPC multi-candidate script bundle generation
   - includes feedback-hybrid planning controls and metric/runtime fitness weights

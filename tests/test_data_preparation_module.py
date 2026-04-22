@@ -34,6 +34,19 @@ def _build_paired_dataset(tmp_path: Path, n: int = 6) -> Path:
     return input_dir
 
 
+def _build_same_stem_cross_extension_dataset(tmp_path: Path, n: int = 4) -> Path:
+    input_dir = tmp_path / "pairs_same_stem"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    base = np.asarray(Image.open(Path("test_data") / "syntheticHydrides.png").convert("L"), dtype=np.uint8)
+    for i in range(n):
+        img = np.stack([base, np.roll(base, i + 1, axis=1), np.roll(base, i + 2, axis=0)], axis=-1)
+        mask = np.zeros_like(base, dtype=np.uint8)
+        mask[base >= (100 + i)] = 255
+        Image.fromarray(img).save(input_dir / f"sample_{i}.jpg")
+        Image.fromarray(mask).save(input_dir / f"sample_{i}.png")
+    return input_dir
+
+
 def _build_nonbinary_edge_dataset(tmp_path: Path) -> Path:
     input_dir = tmp_path / "pairs_nonbinary"
     input_dir.mkdir(parents=True, exist_ok=True)
@@ -64,6 +77,39 @@ def test_pair_collector_default_patterns(tmp_path: Path) -> None:
     assert len(pairs) == 4
     assert pairs[0].stem == "sample_0"
     assert pairs[0].mask_path.name == "sample_0_mask.png"
+
+
+def test_pair_collector_same_stem_cross_extension_requires_opt_in(tmp_path: Path) -> None:
+    input_dir = _build_same_stem_cross_extension_dataset(tmp_path, n=3)
+    collector = PairCollector(
+        image_extensions=[".png", ".jpg"],
+        mask_extensions=[".png"],
+        mask_name_patterns=["{stem}.png", "{stem}_mask.png"],
+        strict=True,
+    )
+    try:
+        collector.collect(input_dir)
+    except ValueError as exc:
+        assert "pairing mismatch detected" in str(exc)
+    else:
+        raise AssertionError("expected strict pairing mismatch for same-stem cross-extension layout without opt-in")
+
+
+def test_pair_collector_same_stem_cross_extension_opt_in_pairs_successfully(tmp_path: Path) -> None:
+    input_dir = _build_same_stem_cross_extension_dataset(tmp_path, n=3)
+    pairs = PairCollector(
+        image_extensions=[".png", ".jpg"],
+        mask_extensions=[".png"],
+        mask_name_patterns=["{stem}.png", "{stem}_mask.png"],
+        same_stem_pairing_enabled=True,
+        same_stem_image_extensions=[".jpg", ".jpeg"],
+        same_stem_mask_extensions=[".png"],
+        strict=True,
+    ).collect(input_dir)
+    assert len(pairs) == 3
+    assert pairs[0].image_path.suffix.lower() == ".jpg"
+    assert pairs[0].mask_path.suffix.lower() == ".png"
+    assert pairs[0].image_path.stem == pairs[0].mask_path.stem
 
 
 def test_mask_binarizer_modes() -> None:
@@ -334,6 +380,41 @@ def test_pipeline_paired_jpg_rgb_png_outputs_mado(tmp_path: Path) -> None:
     qa = json.loads((output_dir / "dataset_qa_report.json").read_text(encoding="utf-8"))
     assert qa["pairing"]["pair_count"] == 6
     assert qa["split_counts"]["train"] + qa["split_counts"]["val"] + qa["split_counts"]["test"] == 6
+
+
+def test_pipeline_same_stem_cross_extension_opt_in_outputs_mado(tmp_path: Path) -> None:
+    input_dir = _build_same_stem_cross_extension_dataset(tmp_path, n=6)
+    output_dir = tmp_path / "out_same_stem"
+    cfg = DatasetPrepConfig.from_dict({
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "styles": ["mado"],
+        "image_extensions": [".jpg", ".jpeg", ".png"],
+        "mask_extensions": [".png"],
+        "mask_name_patterns": ["{stem}_mask.png", "{stem}.png"],
+        "same_stem_pairing": {
+            "enabled": True,
+            "image_extensions": [".jpg", ".jpeg"],
+            "mask_extensions": [".png"],
+        },
+        "resize_policy": "short_side_to_target_crop",
+        "target_size": 32,
+        "crop_mode_train": "random",
+        "crop_mode_eval": "center",
+    })
+    result = DatasetPreparer(cfg).run()
+    assert result.total_pairs == 6
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["resolved_config"]["same_stem_pairing"]["enabled"] is True
+    assert manifest["resolved_config"]["same_stem_pairing"]["image_extensions"] == [".jpg", ".jpeg"]
+    assert manifest["resolved_config"]["same_stem_pairing"]["mask_extensions"] == [".png"]
+    assert len(manifest["records"]) == 6
+
+    qa = json.loads((output_dir / "dataset_qa_report.json").read_text(encoding="utf-8"))
+    assert qa["pairing"]["pair_count"] == 6
+    assert qa["pairing"]["missing_masks"] == []
+    assert qa["pairing"]["missing_images"] == []
 
 
 def test_pipeline_split_caps_route_remainder_to_train(tmp_path: Path) -> None:

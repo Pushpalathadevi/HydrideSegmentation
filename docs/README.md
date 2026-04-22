@@ -5,8 +5,10 @@ This directory is both the human-readable documentation library and the source t
 Start here:
 
 - [`index.md`](index.md) for the rendered landing page
+- [`cli_windows_linux.md`](cli_windows_linux.md) for environment setup and command-line troubleshooting
 - [`learning_path.md`](learning_path.md) for the beginner route through the repo
 - [`student_onramp.md`](student_onramp.md) for the study guide and reading order
+- [`tutorials/05_paired_dataset_preparation_and_training_cli.md`](tutorials/05_paired_dataset_preparation_and_training_cli.md) for the canonical paired-folder dataset and training walkthrough
 - [`glossary.md`](glossary.md) for beginner-friendly terminology
 - [`student_notebooks.md`](student_notebooks.md) for runnable sample-data tutorials
 - [`tutorials/index.md`](tutorials/index.md) for the searchable transcript versions of the notebook curriculum

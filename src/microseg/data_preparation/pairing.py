@@ -29,10 +29,23 @@ class PairCollectionReport:
 class PairCollector:
     """Collect paired segmentation image/mask files from an input folder."""
 
-    def __init__(self, *, image_extensions: list[str], mask_extensions: list[str], mask_name_patterns: list[str], strict: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        image_extensions: list[str],
+        mask_extensions: list[str],
+        mask_name_patterns: list[str],
+        same_stem_pairing_enabled: bool = False,
+        same_stem_image_extensions: list[str] | None = None,
+        same_stem_mask_extensions: list[str] | None = None,
+        strict: bool = True,
+    ) -> None:
         self.image_extensions = {ext.lower() for ext in image_extensions}
         self.mask_extensions = {ext.lower() for ext in mask_extensions}
         self.mask_name_patterns = mask_name_patterns
+        self.same_stem_pairing_enabled = bool(same_stem_pairing_enabled)
+        self.same_stem_image_extensions = {ext.lower() for ext in (same_stem_image_extensions or [])}
+        self.same_stem_mask_extensions = {ext.lower() for ext in (same_stem_mask_extensions or [])}
         self.strict = strict
 
     def collect(self, input_dir: Path) -> list[ImageMaskPair]:
@@ -41,7 +54,10 @@ class PairCollector:
 
     def collect_with_report(self, input_dir: Path) -> tuple[list[ImageMaskPair], PairCollectionReport]:
         files = [p for p in input_dir.iterdir() if p.is_file()]
-        images = sorted([p for p in files if p.suffix.lower() in self.image_extensions and "_mask" not in p.stem])
+        files_by_stem: dict[str, list[Path]] = {}
+        for path in files:
+            files_by_stem.setdefault(path.stem, []).append(path)
+        images = sorted([p for p in files if self._is_image_candidate(p, files_by_stem=files_by_stem)])
         all_masks = sorted([p for p in files if p.suffix.lower() in self.mask_extensions])
         image_stems = {p.stem for p in images}
         pairs: list[ImageMaskPair] = []
@@ -56,6 +72,8 @@ class PairCollector:
                 if candidate.exists() and candidate.suffix.lower() in self.mask_extensions:
                     found = candidate
                     break
+            if found is None:
+                found = self._find_same_stem_mask(image, files_by_stem=files_by_stem)
             if found is None:
                 missing_masks.append(stem)
                 continue
@@ -82,6 +100,33 @@ class PairCollector:
                 f"missing_masks={missing_masks[:10]} missing_images={missing_images[:10]}"
             )
         return sorted(pairs, key=lambda p: p.stem), report
+
+    def _is_image_candidate(self, path: Path, *, files_by_stem: dict[str, list[Path]]) -> bool:
+        if path.suffix.lower() not in self.image_extensions or "_mask" in path.stem:
+            return False
+        if not self.same_stem_pairing_enabled:
+            return True
+        suffix = path.suffix.lower()
+        if suffix not in self.same_stem_mask_extensions:
+            return True
+        if not self.same_stem_image_extensions:
+            return True
+        siblings = files_by_stem.get(path.stem, [])
+        has_role_image = any(sibling.suffix.lower() in self.same_stem_image_extensions for sibling in siblings)
+        return not has_role_image
+
+    def _find_same_stem_mask(self, image: Path, *, files_by_stem: dict[str, list[Path]]) -> Path | None:
+        if not self.same_stem_pairing_enabled:
+            return None
+        if self.same_stem_image_extensions and image.suffix.lower() not in self.same_stem_image_extensions:
+            return None
+        siblings = files_by_stem.get(image.stem, [])
+        candidates = sorted(
+            sibling
+            for sibling in siblings
+            if sibling.resolve() != image.resolve() and sibling.suffix.lower() in self.same_stem_mask_extensions
+        )
+        return candidates[0] if candidates else None
 
     def _normalize_mask_stem(self, filename: str, *, image_stems: set[str]) -> str:
         fallback = ""

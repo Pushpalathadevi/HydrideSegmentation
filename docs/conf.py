@@ -38,6 +38,7 @@ myst_fence_as_directive = []
 
 myst_heading_anchors = 3
 autosectionlabel_prefix_document = True
+autosectionlabel_maxdepth = 2
 templates_path = ["_templates"]
 exclude_patterns = ["_build", ".DS_Store", "**/__pycache__/**"]
 source_suffix = {

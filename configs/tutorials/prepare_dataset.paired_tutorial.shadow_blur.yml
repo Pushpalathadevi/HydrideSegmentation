@@ -1,0 +1,94 @@
+# Beginner tutorial config for paired-folder dataset preparation.
+# Edit only these values when following the Sphinx tutorial.
+
+input_dir: tmp/tutorial_demo/raw_pairs
+output_dir: tmp/tutorial_demo/prepared_dataset
+styles:
+  - mado
+
+strict_pairing: true
+image_extensions:
+  - .png
+  - .jpg
+  - .jpeg
+mask_extensions:
+  - .png
+mask_name_patterns:
+  - "{stem}_mask.png"
+  - "{stem}.png"
+
+# Optional same-stem cross-extension pairing for datasets like:
+#   sample_001.jpg   <- raw image
+#   sample_001.png   <- mask
+# Keep this disabled for the tutorial because the generated tutorial data uses
+# explicit *_mask.png files. Enable it only for real datasets that rely on
+# extension roles instead of *_mask suffixes.
+same_stem_pairing:
+  enabled: false
+  image_extensions:
+    - .jpg
+    - .jpeg
+  mask_extensions:
+    - .png
+
+split_strategy: leakage_aware
+leakage_group_mode: suffix_aware
+leakage_group_regex: ""
+train_pct: 0.8
+val_pct: 0.2
+max_val_examples: 2
+max_test_examples: 2
+seed: 42
+
+rgb_mask_mode: true
+mask_r_min: 200
+mask_g_max: 60
+mask_b_max: 60
+enforce_gb_thresholds: true
+allow_red_dominance_fallback: true
+mask_red_min_fallback: 16
+mask_red_dominance_margin: 8
+mask_red_dominance_ratio: 1.5
+auto_otsu_for_noisy_grayscale: true
+noisy_grayscale_low_max: 5
+noisy_grayscale_high_min: 200
+noisy_grayscale_min_extreme_ratio: 0.98
+
+target_size: [64, 64]
+resize_policy: short_side_to_target_crop
+crop_mode_train: random
+crop_mode_eval: center
+empty_mask_action: warn
+
+progress_log_interval: 4
+qa_report_name: dataset_qa_report.json
+html_report_name: dataset_qa_report.html
+image_ext: .png
+mask_ext: .png
+mask_foreground_value: 255
+
+augmentation:
+  enabled: true
+  seed: 42
+  stage: post_resize
+  apply_splits:
+    - train
+  variants_per_sample: 1
+  operations:
+    - name: shadow
+      probability: 1.0
+      parameters:
+        radius: 80
+        sigma: 150
+        intensity_range: [20, 25]
+        count_range: [1, 1]
+    - name: blur
+      probability: 1.0
+      parameters:
+        sigma: 40
+        kernel_size_range: [3, 3]
+        min_center_distance_ratio: 0.35
+        count_range: [1, 1]
+  debug:
+    enabled: true
+    max_samples: 4
