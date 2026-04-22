@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from src.microseg.app import (
     DesktopBatchProgress,
     DesktopResultExportConfig,
+    DesktopResultExporter,
     DesktopWorkflowManager,
     collect_inference_images,
     run_desktop_batch_job,
