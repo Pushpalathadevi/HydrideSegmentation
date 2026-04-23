@@ -158,6 +158,14 @@ python scripts/microseg_cli.py train --config configs/tutorials/train.tiny_unet_
 microseg-cli infer --config configs/inference.default.yml --image test_data/syntheticHydrides.png
 ```
 
+For ML models, this path now applies GUI-style preprocessing by default:
+
+- resize preserves aspect ratio to a `512` long side
+- auto-contrast is enabled
+- the preprocessing block is written into the exported manifests
+
+If you want to turn that off for a specific run, edit `gui_preprocess.enabled: false` in the YAML config.
+
 ### Recursive Folder Inference
 
 ```bash

@@ -128,6 +128,11 @@ Inference:
 microseg-cli infer --config configs/inference.default.yml --set params.area_threshold=120
 ```
 
+The ML inference path uses GUI-style preprocessing by default unless disabled in the YAML:
+- aspect-ratio-preserving resize to a `512` long side
+- auto-contrast enabled
+- preprocessing metadata recorded in manifests
+
 ## Documentation
 
 The canonical documentation landing page is [`docs/index.md`](docs/index.md).

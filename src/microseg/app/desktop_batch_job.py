@@ -127,7 +127,10 @@ def run_desktop_batch_job(
     completed_images = 0
     records: list[DesktopRunRecord] = []
     params_template = dict(params or {})
-    export_cfg = export_config or DesktopResultExportConfig(write_batch_summary=True)
+    export_cfg = export_config or DesktopResultExportConfig(
+        write_batch_summary=True,
+        write_pdf_report=False,
+    )
 
     def _eta_seconds() -> float | None:
         elapsed = max(0.0, time.monotonic() - started_at)

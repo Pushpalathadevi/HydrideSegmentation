@@ -8,6 +8,11 @@ capture_feedback: true
 feedback_root: outputs/feedback_records
 deployment_id: cli_infer_local
 operator_id: unknown_operator
+gui_preprocess:
+  enabled: true
+  target_long_side: 512
+  auto_contrast_enabled: true
+  contrast_mode: histogram_stretch
 params:
   clahe:
     clip_limit: 2.0

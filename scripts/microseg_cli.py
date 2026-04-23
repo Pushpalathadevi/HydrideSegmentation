@@ -21,6 +21,9 @@ from src.microseg.app import (
     collect_inference_images,
     run_desktop_batch_job,
 )
+from src.microseg.inference.gui_preprocessing import (
+    coerce_gui_inference_preprocess_config,
+)
 from src.microseg.app.hpc_ga import (
     HpcGaPlanConfig,
     generate_hpc_ga_bundle,
@@ -104,6 +107,7 @@ from src.microseg.feedback import (
     ingest_feedback_bundles,
 )
 from src.microseg.workflows import PhaseIdBenchmarkWorkflowConfig, run_phaseid_benchmark_workflow
+from hydride_segmentation.microseg_adapter import resolve_gui_model_id
 
 
 def _parse_name_list(value: object) -> list[str]:
@@ -222,6 +226,30 @@ def _print_batch_progress(update: DesktopBatchProgress) -> None:
     )
 
 
+def _build_gui_preprocess_payload(cfg: dict[str, object], model_name: str) -> dict[str, object] | None:
+    """Return GUI-style ML preprocessing config for CLI inference."""
+
+    if resolve_gui_model_id(model_name) == "hydride_conventional":
+        return None
+    raw = cfg.get("gui_preprocess")
+    payload: dict[str, object]
+    if isinstance(raw, dict):
+        payload = dict(raw)
+    elif raw is None:
+        payload = {}
+    else:
+        payload = _parse_mapping(raw, field_name="gui_preprocess")
+
+    for key in ("enabled", "target_long_side", "auto_contrast_enabled", "contrast_mode", "manual_adjustment"):
+        if key not in payload and key in cfg:
+            payload[key] = cfg.get(key)
+
+    enabled = payload.pop("enabled", True)
+    if not bool(enabled):
+        return None
+    return asdict(coerce_gui_inference_preprocess_config(payload))
+
+
 def _infer(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     image_path = args.image or cfg.get("image_path")
@@ -249,6 +277,9 @@ def _infer(args: argparse.Namespace) -> int:
     params = dict(cfg.get("params", {}))
     params["enable_gpu"] = bool(cfg.get("enable_gpu", args.enable_gpu))
     params["device_policy"] = str(cfg.get("device_policy", args.device_policy))
+    gui_preprocess = _build_gui_preprocess_payload(cfg, str(model_name))
+    if gui_preprocess is not None:
+        params["gui_preprocess"] = gui_preprocess
 
     capture_feedback = bool(cfg.get("capture_feedback", args.capture_feedback))
     feedback_writer: FeedbackArtifactWriter | None = None

@@ -72,6 +72,11 @@ def test_phase27_batch_export_outputs(tmp_path: Path) -> None:
     assert (out_dir / "runs").exists()
     assert not (out_dir / "batch_results_report.pdf").exists()
 
+    manifest = json.loads((out_dir / "artifacts_manifest.json").read_text(encoding="utf-8"))
+    assert "hash_policy" not in manifest
+    assert "hashed_file_count" not in manifest
+    assert all("sha256" not in row for row in manifest["files"])
+
     payload = json.loads((out_dir / "batch_results_summary.json").read_text(encoding="utf-8"))
     assert payload["schema_version"] == "microseg.desktop_batch_results.v1"
     assert int(payload["run_count"]) == 2
@@ -113,3 +118,4 @@ def test_phase27_batch_job_summary_records_runtime_telemetry(tmp_path: Path) -> 
     assert telemetry["model_name"] == model_name
     assert payload["report_outputs"]["runs_dir"] == "runs"
     assert (result.batch_dir / "batch_results_report.html").exists()
+    assert not (result.batch_dir / "batch_results_report.pdf").exists()

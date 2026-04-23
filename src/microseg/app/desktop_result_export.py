@@ -6,7 +6,6 @@ import csv
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import html
-import hashlib
 import json
 from pathlib import Path
 import statistics
@@ -68,14 +67,6 @@ def _safe_float(value: object) -> float | None:
         return float(value)
     except Exception:
         return None
-
-
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -322,7 +313,6 @@ class DesktopResultExporter:
                         "path": rel,
                         "exists": False,
                         "size_bytes": 0,
-                        "sha256": "",
                     }
                 )
                 continue
@@ -332,7 +322,6 @@ class DesktopResultExporter:
                     "path": rel,
                     "exists": True,
                     "size_bytes": int(path.stat().st_size),
-                    "sha256": _sha256_file(path),
                 }
             )
         return {
@@ -348,11 +337,11 @@ class DesktopResultExporter:
 
         rows_manifest: list[dict[str, Any]] = []
         for path in sorted(p for p in batch_dir.rglob("*") if p.is_file() and p.name != "artifacts_manifest.json"):
+            rel = _to_rel(path, batch_dir)
             rows_manifest.append(
                 {
-                    "path": _to_rel(path, batch_dir),
+                    "path": rel,
                     "size_bytes": int(path.stat().st_size),
-                    "sha256": _sha256_file(path),
                 }
             )
         manifest_path = batch_dir / "artifacts_manifest.json"
@@ -674,7 +663,6 @@ class DesktopResultExporter:
                     f"<td>{html.escape(str(file_row.get('artifact_key', '')))}</td>"
                     f"<td>{html.escape(str(file_row.get('path', '')))}</td>"
                     f"<td>{html.escape(str(file_row.get('size_bytes', '')))}</td>"
-                    f"<td>{html.escape(str(file_row.get('sha256', '')))}</td>"
                     "</tr>"
                 )
 
@@ -722,7 +710,7 @@ class DesktopResultExporter:
         if "artifact_manifest" in include_sections and manifest_rows:
             sections.append(
                 "<h2>Artifact Manifest</h2>"
-                "<table><thead><tr><th>Key</th><th>Path</th><th>Size (bytes)</th><th>SHA256</th></tr></thead>"
+                "<table><thead><tr><th>Key</th><th>Path</th><th>Size (bytes)</th></tr></thead>"
                 f"<tbody>{''.join(manifest_rows)}</tbody></table>"
             )
 
@@ -913,36 +901,38 @@ class DesktopResultExporter:
         runs_dir.mkdir(parents=True, exist_ok=True)
 
         for run in runs:
-            pred_mask = to_index_mask(np.array(run.mask_image))
-            corr_mask = pred_mask
-            if corrected_masks and run.run_id in corrected_masks:
-                corr_mask = to_index_mask(np.asarray(corrected_masks[run.run_id]))
             per_run_dir = self.export(
                 run,
                 output_dir=runs_dir,
-                corrected_mask=corr_mask,
+                corrected_mask=corrected_masks.get(run.run_id) if corrected_masks else None,
                 annotator=annotator,
                 notes=notes,
                 class_map=class_map,
                 config=cfg,
             )
             um_per_px = None if cfg.microns_per_pixel is None else float(cfg.microns_per_pixel)
-            pred_stats = compute_hydride_statistics(
-                pred_mask,
-                orientation_bins=vis_cfg.orientation_bins,
-                size_bins=vis_cfg.size_bins,
-                min_feature_pixels=vis_cfg.min_feature_pixels,
-                microns_per_pixel=um_per_px,
-            )
-            corr_stats = compute_hydride_statistics(
-                corr_mask,
-                orientation_bins=vis_cfg.orientation_bins,
-                size_bins=vis_cfg.size_bins,
-                min_feature_pixels=vis_cfg.min_feature_pixels,
-                microns_per_pixel=um_per_px,
-            )
-            pred_metrics = dict(pred_stats.scalar_metrics)
-            corr_metrics = dict(corr_stats.scalar_metrics)
+            pred_metrics = dict(run.metrics)
+            if not pred_metrics:
+                pred_mask = to_index_mask(np.array(run.mask_image))
+                pred_stats = compute_hydride_statistics(
+                    pred_mask,
+                    orientation_bins=vis_cfg.orientation_bins,
+                    size_bins=vis_cfg.size_bins,
+                    min_feature_pixels=vis_cfg.min_feature_pixels,
+                    microns_per_pixel=um_per_px,
+                )
+                pred_metrics = dict(pred_stats.scalar_metrics)
+            corr_metrics = dict(pred_metrics)
+            if corrected_masks and run.run_id in corrected_masks:
+                corr_mask = to_index_mask(np.asarray(corrected_masks[run.run_id]))
+                corr_stats = compute_hydride_statistics(
+                    corr_mask,
+                    orientation_bins=vis_cfg.orientation_bins,
+                    size_bins=vis_cfg.size_bins,
+                    min_feature_pixels=vis_cfg.min_feature_pixels,
+                    microns_per_pixel=um_per_px,
+                )
+                corr_metrics = dict(corr_stats.scalar_metrics)
             keys = self._pick_metric_keys(config=cfg, predicted_metrics=pred_metrics, corrected_metrics=corr_metrics)
             if selected_set:
                 keys = [k for k in keys if k in selected_set]

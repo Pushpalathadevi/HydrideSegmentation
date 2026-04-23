@@ -92,6 +92,7 @@ Batch export:
 - `Export Batch Summary` (menu/button) exports selected history runs or all runs if none selected.
 - outputs: `batch_results_summary.json`, `batch_results_report.html`, optional `batch_results_report.pdf`, `batch_metrics.csv`
 - batch summary now also includes `artifacts_manifest.json` plus `runs/` with one full per-image result package each; the root HTML links directly into those per-run summaries.
+- batch export skips PDF generation by default to keep large folder exports responsive; enable PDF only when you specifically need a printable report.
 - desktop scalar displays and report tables round floating metrics to two decimals for consistent scientific readability.
 
 ## Recursive Folder Inference (GUI + CLI parity)

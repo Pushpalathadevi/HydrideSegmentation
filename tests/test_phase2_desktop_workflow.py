@@ -101,6 +101,7 @@ def test_phase2_cli_infer_defaults_to_first_discovered_model(monkeypatch, tmp_pa
 
     def _fake_run_desktop_batch_job(**kwargs):
         captured["model_name"] = kwargs["model_name"]
+        captured["params"] = kwargs["params"]
         return SimpleNamespace(
             batch_dir=tmp_path / "batch",
             summary_json_path=tmp_path / "batch" / "batch_results_summary.json",
@@ -131,6 +132,63 @@ def test_phase2_cli_infer_defaults_to_first_discovered_model(monkeypatch, tmp_pa
 
     assert microseg_cli._infer(args) == 0
     assert captured["model_name"] == "Hydride ML (UNet)"
+    gui_preprocess = captured["params"]["gui_preprocess"]
+    assert gui_preprocess["target_long_side"] == 512
+    assert gui_preprocess["auto_contrast_enabled"] is True
+    assert gui_preprocess["contrast_mode"] == "histogram_stretch"
+
+
+def test_phase2_cli_infer_conventional_model_skips_gui_preprocess(monkeypatch, tmp_path: Path) -> None:
+    from scripts import microseg_cli
+
+    image_path = tmp_path / "input.png"
+    Image.fromarray(_synthetic_image_a()).save(image_path)
+
+    captured: dict[str, object] = {}
+
+    class _FakeWorkflow:
+        def preferred_default_model_name(self) -> str:
+            return "Hydride ML (UNet)"
+
+    def _fake_collect_inference_images(*, image, image_dir, glob_patterns, recursive):
+        _ = image_dir, glob_patterns, recursive
+        assert image == str(image_path)
+        return [image_path]
+
+    def _fake_run_desktop_batch_job(**kwargs):
+        captured["model_name"] = kwargs["model_name"]
+        captured["params"] = kwargs["params"]
+        return SimpleNamespace(
+            batch_dir=tmp_path / "batch",
+            summary_json_path=tmp_path / "batch" / "batch_results_summary.json",
+            records=[SimpleNamespace()],
+        )
+
+    monkeypatch.setattr(microseg_cli, "resolve_config", lambda *_args, **_kwargs: {"image_path": str(image_path)})
+    monkeypatch.setattr(microseg_cli, "collect_inference_images", _fake_collect_inference_images)
+    monkeypatch.setattr(microseg_cli, "DesktopWorkflowManager", lambda: _FakeWorkflow())
+    monkeypatch.setattr(microseg_cli, "run_desktop_batch_job", _fake_run_desktop_batch_job)
+
+    args = SimpleNamespace(
+        config=None,
+        set=[],
+        image=str(image_path),
+        image_dir="",
+        recursive=True,
+        glob_patterns="*.png",
+        model_name="Hydride Conventional",
+        output_dir=str(tmp_path / "out"),
+        enable_gpu=False,
+        device_policy="cpu",
+        capture_feedback=False,
+        feedback_root="",
+        deployment_id="",
+        operator_id="",
+    )
+
+    assert microseg_cli._infer(args) == 0
+    assert captured["model_name"] == "Hydride Conventional"
+    assert "gui_preprocess" not in captured["params"]
 
 
 def test_phase2_single_run_and_export_package() -> None:

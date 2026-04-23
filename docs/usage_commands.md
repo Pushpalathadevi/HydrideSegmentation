@@ -42,6 +42,13 @@ microseg-cli infer --config configs/inference.default.yml
 ```
 
 If you omit `--model` / `--model-name`, the CLI defaults to the first discovered trained model.
+For ML-backed models, the CLI now uses the same default preprocessing as the GUI unless you override it in YAML:
+
+- resize preserves aspect ratio to a `512` long side by default
+- auto-contrast is enabled by default
+- the preprocessing block is recorded in the exported manifests
+
+To disable that behavior for a specific run, edit `gui_preprocess.enabled: false` in the inference YAML or override it with `--set`.
 
 Recursive folder inference:
 
