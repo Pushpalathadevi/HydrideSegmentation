@@ -9,7 +9,12 @@ import numpy as np
 from PIL import Image
 
 from hydride_segmentation.microseg_adapter import resolve_gui_model_id
-from src.microseg.app import DesktopResultExportConfig, DesktopResultExporter, DesktopWorkflowManager
+from src.microseg.app import (
+    DesktopResultExportConfig,
+    DesktopResultExporter,
+    DesktopWorkflowManager,
+    run_desktop_batch_job,
+)
 
 
 def _img_a() -> np.ndarray:
@@ -78,3 +83,33 @@ def test_phase27_batch_export_outputs(tmp_path: Path) -> None:
     assert all((out_dir / str(row["run_summary_path"])).exists() for row in payload["rows"])
     assert payload["aggregate_metrics"]
     assert "Hydride" in next(iter(payload["model_counts"].keys()))
+
+
+def test_phase27_batch_job_summary_records_runtime_telemetry(tmp_path: Path) -> None:
+    workflow = DesktopWorkflowManager()
+    model_name = _conventional_model_name(workflow)
+    a = tmp_path / "a.png"
+    b = tmp_path / "b.png"
+    _write(a, _img_a())
+    _write(b, _img_b())
+
+    result = run_desktop_batch_job(
+        workflow=workflow,
+        result_exporter=DesktopResultExporter(),
+        image_paths=[a, b],
+        model_name=model_name,
+        output_dir=tmp_path / "batch_job",
+        params={"image_path": str(a)},
+        include_analysis=False,
+        export_config=DesktopResultExportConfig(write_html_report=True, write_pdf_report=False, write_csv_report=False),
+    )
+
+    payload = json.loads(result.summary_json_path.read_text(encoding="utf-8"))
+    telemetry = payload["telemetry"]
+    assert telemetry["total_images"] == 2
+    assert telemetry["completed_images"] == 2
+    assert telemetry["job_elapsed_seconds"] >= 0.0
+    assert telemetry["throughput_images_per_second"] is None or telemetry["throughput_images_per_second"] >= 0.0
+    assert telemetry["model_name"] == model_name
+    assert payload["report_outputs"]["runs_dir"] == "runs"
+    assert (result.batch_dir / "batch_results_report.html").exists()

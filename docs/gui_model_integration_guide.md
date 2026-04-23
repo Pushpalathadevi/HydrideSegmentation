@@ -41,6 +41,14 @@ You need four things before the GUI can use your model:
 
 If any one of those is wrong, the GUI may still show the model name, but inference will fail or produce nonsense.
 
+The GUI selector and the CLI use the same discovery path:
+
+- `frozen_checkpoints/model_registry.json`
+- optional `frozen_checkpoints/model_registry.local.json`
+- successful trained-run folders under `outputs/runs/`
+
+You normally do not edit GUI code when adding a new model. You update the registry metadata, restart the app, and the model appears if the checkpoint is valid.
+
 ### Critical Terms
 
 The repository uses a few names that are easy to mix up:
@@ -52,6 +60,8 @@ The repository uses a few names that are easy to mix up:
 | `model_type` | Loader architecture token, not a free-form label | `unet_binary` |
 | `checkpoint_path_hint` | Repo-relative path to the checkpoint | `frozen_checkpoints/candidates/my_unet_v1/best_checkpoint.pth` |
 | `classes` | Class indices, names, and colors | background `0`, hydride `1` |
+
+If you omit `--model` or `--model-name` on the CLI, inference defaults to the first discovered trained model. In this repository that is `Hydride ML (UNet)` when the default checkpoint is present locally.
 
 Important:
 
@@ -180,6 +190,7 @@ What matters most:
 - `model_type` must match the loader token exactly.
 - `classes` must match training.
 - `artifact_stage` should be `candidate` until you are comfortable promoting the model.
+- the GUI and CLI both read the same registry metadata, so one file controls both selectors.
 
 If you are adding a multi-class model, extend the `classes` array and keep the indices consistent with the training labels.
 
@@ -211,13 +222,13 @@ Use a small test image first:
 microseg-cli infer \
   --config configs/inference.default.yml \
   --image test_data/3PB_SRT_data_generation_1817_OD_side1_8_250x250.png \
-  --model-name "Registry: my_unet_v1_optical (unet_binary)" \
+  --model "Registry: my_unet_v1_optical (unet_binary)" \
   --output-dir outputs/inference/my_unet_v1_smoke \
   --set enable_gpu=false \
   --set device_policy=cpu
 ```
 
-Replace the model name with the exact display name shown by `microseg-cli models --details` or the GUI selector.
+Replace the model name with the exact display name shown by `microseg-cli models --details` or the GUI selector. If you leave the model flag out entirely, the CLI uses the first discovered trained model.
 
 If you are still testing a checkpoint before adding a registry entry, you can use the legacy adapter and pass the path directly:
 

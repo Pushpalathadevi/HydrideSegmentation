@@ -22,6 +22,7 @@ Start here:
 - [`model_selection_decision_tree.md`](model_selection_decision_tree.md) for a simple model choice guide
 - [`worked_example_conventional_vs_ml.md`](worked_example_conventional_vs_ml.md) for a side-by-side comparison workflow
 - [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for air-gapped registration of a trained `.pth` checkpoint into desktop inference
+- [`frozen_checkpoint_registry.md`](frozen_checkpoint_registry.md) for the exact registry file to edit when adding a new trained model
 - [`developer_guide.md`](developer_guide.md) for extension and contribution guidance
 
 Core planning and governance docs:

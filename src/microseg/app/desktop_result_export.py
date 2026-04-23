@@ -1061,6 +1061,7 @@ class DesktopResultExporter:
     def _build_batch_html(payload: dict[str, Any]) -> str:
         rows = payload.get("rows", [])
         aggregate = payload.get("aggregate_metrics", [])
+        telemetry = payload.get("telemetry", {})
         header_fields: list[str] = []
         hidden_fields = {
             "input_preview_path",
@@ -1147,6 +1148,31 @@ class DesktopResultExporter:
                 f"<td>{html.escape(_fmt_metric(row.get('max', '')))}</td>"
                 "</tr>"
             )
+        telemetry_rows = []
+        if isinstance(telemetry, dict):
+            for key in (
+                "job_elapsed_human",
+                "job_elapsed_seconds",
+                "throughput_images_per_second",
+                "total_images",
+                "completed_images",
+                "total_steps",
+                "completed_steps",
+                "run_duration_seconds_total",
+                "run_duration_seconds_mean",
+                "run_duration_seconds_min",
+                "run_duration_seconds_max",
+                "earliest_run_started_utc",
+                "latest_run_finished_utc",
+                "batch_completed_utc",
+                "model_name",
+            ):
+                value = telemetry.get(key)
+                if value in ("", None):
+                    continue
+                telemetry_rows.append(
+                    f"<tr><th>{html.escape(key)}</th><td>{html.escape(_fmt_metric(value))}</td></tr>"
+                )
         return (
             "<!doctype html><html><head><meta charset='utf-8'/>"
             "<title>MicroSeg Batch Results Report</title>"
@@ -1165,7 +1191,13 @@ class DesktopResultExporter:
             f"<div class='card'><b>Annotator</b><div>{html.escape(str(payload.get('annotator', '')))}</div></div>"
             f"<div class='card'><b>Per-run packages</b><div><a href='runs/'>Open runs folder</a></div></div>"
             "</div>"
-            "<h2>Aggregate Metrics</h2>"
+            + (
+                "<h2>Batch Telemetry</h2>"
+                "<table><tbody>"
+                + ("".join(telemetry_rows) if telemetry_rows else "<tr><td>n/a</td><td></td></tr>")
+                + "</tbody></table>"
+            )
+            + "<h2>Aggregate Metrics</h2>"
             "<table><thead><tr><th>Metric</th><th>Count</th><th>Mean</th><th>Median</th><th>Std</th><th>Min</th><th>Max</th></tr></thead>"
             f"<tbody>{''.join(agg_rows) if agg_rows else '<tr><td colspan=7>n/a</td></tr>'}</tbody></table>"
             "<h2>Run Rows</h2>"
@@ -1181,6 +1213,7 @@ class DesktopResultExporter:
     def _write_batch_pdf(*, pdf_path: Path, payload: dict[str, Any]) -> None:
         rows = payload.get("rows", [])
         aggregate = payload.get("aggregate_metrics", [])
+        telemetry = payload.get("telemetry", {})
         with PdfPages(pdf_path) as pdf:
             fig_meta = plt.figure(figsize=(11.0, 8.5))
             fig_meta.suptitle("MicroSeg Batch Results", fontsize=15, fontweight="bold")
@@ -1190,8 +1223,33 @@ class DesktopResultExporter:
                 f"Annotator: {payload.get('annotator', '')}",
                 f"Notes: {payload.get('notes', '')}",
                 "",
-                "Model counts:",
+                "Telemetry:",
             ]
+            if isinstance(telemetry, dict):
+                for key in (
+                    "job_elapsed_human",
+                    "job_elapsed_seconds",
+                    "throughput_images_per_second",
+                    "total_images",
+                    "completed_images",
+                    "total_steps",
+                    "completed_steps",
+                    "run_duration_seconds_total",
+                    "run_duration_seconds_mean",
+                    "run_duration_seconds_min",
+                    "run_duration_seconds_max",
+                    "batch_completed_utc",
+                ):
+                    value = telemetry.get(key)
+                    if value in ("", None):
+                        continue
+                    lines.append(f"- {key}: {_fmt_metric(value)}")
+            lines.extend(
+                [
+                    "",
+                    "Model counts:",
+                ]
+            )
             model_counts = payload.get("model_counts", {})
             if isinstance(model_counts, dict):
                 for key in sorted(model_counts.keys()):

@@ -9,6 +9,12 @@
 
 It stores metadata only. Model binaries stay outside git tracking.
 
+The loader also reads an optional local overlay file:
+
+- `frozen_checkpoints/model_registry.local.json`
+
+Use the overlay for machine-specific additions when you do not want to commit the model entry yet. The overlay is merged on top of the canonical registry at runtime, so the GUI and CLI see the same model list without changing source control history.
+
 ## Required Metadata Fields
 
 Each model entry must include:
@@ -30,6 +36,70 @@ Recommended additional fields:
 - `quality_report_path` (repo-relative path when applicable)
 - `file_sha256`
 - `file_size_bytes`
+
+## How Discovery Works
+
+The app discovers trained models from two sources:
+
+1. successful run folders under `outputs/runs/`
+2. frozen registry entries from `frozen_checkpoints/model_registry.json` and the optional `.local` overlay
+
+Each discovered model can appear in:
+
+- the GUI model selector,
+- `microseg-cli infer --model ...`,
+- `microseg-cli models --details`
+
+The default trained hydride model in this repository is `hydride_ml`, which maps to `Hydride ML (UNet)` in the GUI.
+
+## Adding A New Trained Model
+
+If you trained a new binary UNet checkpoint named `unet_binary`, add a registry entry like this:
+
+```json
+{
+  "model_id": "my_unet_v2",
+  "model_nickname": "my_unet_v2_optical",
+  "model_type": "unet_binary",
+  "framework": "pytorch",
+  "input_size": "variable",
+  "input_dimensions": "H x W x 3",
+  "checkpoint_path_hint": "frozen_checkpoints/candidates/my_unet_v2/best_checkpoint.pt",
+  "application_remarks": "Binary hydride segmentation checkpoint for optical microscopy.",
+  "short_description": "Local candidate checkpoint for GUI and CLI inference.",
+  "detailed_description": "Use the same preprocessing and class map that were used during training.",
+  "artifact_stage": "candidate",
+  "source_run_manifest": "outputs/training/my_unet_v2/training_manifest.json",
+  "quality_report_path": "outputs/training/my_unet_v2/report.json",
+  "file_sha256": "PUT_THE_CHECKSUM_HERE",
+  "file_size_bytes": 12345678,
+  "classes": [
+    { "index": 0, "name": "background", "color_hex": "#000000" },
+    { "index": 1, "name": "hydride", "color_hex": "#00FFFF" }
+  ]
+}
+```
+
+Edit the following file(s):
+
+- `frozen_checkpoints/model_registry.json` for a repository-wide committed model
+- `frozen_checkpoints/model_registry.local.json` for a machine-local model
+
+Then restart the GUI or rerun the CLI. The selector order is:
+
+1. discovered trained model `hydride_ml` first
+2. additional discovered trained models
+3. `Hydride Conventional` last as the fallback
+
+## Beginner Checklist
+
+Before you hand a model to another machine, verify:
+
+- the checkpoint file exists at `checkpoint_path_hint`
+- `model_type` is exactly one of the supported loader tokens
+- the class indices and colors match training
+- the SHA-256 checksum matches the packaged artifact
+- the model appears in `microseg-cli models --details`
 
 ## Typical Update Flow
 

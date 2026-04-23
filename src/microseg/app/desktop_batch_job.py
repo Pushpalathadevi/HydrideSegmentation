@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -78,6 +79,21 @@ def collect_inference_images(
         if path.is_file():
             unique.append(path)
     return unique
+
+
+def _parse_utc_timestamp(text: str) -> datetime | None:
+    """Parse a UTC ISO timestamp stored in run metadata."""
+
+    cleaned = str(text).strip()
+    if not cleaned:
+        return None
+    try:
+        value = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def run_desktop_batch_job(
@@ -215,7 +231,40 @@ def run_desktop_batch_job(
     resolved_payload = resolved_config if isinstance(resolved_config, dict) else {}
     resolved_config_path.write_text(json.dumps(resolved_payload, indent=2), encoding="utf-8")
     completed_steps += 1
+    job_finished_at = time.monotonic()
+    job_elapsed_seconds = max(0.0, job_finished_at - started_at)
+    run_durations: list[float] = []
+    run_started_utc: list[datetime] = []
+    run_finished_utc: list[datetime] = []
+    for record in records:
+        started = _parse_utc_timestamp(record.started_utc)
+        finished = _parse_utc_timestamp(record.finished_utc)
+        if started is not None:
+            run_started_utc.append(started)
+        if finished is not None:
+            run_finished_utc.append(finished)
+        if started is not None and finished is not None:
+            run_durations.append(max(0.0, (finished - started).total_seconds()))
+
+    telemetry: dict[str, Any] = {
+        "job_elapsed_seconds": float(job_elapsed_seconds),
+        "job_elapsed_human": f"{job_elapsed_seconds:.2f}s",
+        "throughput_images_per_second": float(total_images / job_elapsed_seconds) if job_elapsed_seconds > 0 else None,
+        "total_images": int(total_images),
+        "completed_images": int(completed_images),
+        "total_steps": int(total_steps),
+        "completed_steps": int(completed_steps),
+        "run_duration_seconds_total": float(sum(run_durations)) if run_durations else 0.0,
+        "run_duration_seconds_mean": float(sum(run_durations) / len(run_durations)) if run_durations else 0.0,
+        "run_duration_seconds_min": float(min(run_durations)) if run_durations else 0.0,
+        "run_duration_seconds_max": float(max(run_durations)) if run_durations else 0.0,
+        "earliest_run_started_utc": min(run_started_utc).isoformat() if run_started_utc else "",
+        "latest_run_finished_utc": max(run_finished_utc).isoformat() if run_finished_utc else "",
+        "batch_completed_utc": datetime.now(timezone.utc).isoformat(),
+        "model_name": str(model_name),
+    }
     summary_json_path = batch_dir / "batch_results_summary.json"
+    summary_payload: dict[str, Any] | None = None
     if summary_json_path.exists():
         summary_payload = json.loads(summary_json_path.read_text(encoding="utf-8"))
         if isinstance(summary_payload, dict):
@@ -225,7 +274,14 @@ def run_desktop_batch_job(
             report_outputs["runs_dir"] = "runs"
             report_outputs["resolved_config"] = "resolved_config.json"
             summary_payload["report_outputs"] = report_outputs
+            summary_payload["telemetry"] = telemetry
             summary_json_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+            html_path = batch_dir / "batch_results_report.html"
+            if html_path.exists():
+                html_path.write_text(result_exporter._build_batch_html(summary_payload), encoding="utf-8")
+            pdf_path = batch_dir / "batch_results_report.pdf"
+            if pdf_path.exists():
+                result_exporter._write_batch_pdf(pdf_path=pdf_path, payload=summary_payload)
     if bool(export_cfg.include_artifact_manifest):
         result_exporter.write_batch_artifact_manifest(batch_dir)
     _emit(

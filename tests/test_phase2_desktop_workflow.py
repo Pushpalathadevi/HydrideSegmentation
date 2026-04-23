@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 
 import numpy as np
 from PIL import Image
@@ -38,7 +39,8 @@ def test_phase2_model_registry_options_available() -> None:
     mgr = DesktopWorkflowManager()
     options = mgr.model_options()
     assert options
-    assert options == ["Hydride ML (UNet)", "Hydride Conventional"]
+    assert options[0] == "Hydride ML (UNet)"
+    assert options[-1] == "Hydride Conventional"
     assert any(resolve_gui_model_id(name) == "hydride_conventional" for name in options)
     assert any(resolve_gui_model_id(name) == "hydride_ml" for name in options)
 
@@ -48,6 +50,87 @@ def test_phase2_preferred_default_model_prefers_trained_ml_checkpoint() -> None:
     preferred = mgr.preferred_default_model_name()
     assert preferred
     assert resolve_gui_model_id(preferred) != "hydride_conventional"
+
+
+def test_phase2_dynamic_gui_models_are_included(monkeypatch) -> None:
+    fake_binding = SimpleNamespace(
+        model_id="my_unet_v2",
+        display_name="My Unet V2",
+        description="Trained unet_binary model",
+        details="architecture=unet_binary",
+        reference=SimpleNamespace(
+            reference_id="registry::my_unet_v2",
+            display_name="Registry: my_unet_v2 (unet_binary)",
+            source="registry",
+            checkpoint_path="frozen_checkpoints/candidates/my_unet_v2/best_checkpoint.pt",
+            architecture="unet_binary",
+            backend_label="unet_binary",
+        ),
+    )
+
+    monkeypatch.setattr(
+        "src.microseg.inference.predictors.discover_dynamic_ml_model_bindings",
+        lambda: ([fake_binding], []),
+    )
+
+    from hydride_segmentation.microseg_adapter import get_gui_model_options, get_gui_model_specs
+
+    options = get_gui_model_options()
+    specs = get_gui_model_specs()
+    assert "My Unet V2" in options
+    assert any(spec["display_name"] == "My Unet V2" for spec in specs)
+    assert options[-1] == "Hydride Conventional"
+
+
+def test_phase2_cli_infer_defaults_to_first_discovered_model(monkeypatch, tmp_path: Path) -> None:
+    from scripts import microseg_cli
+
+    image_path = tmp_path / "input.png"
+    Image.fromarray(_synthetic_image_a()).save(image_path)
+
+    captured: dict[str, object] = {}
+
+    class _FakeWorkflow:
+        def preferred_default_model_name(self) -> str:
+            return "Hydride ML (UNet)"
+
+    def _fake_collect_inference_images(*, image, image_dir, glob_patterns, recursive):
+        _ = image_dir, glob_patterns, recursive
+        assert image == str(image_path)
+        return [image_path]
+
+    def _fake_run_desktop_batch_job(**kwargs):
+        captured["model_name"] = kwargs["model_name"]
+        return SimpleNamespace(
+            batch_dir=tmp_path / "batch",
+            summary_json_path=tmp_path / "batch" / "batch_results_summary.json",
+            records=[SimpleNamespace()],
+        )
+
+    monkeypatch.setattr(microseg_cli, "resolve_config", lambda *_args, **_kwargs: {"image_path": str(image_path)})
+    monkeypatch.setattr(microseg_cli, "collect_inference_images", _fake_collect_inference_images)
+    monkeypatch.setattr(microseg_cli, "DesktopWorkflowManager", lambda: _FakeWorkflow())
+    monkeypatch.setattr(microseg_cli, "run_desktop_batch_job", _fake_run_desktop_batch_job)
+
+    args = SimpleNamespace(
+        config=None,
+        set=[],
+        image=str(image_path),
+        image_dir="",
+        recursive=True,
+        glob_patterns="*.png",
+        model_name=None,
+        output_dir=str(tmp_path / "out"),
+        enable_gpu=False,
+        device_policy="cpu",
+        capture_feedback=False,
+        feedback_root="",
+        deployment_id="",
+        operator_id="",
+    )
+
+    assert microseg_cli._infer(args) == 0
+    assert captured["model_name"] == "Hydride ML (UNet)"
 
 
 def test_phase2_single_run_and_export_package() -> None:

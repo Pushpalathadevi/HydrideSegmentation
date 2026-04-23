@@ -41,6 +41,8 @@ Single image:
 microseg-cli infer --config configs/inference.default.yml
 ```
 
+If you omit `--model` / `--model-name`, the CLI defaults to the first discovered trained model.
+
 Recursive folder inference:
 
 ```bash
@@ -48,8 +50,11 @@ microseg-cli infer \
   --config configs/inference.default.yml \
   --image-dir data/sample_images \
   --recursive \
-  --glob-patterns "*.png,*.tif,*.tiff,*.jpg,*.jpeg"
+  --glob-patterns "*.png,*.tif,*.tiff,*.jpg,*.jpeg" \
+  --model "Hydride ML (UNet)"
 ```
+
+To add a new model so it appears here and in the GUI, edit `frozen_checkpoints/model_registry.json` or `frozen_checkpoints/model_registry.local.json` and restart the app.
 
 ## Dataset Preparation
 

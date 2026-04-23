@@ -22,7 +22,25 @@ LEGACY_GUI_MODEL_TO_ID = {
     "hydride_ml_Unet": "hydride_ml",
 }
 
-_GUI_MODEL_ORDER = ("hydride_ml", "hydride_conventional")
+
+def _ordered_gui_model_ids() -> list[str]:
+    """Return GUI model identifiers with trained models first."""
+
+    registry = build_hydride_registry()
+    specs = registry.specs()
+    ids = [spec.model_id for spec in specs]
+    ordered: list[str] = []
+    for model_id in ("hydride_ml",):
+        if model_id in ids and model_id not in ordered:
+            ordered.append(model_id)
+    for model_id in ids:
+        if model_id in {"hydride_ml", "hydride_conventional"}:
+            continue
+        if model_id not in ordered:
+            ordered.append(model_id)
+    if "hydride_conventional" in ids and "hydride_conventional" not in ordered:
+        ordered.append("hydride_conventional")
+    return ordered
 
 
 def _build_gui_model_specs() -> list[dict[str, str]]:
@@ -35,7 +53,7 @@ def _build_gui_model_specs() -> list[dict[str, str]]:
         frozen = {}
 
     payload: list[dict[str, str]] = []
-    for model_id in _GUI_MODEL_ORDER:
+    for model_id in _ordered_gui_model_ids():
         spec = specs_by_id.get(model_id)
         if spec is None:
             continue

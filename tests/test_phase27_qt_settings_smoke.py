@@ -82,9 +82,9 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     assert win.active_run_box.isHidden() is True
     assert win.history_box.isHidden() is True
     assert win.log_panel.isHidden() is False
-    assert win.model_combo.count() == 2
+    assert win.model_combo.count() >= 2
     assert win.model_combo.itemText(0) == "Hydride ML (UNet)"
-    assert win.model_combo.itemText(1) == "Hydride Conventional"
+    assert win.model_combo.itemText(win.model_combo.count() - 1) == "Hydride Conventional"
     assert win.model_combo.currentText() == "Hydride ML (UNet)"
     screen = app.primaryScreen()
     assert screen is not None

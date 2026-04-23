@@ -17,7 +17,7 @@
 While inference is running, the top status banner shows the current stage, elapsed time, and an ETA estimate when the app has enough history to infer one.
 During recursive batch jobs it also shows processed-image counts, percent complete, and rolling ETA updates as inference, feedback/provenance capture, and export steps finish.
 Single-image and batch inference now both run through the in-process background worker path, which keeps the GUI responsive while allowing warmed ML bundles to be reused across runs.
-The main model selector is intentionally narrow for deployment use: `Hydride ML (UNet)` is the default trained checkpoint, and `Hydride Conventional` remains available as the fallback baseline.
+The main model selector is intentionally ordered for deployment use: discovered trained models appear first, `Hydride ML (UNet)` remains the default trained checkpoint, and `Hydride Conventional` remains available as the fallback baseline.
 The desktop now uses a split layout: the left sidebar holds project/model/correction controls, while the right workspace keeps the image tabs large and readable.
 The left control rail now defaults to a narrower progressive-disclosure layout:
 - `Quick Start` stays visible with load/select/run controls
@@ -285,7 +285,8 @@ For a step-by-step beginner tutorial on copying a trained `.pth` checkpoint into
 The model dropdown now includes inference-capable trained models discovered from:
 
 - `outputs/runs/<run_name>/` (successful runs only)
-- frozen checkpoint registry entries when paths are valid
+- frozen checkpoint registry entries in `frozen_checkpoints/model_registry.json`
+- optional machine-local overlay entries in `frozen_checkpoints/model_registry.local.json`
 
 A trained run is considered inference-eligible when it has:
 

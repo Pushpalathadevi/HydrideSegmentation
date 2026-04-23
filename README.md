@@ -49,7 +49,7 @@ See `docs/mission_statement.md`.
 - Per-inference feedback evidence schema `microseg.feedback_record.v1` (GUI + CLI + deployment worker)
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
-- Default trained hydride inference checkpoint is registered via `frozen_checkpoints/model_registry.json` and resolved from `frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt` when present locally
+- Default trained hydride inference checkpoint is registered via `frozen_checkpoints/model_registry.json` and resolved from `frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt` when present locally; additional trained models can be added through `frozen_checkpoints/model_registry.local.json` and will appear in GUI/CLI discovery automatically
 - Deployment operations tooling (`preflight`, `deploy-package`, `deploy-validate`, `deploy-smoke`, `promote-model`, `support-bundle`)
 - GPU-compatible training/inference/evaluation with CPU default + safe fallback
 - UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`, `smp_unet_resnet18`, `smp_deeplabv3plus_resnet101`, `smp_unetplusplus_resnet101`, `smp_pspnet_resnet101`, `smp_fpn_resnet101`, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
@@ -169,9 +169,11 @@ Model-based inference now uses one architecture-aware loader shared by GUI, lega
 - Discovery sources:
   - training runs under `outputs/runs/<run_name>/`
   - frozen registry entries in `frozen_checkpoints/model_registry.json`
+  - optional local registry overlay `frozen_checkpoints/model_registry.local.json`
 - Run eligibility requires successful metadata + checkpoint artifacts (`report.json` status ok/success/completed and resolvable `model_path`).
 - Failed/incomplete runs (for example folders with only `error_report.json`) are excluded from inference-capable discovery with explicit diagnostics.
 - Architecture is reconstructed from run metadata (`model_architecture` in report/manifest/config), then loaded via the unified binary-backend loader used in training/evaluation (`unet_binary`, SMP families, HF SegFormer/UPerNet, `transunet_tiny`, `segformer_mini`).
+- The CLI `infer` command accepts `--model` / `--model-name` and defaults to the first discovered trained model when omitted.
 
 For legacy service/API callers, pass one of:
 - `run_dir`
@@ -480,7 +482,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 2. Run baseline inference:
 - GUI `Input` + `Run Segmentation` or CLI `microseg-cli infer`.
   - The desktop `Run Segmentation` action now uses the same in-process background worker path as batch inference, so the window stays responsive while warmed ML checkpoints and cached bundles are reused across runs.
-  - The primary selector now exposes only two inference choices: `Hydride ML (UNet)` as the default trained checkpoint and `Hydride Conventional` as the deterministic fallback.
+  - The primary selector now exposes discovered trained models first, with `Hydride ML (UNet)` as the default trained checkpoint and `Hydride Conventional` as the deterministic fallback.
   - The Qt sidebar now defaults to a compact `Quick Start` + `Active Run` rail, with a separate `Run Setup / Status` card for model metadata, preprocessing summary, warm-load state, and progress.
   - The desktop log now lives in a shared bottom workspace strip instead of the left sidebar, and it is visible on startup.
   - `Run Batch` now performs recursive folder inference, writes the full batch export package in one pass (`runs/`, `batch_results_summary.json`, `batch_results_report.html`, `artifacts_manifest.json`, `resolved_config.json`), and opens the batch summary inspector automatically when the job finishes.

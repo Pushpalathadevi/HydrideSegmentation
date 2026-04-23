@@ -239,9 +239,10 @@ def _infer(args: argparse.Namespace) -> int:
             "no input images found; set --image or --image-dir (with optional --glob-patterns/--recursive)"
         )
 
-    model_name = args.model_name or cfg.get("model_name")
+    mgr = DesktopWorkflowManager()
+    model_name = args.model_name or cfg.get("model_name") or mgr.preferred_default_model_name()
     if not model_name:
-        raise ValueError("model name is required (--model-name or config:model_name)")
+        raise ValueError("no usable model found; add a registry model or pass --model-name")
 
     out_dir = Path(args.output_dir or cfg.get("output_dir") or "outputs/inference")
     include_analysis = bool(cfg.get("include_analysis", True))
@@ -249,7 +250,6 @@ def _infer(args: argparse.Namespace) -> int:
     params["enable_gpu"] = bool(cfg.get("enable_gpu", args.enable_gpu))
     params["device_policy"] = str(cfg.get("device_policy", args.device_policy))
 
-    mgr = DesktopWorkflowManager()
     capture_feedback = bool(cfg.get("capture_feedback", args.capture_feedback))
     feedback_writer: FeedbackArtifactWriter | None = None
     if capture_feedback:
@@ -1738,7 +1738,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Recursively scan sub-directories when --image-dir is set",
     )
-    infer.add_argument("--model-name", type=str, help="Model display name from registry")
+    infer.add_argument(
+        "--model-name",
+        "--model",
+        dest="model_name",
+        type=str,
+        help="Model display name from registry; defaults to the first discovered trained model",
+    )
     infer.add_argument("--output-dir", type=str, help="Export output directory")
     infer.add_argument("--enable-gpu", action="store_true", help="Enable GPU auto-selection for ML inference")
     infer.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
