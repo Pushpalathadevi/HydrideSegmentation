@@ -114,14 +114,23 @@ transfer_bundle/
 # Coverage reports
 htmlcov/
 .tox/
+.nox/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+.benchmarks/
+.dmypy.json
 .coverage
 .coverage.*
+coverage/
 .cache
 nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
+pip-wheel-metadata/
 
 # Jupyter Notebook
 .ipynb_checkpoints
