@@ -28,7 +28,7 @@ augmentation:
       probability: 1.0
       parameters:
         sigma: 120
-        kernel_size_range: [3, 7]
+        kernel_size: [3, 7]
         min_center_distance_ratio: 0.4
         count_range: [1, 2]
   debug:

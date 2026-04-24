@@ -140,6 +140,9 @@ def compute_hydride_statistics(
     size_bins: int = 20,
     min_feature_pixels: int = 1,
     microns_per_pixel: float | None = None,
+    include_extended_metrics: bool = True,
+    include_histograms: bool = True,
+    include_physical_metrics: bool = True,
 ) -> HydrideStatisticsResult:
     """Compute hydride statistics from a segmented mask.
 
@@ -202,12 +205,18 @@ def compute_hydride_statistics(
         sizes.append(area)
         kept_label_ids.append(label_id)
 
-    orient_counts, orient_edges = np.histogram(
-        orientations,
-        bins=orientation_bins,
-        range=(0.0, 90.0),
-    )
-    size_counts, size_edges = _safe_size_histogram(sizes, bins=size_bins)
+    if bool(include_histograms):
+        orient_counts, orient_edges = np.histogram(
+            orientations,
+            bins=orientation_bins,
+            range=(0.0, 90.0),
+        )
+        size_counts, size_edges = _safe_size_histogram(sizes, bins=size_bins)
+    else:
+        orient_counts = np.zeros(0, dtype=np.int64)
+        orient_edges = np.zeros(0, dtype=np.float64)
+        size_counts = np.zeros(0, dtype=np.int64)
+        size_edges = np.zeros(0, dtype=np.float64)
     size_counts_um2 = np.zeros_like(size_counts, dtype=np.int64)
     size_edges_um2 = np.zeros_like(size_edges, dtype=np.float64)
 
@@ -217,9 +226,7 @@ def compute_hydride_statistics(
     total_pixels = int(binary.size)
     foreground_pixels = int(np.count_nonzero(binary))
     area_fraction = float(foreground_pixels / total_pixels) if total_pixels else 0.0
-    density_per_megapixel = float(len(sizes) / (total_pixels / 1_000_000.0)) if total_pixels else 0.0
     eq_diam_px = [float(2.0 * sqrt(max(v, 0.0) / pi)) for v in sizes]
-    eq_px_stats = _scalar_summary(eq_diam_px)
 
     scalar_metrics: dict[str, float | int] = {
         "mask_area_fraction": area_fraction,
@@ -227,36 +234,43 @@ def compute_hydride_statistics(
         "hydride_area_fraction_percent": area_fraction * 100.0,
         "hydride_count": int(len(sizes)),
         "hydride_total_area_pixels": int(sum(sizes)),
-        "hydride_density_per_megapixel": density_per_megapixel,
         "size_mean_pixels": size_stats["mean"],
         "size_median_pixels": size_stats["median"],
-        "size_std_pixels": size_stats["std"],
         "size_min_pixels": size_stats["min"],
         "size_max_pixels": size_stats["max"],
-        "size_p10_pixels": size_stats["p10"],
-        "size_p90_pixels": size_stats["p90"],
-        "equivalent_diameter_mean_px": eq_px_stats["mean"],
-        "equivalent_diameter_median_px": eq_px_stats["median"],
-        "equivalent_diameter_std_px": eq_px_stats["std"],
-        "equivalent_diameter_min_px": eq_px_stats["min"],
-        "equivalent_diameter_max_px": eq_px_stats["max"],
         "orientation_mean_deg": orientation_stats["mean"],
         "orientation_median_deg": orientation_stats["median"],
-        "orientation_std_deg": orientation_stats["std"],
         "orientation_min_deg": orientation_stats["min"],
         "orientation_max_deg": orientation_stats["max"],
-        "orientation_p10_deg": orientation_stats["p10"],
-        "orientation_p90_deg": orientation_stats["p90"],
-        "orientation_alignment_index": _orientation_alignment_index(orientations),
-        "orientation_entropy_bits": _orientation_entropy_bits(orient_counts),
         "excluded_small_features": int(excluded_small),
         "min_feature_pixels": int(min_feature_pixels),
     }
+    if bool(include_extended_metrics):
+        density_per_megapixel = float(len(sizes) / (total_pixels / 1_000_000.0)) if total_pixels else 0.0
+        eq_px_stats = _scalar_summary(eq_diam_px)
+        scalar_metrics.update(
+            {
+                "hydride_density_per_megapixel": density_per_megapixel,
+                "size_std_pixels": size_stats["std"],
+                "size_p10_pixels": size_stats["p10"],
+                "size_p90_pixels": size_stats["p90"],
+                "equivalent_diameter_mean_px": eq_px_stats["mean"],
+                "equivalent_diameter_median_px": eq_px_stats["median"],
+                "equivalent_diameter_std_px": eq_px_stats["std"],
+                "equivalent_diameter_min_px": eq_px_stats["min"],
+                "equivalent_diameter_max_px": eq_px_stats["max"],
+                "orientation_std_deg": orientation_stats["std"],
+                "orientation_p10_deg": orientation_stats["p10"],
+                "orientation_p90_deg": orientation_stats["p90"],
+                "orientation_alignment_index": _orientation_alignment_index(orientations),
+                "orientation_entropy_bits": _orientation_entropy_bits(orient_counts),
+            }
+        )
 
     sizes_um2: list[float] = []
     eq_diam_um: list[float] = []
     um_per_px = float(microns_per_pixel) if microns_per_pixel is not None else None
-    if um_per_px is not None and um_per_px > 0:
+    if bool(include_physical_metrics) and um_per_px is not None and um_per_px > 0:
         area_scale = um_per_px * um_per_px
         sizes_um2 = [float(v * area_scale) for v in sizes]
         eq_diam_um = [float(v * um_per_px) for v in eq_diam_px]
@@ -304,6 +318,8 @@ def compute_hydride_statistics(
 def render_hydride_visualizations(
     stats: HydrideStatisticsResult,
     config: HydrideVisualizationConfig,
+    *,
+    include_distribution_charts: bool = True,
 ) -> dict[str, np.ndarray]:
     """Render analysis visualizations for hydride statistics.
 
@@ -334,6 +350,11 @@ def render_hydride_visualizations(
     sm.set_array([])
     fig_map.colorbar(sm, ax=ax_map, fraction=0.046, pad=0.04, label="Orientation (deg)")
     map_rgb = _figure_to_rgb(fig_map)
+
+    if not bool(include_distribution_charts):
+        return {
+            "orientation_map_rgb": map_rgb,
+        }
 
     fig_size, ax_size = plt.subplots(figsize=(5.5, 4.4))
     size_values = [float(v) for v in stats.sizes_px]

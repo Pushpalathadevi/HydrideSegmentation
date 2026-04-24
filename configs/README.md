@@ -16,6 +16,9 @@ Related metadata:
 - hydride benchmark presets: `configs/hydride/README.md`
 
 Additional workflow config:
+- `inference.default.yml` for default CLI inference
+  - defaults to `Hydride ML (UNet)` and resolves the trained checkpoint through repo-relative `frozen_checkpoints/model_registry.json`
+  - includes `result_export` switches for optional extended metrics and distribution charts
 - `phase_gate.default.yml` for end-of-phase closeout checks
 - `preflight.default.yml` for unified train/eval/benchmark/deploy preflight checks
 - `deployment_package.default.yml` for deployment bundle creation inputs
@@ -31,6 +34,7 @@ Additional workflow config:
 - `dataset_prepare.default.yml` for unsplit source/masks -> split dataset preparation
   - includes `split_strategy`, leakage-group controls, RGB `mask_input_type`, `mask_colormap`, optional `binary_mask_normalization`, optional `class_map_path` (fallback: `configs/segmentation_classes.json`), and the shared `augmentation` block
   - augmentation examples: `dataset_prepare.augmentation.disabled.yml`, `dataset_prepare.augmentation.shadow_blur.yml`, `dataset_prepare.augmentation.debug.yml`, `dataset_prepare.augmentation.multi.yml`
+  - scalar-or-range augmentation magnitudes are supported, such as `radius: [100, 300]` and `kernel_size: [3, 9]`
 - `phaseid_oh5_benchmark.default.yml` for the single-command raw `.oh5` phaseId workflow
   - includes `.oh5` dataset-path resolution, phase-ID foreground mapping, dataset split/QA policy, benchmark template selection, and PPTX generation settings
 - `data_prep.default.yml` for `prep-dataset` binary segmentation data preparation (`src/microseg/data_preparation`)

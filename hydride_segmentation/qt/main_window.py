@@ -1526,6 +1526,11 @@ class AppearanceExportSettingsDialog(QDialog):
             sort_metrics=str(exp_base.sort_metrics),
             top_k_key_metrics=int(self.top_k_spin.value()),
             include_artifact_manifest=bool(exp_base.include_artifact_manifest),
+            compute_required_metrics=bool(exp_base.compute_required_metrics),
+            compute_extended_metrics=bool(exp_base.compute_extended_metrics),
+            write_orientation_map=bool(exp_base.write_orientation_map),
+            write_distribution_charts=bool(exp_base.write_distribution_charts),
+            write_physical_calibration_metrics=bool(exp_base.write_physical_calibration_metrics),
         )
         return DesktopUIConfig(
             schema_version="microseg.desktop_ui_config.v1",
@@ -4404,6 +4409,13 @@ class QtSegmentationMainWindow(QMainWindow):
             sort_metrics="name",
             top_k_key_metrics=int(self.report_top_k_spin.value()),
             include_artifact_manifest=bool(self.chk_artifact_manifest.isChecked()),
+            compute_required_metrics=bool(self._ui_config.export_defaults.compute_required_metrics),
+            compute_extended_metrics=bool(self._ui_config.export_defaults.compute_extended_metrics),
+            write_orientation_map=bool(self._ui_config.export_defaults.write_orientation_map),
+            write_distribution_charts=bool(self._ui_config.export_defaults.write_distribution_charts),
+            write_physical_calibration_metrics=bool(
+                self._ui_config.export_defaults.write_physical_calibration_metrics
+            ),
         )
 
     def _apply_calibration(self, calibration: SpatialCalibration | None, *, image_path: str | None = None) -> None:

@@ -230,10 +230,13 @@ augmentation:
       parameters:
         intensity_range: [20, 25]
         count_range: [1, 1]
+        radius: [100, 300]
+        sigma: 150
     - name: blur
       probability: 1.0
       parameters:
-        kernel_size_range: [3, 3]
+        kernel_size: [3, 9]
+        sigma: [40, 120]
         count_range: [1, 1]
 ```
 
@@ -243,6 +246,13 @@ Important fields:
 - `variants_per_sample`: how many augmented samples are created per original sample
 - `stage`: `pre_resize` or `post_resize`
 - `debug.enabled`: writes `debug_augmentation/` panels and metadata
+
+Scalar-or-range parameters:
+
+- `shadow.radius`, `shadow.sigma`, `blur.sigma`, `blur.kernel_size`, and `blur.min_center_distance_ratio` may be fixed scalars or `[min, max]` ranges.
+- `blur.kernel_size: [3, 9]` samples only valid odd integers inclusively: `3`, `5`, `7`, or `9`.
+- Legacy `blur.kernel_size_range` remains supported, but `kernel_size` is the preferred field for new YAML.
+- Sampled values are written into each augmented sample's metadata for reproducibility.
 
 The beginner default is train-only augmentation.
 

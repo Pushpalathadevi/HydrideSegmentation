@@ -11,8 +11,13 @@ from PIL import Image
 
 from src.microseg.app.desktop_workflow import DesktopWorkflowManager
 from hydride_segmentation.microseg_adapter import resolve_gui_model_id
+from src.microseg.io import resolve_config
 from src.microseg.inference.predictors import HydrideMLPredictor
-from src.microseg.inference.trained_model_loader import InferenceModelReference, run_reference_inference
+from src.microseg.inference.trained_model_loader import (
+    InferenceModelReference,
+    load_reference_from_registry,
+    run_reference_inference,
+)
 
 
 def _synthetic_image_a() -> np.ndarray:
@@ -50,6 +55,16 @@ def test_phase2_preferred_default_model_prefers_trained_ml_checkpoint() -> None:
     preferred = mgr.preferred_default_model_name()
     assert preferred
     assert resolve_gui_model_id(preferred) != "hydride_conventional"
+
+
+def test_phase2_default_inference_config_uses_repo_relative_ml_checkpoint() -> None:
+    cfg = resolve_config("configs/inference.default.yml", [])
+    assert cfg["model_name"] == "Hydride ML (UNet)"
+    ref = load_reference_from_registry("hydride_ml")
+    assert ref.source == "registry"
+    assert ref.checkpoint_path.replace("\\", "/").endswith(
+        "frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt"
+    )
 
 
 def test_phase2_dynamic_gui_models_are_included(monkeypatch) -> None:
@@ -299,3 +314,12 @@ def test_phase2_ml_preprocess_display_image_preserves_original_size(tmp_path: Pa
     assert manifest["preprocessing"]["applied"] is True
     assert manifest["preprocessing"]["rescaled_to_original"] is True
     assert manifest["preprocessing"]["preprocessed_size"]["width"] == 64
+    steps = manifest["preprocessing"]["preprocessing_steps"]
+    assert [step["step"] for step in steps] == [
+        "load_image",
+        "resize",
+        "crop",
+        "contrast",
+        "channel_normalization",
+        "mask_rescale",
+    ]

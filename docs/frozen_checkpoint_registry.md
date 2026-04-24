@@ -8,6 +8,14 @@
 - future model loading validation and compatibility checks
 
 It stores metadata only. Model binaries stay outside git tracking.
+Committed registry entries must use repository-relative paths under `frozen_checkpoints/`.
+The default trained hydride checkpoint is resolved from:
+
+```text
+frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt
+```
+
+Absolute checkpoint paths are not valid in the committed registry. They are only appropriate for explicit direct runtime overrides such as `params.checkpoint_path` / `params.weights_path`, or for machine-local experiments in `frozen_checkpoints/model_registry.local.json`.
 
 The loader also reads an optional local overlay file:
 
@@ -96,6 +104,7 @@ Then restart the GUI or rerun the CLI. The selector order is:
 Before you hand a model to another machine, verify:
 
 - the checkpoint file exists at `checkpoint_path_hint`
+- `checkpoint_path_hint` is repo-relative, not an absolute local path
 - `model_type` is exactly one of the supported loader tokens
 - the class indices and colors match training
 - the SHA-256 checksum matches the packaged artifact
@@ -122,7 +131,7 @@ For a beginner-friendly, air-gapped walkthrough with concrete examples, see [`do
 ## Design Rules
 
 - Do not hardcode absolute local filesystem paths.
-- Keep `checkpoint_path_hint` repository-relative.
+- Keep committed `checkpoint_path_hint` values repository-relative under `frozen_checkpoints/`; strict registry validation rejects absolute paths.
 - Keep `artifact_stage` and `checkpoint_path_hint` folder aligned:
   - `smoke` -> `frozen_checkpoints/smoke/...`
   - `candidate` -> `frozen_checkpoints/candidates/...`

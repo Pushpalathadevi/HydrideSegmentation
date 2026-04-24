@@ -50,6 +50,7 @@ See `docs/mission_statement.md`.
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
 - Default trained hydride inference checkpoint is registered via `frozen_checkpoints/model_registry.json` and resolved from `frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt` when present locally; additional trained models can be added through `frozen_checkpoints/model_registry.local.json` and will appear in GUI/CLI discovery automatically
+- Committed model discovery metadata uses repository-relative `checkpoint_path_hint` values under `frozen_checkpoints/`; absolute paths are reserved for explicit direct `checkpoint_path` / `weights_path` overrides or machine-local overlays.
 - Deployment operations tooling (`preflight`, `deploy-package`, `deploy-validate`, `deploy-smoke`, `promote-model`, `support-bundle`)
 - GPU-compatible training/inference/evaluation with CPU default + safe fallback
 - UNet + transformer segmentation backends (`hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`, `smp_unet_resnet18`, `smp_deeplabv3plus_resnet101`, `smp_unetplusplus_resnet101`, `smp_pspnet_resnet101`, `smp_fpn_resnet101`, `transunet_tiny`, `segformer_mini`) with checkpoint/resume + fixed/random validation sample tracking
@@ -127,6 +128,8 @@ Inference:
 ```bash
 microseg-cli infer --config configs/inference.default.yml --set params.area_threshold=120
 ```
+
+`configs/inference.default.yml` selects `Hydride ML (UNet)` by default. Use `--model-name "Hydride Conventional"` only when you intentionally want the deterministic classical fallback.
 
 The ML inference path uses GUI-style preprocessing by default unless disabled in the YAML:
 - aspect-ratio-preserving resize to a `512` long side
@@ -234,6 +237,7 @@ microseg-cli dataset-prepare \
   --config configs/dataset_prepare.augmentation.shadow_blur.yml
 ```
 The canonical `dataset-prepare` path now supports a shared YAML augmentation block with deterministic seeds, split targeting, per-operation probabilities, per-sample variant counts, and debug inspection artifacts. The same augmentation block also flows through `train` / `evaluate` when `auto_prepare_dataset=true`.
+Augmentation magnitude fields accept either scalars or inclusive ranges where meaningful: for example `radius: [100, 300]`, `sigma: [80, 160]`, and `kernel_size: [3, 9]` samples valid odd blur kernels.
 
 Paired JPG + RGB PNG mask to MaDo-style dataset prep:
 ```bash

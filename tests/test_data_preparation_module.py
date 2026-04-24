@@ -15,6 +15,7 @@ from PIL import Image
 
 from src.microseg.data_preparation.binarization import MaskBinarizer
 from src.microseg.data_preparation.cli import main as prep_main
+from src.microseg.data_preparation.augmentation import AugmentationRunner, parse_augmentation_config
 from src.microseg.data_preparation.config import DatasetPrepConfig
 from src.microseg.data_preparation.pairing import PairCollector
 from src.microseg.data_preparation.pipeline import DatasetPreparer
@@ -611,3 +612,92 @@ def test_pipeline_augmentation_is_seeded(tmp_path: Path) -> None:
         np.asarray(Image.open(aug_a[0]).convert("RGB"), dtype=np.uint8),
         np.asarray(Image.open(aug_b[0]).convert("RGB"), dtype=np.uint8),
     )
+
+
+def test_augmentation_scalar_and_range_parameters_are_sampled_and_recorded() -> None:
+    image = np.full((32, 32, 3), 160, dtype=np.uint8)
+    mask = np.zeros((32, 32), dtype=np.uint8)
+    cfg = parse_augmentation_config(
+        {
+            "enabled": True,
+            "seed": 123,
+            "stage": "post_resize",
+            "apply_splits": ["train"],
+            "variants_per_sample": 5,
+            "operations": [
+                {
+                    "name": "shadow",
+                    "probability": 1.0,
+                    "parameters": {
+                        "count_range": [1, 1],
+                        "intensity_range": [10, 10],
+                        "radius": [100, 300],
+                        "sigma": 120,
+                    },
+                },
+                {
+                    "name": "blur",
+                    "probability": 1.0,
+                    "parameters": {
+                        "count_range": [1, 1],
+                        "kernel_size": [3, 9],
+                        "sigma": [10, 20],
+                        "min_center_distance_ratio": [0.2, 0.6],
+                    },
+                },
+            ],
+        },
+        default_seed=1,
+    )
+
+    variants = AugmentationRunner(cfg).generate_variants(
+        image=image,
+        mask=mask,
+        split="train",
+        source_name="sample.png",
+        resolved_stage="post_resize",
+    )
+
+    assert len(variants) == 5
+    for variant in variants:
+        ops = {op.name: op.parameters for op in variant.metadata.applied_operations}
+        shadow = ops["shadow"]
+        blur = ops["blur"]
+        assert 100 <= float(shadow["radius"]) <= 300
+        assert float(shadow["sigma"]) == 120.0
+        kernel = int(blur["blurs"][0]["kernel_size"])
+        assert kernel in {3, 5, 7, 9}
+        assert 10 <= float(blur["sigma"]) <= 20
+        assert 0.2 <= float(blur["min_center_distance_ratio"]) <= 0.6
+
+
+def test_augmentation_invalid_kernel_range_fails_clearly() -> None:
+    image = np.full((16, 16, 3), 160, dtype=np.uint8)
+    mask = np.zeros((16, 16), dtype=np.uint8)
+    cfg = parse_augmentation_config(
+        {
+            "enabled": True,
+            "seed": 7,
+            "operations": [
+                {
+                    "name": "blur",
+                    "probability": 1.0,
+                    "parameters": {"count_range": [1, 1], "kernel_size": [2, 2]},
+                }
+            ],
+        },
+        default_seed=1,
+    )
+
+    try:
+        AugmentationRunner(cfg).generate_variants(
+            image=image,
+            mask=mask,
+            split="train",
+            source_name="bad.png",
+            resolved_stage="post_resize",
+        )
+    except ValueError as exc:
+        assert "positive odd integer" in str(exc)
+    else:
+        raise AssertionError("expected invalid even-only kernel range to fail")

@@ -163,6 +163,8 @@ For ML models, this path now applies GUI-style preprocessing by default:
 - resize preserves aspect ratio to a `512` long side
 - auto-contrast is enabled
 - the preprocessing block is written into the exported manifests
+- each preprocessing decision is logged and recorded as ordered `preprocessing_steps`
+- optional distribution charts and extended postprocessing metrics are disabled by default for faster CLI exports
 
 If you want to turn that off for a specific run, edit `gui_preprocess.enabled: false` in the YAML config.
 

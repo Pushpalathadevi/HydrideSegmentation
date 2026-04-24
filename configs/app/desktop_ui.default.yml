@@ -38,19 +38,9 @@ export_defaults:
   selected_metric_keys:
     - hydride_area_fraction_percent
     - hydride_count
-    - hydride_total_area_um2
     - hydride_total_area_pixels
-    - equivalent_diameter_mean_um
-    - equivalent_diameter_mean_px
-    - hydride_density_per_megapixel
-    - size_mean_um2
     - size_mean_pixels
-    - size_p90_um2
-    - size_p90_pixels
     - orientation_mean_deg
-    - orientation_std_deg
-    - orientation_alignment_index
-    - orientation_entropy_bits
     - excluded_small_features
   include_sections:
     - metadata
@@ -64,3 +54,8 @@ export_defaults:
   sort_metrics: name
   top_k_key_metrics: 12
   include_artifact_manifest: true
+  compute_required_metrics: true
+  compute_extended_metrics: false
+  write_orientation_map: true
+  write_distribution_charts: false
+  write_physical_calibration_metrics: false

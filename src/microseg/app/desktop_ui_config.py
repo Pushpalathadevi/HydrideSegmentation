@@ -25,19 +25,9 @@ REPORT_SECTIONS = (
 BALANCED_METRIC_KEYS = (
     "hydride_area_fraction_percent",
     "hydride_count",
-    "hydride_total_area_um2",
     "hydride_total_area_pixels",
-    "equivalent_diameter_mean_um",
-    "equivalent_diameter_mean_px",
-    "hydride_density_per_megapixel",
-    "size_mean_um2",
     "size_mean_pixels",
-    "size_p90_um2",
-    "size_p90_pixels",
     "orientation_mean_deg",
-    "orientation_std_deg",
-    "orientation_alignment_index",
-    "orientation_entropy_bits",
     "excluded_small_features",
 )
 
@@ -106,6 +96,11 @@ class DesktopExportDefaultsConfig:
     sort_metrics: str = "name"
     top_k_key_metrics: int = 12
     include_artifact_manifest: bool = True
+    compute_required_metrics: bool = True
+    compute_extended_metrics: bool = False
+    write_orientation_map: bool = True
+    write_distribution_charts: bool = False
+    write_physical_calibration_metrics: bool = False
 
 
 @dataclass(frozen=True)
@@ -432,6 +427,26 @@ def _sanitize_export_defaults(
         include_artifact_manifest=_as_bool(
             payload.get("include_artifact_manifest", base.include_artifact_manifest),
             base.include_artifact_manifest,
+        ),
+        compute_required_metrics=_as_bool(
+            payload.get("compute_required_metrics", base.compute_required_metrics),
+            base.compute_required_metrics,
+        ),
+        compute_extended_metrics=_as_bool(
+            payload.get("compute_extended_metrics", base.compute_extended_metrics),
+            base.compute_extended_metrics,
+        ),
+        write_orientation_map=_as_bool(
+            payload.get("write_orientation_map", base.write_orientation_map),
+            base.write_orientation_map,
+        ),
+        write_distribution_charts=_as_bool(
+            payload.get("write_distribution_charts", base.write_distribution_charts),
+            base.write_distribution_charts,
+        ),
+        write_physical_calibration_metrics=_as_bool(
+            payload.get("write_physical_calibration_metrics", base.write_physical_calibration_metrics),
+            base.write_physical_calibration_metrics,
         ),
     )
 

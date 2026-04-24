@@ -148,6 +148,90 @@ def _as_int_pair(value: Any, *, field_name: str) -> tuple[int, int]:
     return lo, hi
 
 
+def _is_two_item_range(value: Any) -> bool:
+    return isinstance(value, (list, tuple)) and len(value) == 2
+
+
+def _sample_int_or_range(value: Any, *, field_name: str, rng: random.Random, default: int) -> tuple[int, Any]:
+    """Return fixed integer or sampled inclusive integer range value plus config echo."""
+
+    raw = default if value is None else value
+    if _is_two_item_range(raw):
+        lo, hi = _as_int_pair(raw, field_name=field_name)
+        return int(rng.randint(lo, hi)), [int(lo), int(hi)]
+    try:
+        return int(raw), int(raw)
+    except Exception as exc:
+        raise ValueError(f"{field_name} must be an integer or 2-item integer range") from exc
+
+
+def _sample_float_or_range(
+    value: Any,
+    *,
+    field_name: str,
+    rng: random.Random,
+    default: float,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> tuple[float, Any]:
+    """Return fixed float or sampled inclusive float range value plus config echo."""
+
+    raw = default if value is None else value
+    if _is_two_item_range(raw):
+        try:
+            lo = float(raw[0])
+            hi = float(raw[1])
+        except Exception as exc:
+            raise ValueError(f"{field_name} must be a number or 2-item numeric range") from exc
+        if hi < lo:
+            raise ValueError(f"{field_name} max must be >= min")
+        value_f = float(rng.uniform(lo, hi))
+        config_echo: Any = [float(lo), float(hi)]
+    else:
+        try:
+            value_f = float(raw)
+        except Exception as exc:
+            raise ValueError(f"{field_name} must be a number or 2-item numeric range") from exc
+        config_echo = float(raw)
+    if minimum is not None and value_f < float(minimum):
+        raise ValueError(f"{field_name} must be >= {minimum}")
+    if maximum is not None and value_f > float(maximum):
+        raise ValueError(f"{field_name} must be <= {maximum}")
+    return value_f, config_echo
+
+
+def _sample_odd_kernel(
+    parameters: dict[str, Any],
+    *,
+    rng: random.Random,
+    default: int = 9,
+) -> tuple[int, dict[str, Any]]:
+    """Sample an odd blur kernel from scalar ``kernel_size`` or legacy range."""
+
+    source = "kernel_size"
+    raw = parameters.get("kernel_size", None)
+    if raw is None:
+        raw = parameters.get("kernel_size_range", [3, default])
+        source = "kernel_size_range"
+
+    if _is_two_item_range(raw):
+        lo, hi = _as_int_pair(raw, field_name=f"blur.{source}")
+        odds = [value for value in range(lo, hi + 1) if value % 2 == 1 and value > 0]
+        if not odds:
+            raise ValueError(f"blur.{source} must include at least one positive odd integer")
+        sampled = int(rng.choice(odds))
+        configured: Any = [int(lo), int(hi)]
+    else:
+        try:
+            sampled = int(raw)
+        except Exception as exc:
+            raise ValueError(f"blur.{source} must be an odd integer or 2-item integer range") from exc
+        if sampled <= 0 or sampled % 2 == 0:
+            raise ValueError(f"blur.{source} scalar must be a positive odd integer")
+        configured = int(sampled)
+    return sampled, {"source": source, "configured": configured}
+
+
 def _sample_peripheral_center(
     width: int,
     height: int,
@@ -182,8 +266,20 @@ class ShadowAugmentation:
         rng: random.Random,
         parameters: dict[str, Any],
     ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
-        radius = float(parameters.get("radius", 150.0))
-        sigma = float(parameters.get("sigma", 500.0))
+        radius, radius_config = _sample_float_or_range(
+            parameters.get("radius"),
+            field_name="shadow.radius",
+            rng=rng,
+            default=150.0,
+            minimum=1.0,
+        )
+        sigma, sigma_config = _sample_float_or_range(
+            parameters.get("sigma"),
+            field_name="shadow.sigma",
+            rng=rng,
+            default=500.0,
+            minimum=1.0,
+        )
         intensity_lo, intensity_hi = _as_int_pair(
             parameters.get("intensity_range", [40, 50]),
             field_name="shadow.intensity_range",
@@ -225,7 +321,16 @@ class ShadowAugmentation:
         else:
             image_f = image_f - total_shadow
         out = np.clip(image_f, 0, 255).astype(np.uint8)
-        return out, mask, {"shadow_count": int(count), "shadows": entries}
+        return out, mask, {
+            "shadow_count": int(count),
+            "radius": float(radius),
+            "sigma": float(sigma),
+            "configured": {
+                "radius": radius_config,
+                "sigma": sigma_config,
+            },
+            "shadows": entries,
+        }
 
 
 class BlurAugmentation:
@@ -242,16 +347,25 @@ class BlurAugmentation:
         rng: random.Random,
         parameters: dict[str, Any],
     ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
-        sigma = float(parameters.get("sigma", 120.0))
-        kernel_lo, kernel_hi = _as_int_pair(
-            parameters.get("kernel_size_range", [3, 9]),
-            field_name="blur.kernel_size_range",
+        sigma, sigma_config = _sample_float_or_range(
+            parameters.get("sigma"),
+            field_name="blur.sigma",
+            rng=rng,
+            default=120.0,
+            minimum=1.0,
         )
         count_lo, count_hi = _as_int_pair(
             parameters.get("count_range", [1, 3]),
             field_name="blur.count_range",
         )
-        min_center_distance_ratio = float(parameters.get("min_center_distance_ratio", 0.4))
+        min_center_distance_ratio, min_center_distance_config = _sample_float_or_range(
+            parameters.get("min_center_distance_ratio"),
+            field_name="blur.min_center_distance_ratio",
+            rng=rng,
+            default=0.4,
+            minimum=0.0,
+            maximum=1.0,
+        )
 
         current = image.astype(np.float32)
         height, width = image.shape[:2]
@@ -261,9 +375,7 @@ class BlurAugmentation:
 
         for _ in range(count):
             bx, by = _sample_peripheral_center(width, height, min_center_distance_ratio, rng)
-            ksize = rng.randint(kernel_lo, kernel_hi)
-            if ksize % 2 == 0:
-                ksize += 1
+            ksize, kernel_metadata = _sample_odd_kernel(parameters, rng=rng)
             blurred = cv2.GaussianBlur(current, (ksize, ksize), 0)
             dist_sq = (x_grid - float(bx)) ** 2 + (y_grid - float(by)) ** 2
             mask_field = np.exp(-dist_sq / max(1.0, 2.0 * sigma**2))
@@ -278,11 +390,21 @@ class BlurAugmentation:
                 {
                     "center": {"x": int(bx), "y": int(by)},
                     "kernel_size": int(ksize),
+                    "kernel": kernel_metadata,
                 }
             )
 
         out = np.clip(current, 0, 255).astype(np.uint8)
-        return out, mask, {"blur_count": int(count), "blurs": entries}
+        return out, mask, {
+            "blur_count": int(count),
+            "sigma": float(sigma),
+            "min_center_distance_ratio": float(min_center_distance_ratio),
+            "configured": {
+                "sigma": sigma_config,
+                "min_center_distance_ratio": min_center_distance_config,
+            },
+            "blurs": entries,
+        }
 
 
 DEFAULT_AUGMENTATION_REGISTRY: dict[str, AugmentationOperation] = {

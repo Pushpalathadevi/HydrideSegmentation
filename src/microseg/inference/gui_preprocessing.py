@@ -27,6 +27,8 @@ class GuiInferencePreprocessConfig:
     auto_contrast_enabled: bool = True
     contrast_mode: str = "histogram_stretch"
     manual_adjustment: ManualContrastAdjustment | None = None
+    crop: bool = False
+    crop_percent: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,8 @@ def coerce_gui_inference_preprocess_config(payload: GuiInferencePreprocessConfig
         auto_contrast_enabled=bool(payload.get("auto_contrast_enabled", True)),
         contrast_mode=str(payload.get("contrast_mode", "histogram_stretch")).strip().lower() or "histogram_stretch",
         manual_adjustment=manual,
+        crop=bool(payload.get("crop", False)),
+        crop_percent=float(payload.get("crop_percent", 0.0)),
     )
 
 
@@ -101,6 +105,37 @@ def prepare_gui_inference_input(
     cfg = coerce_gui_inference_preprocess_config(config)
     original_image, original_channel_count = load_original_inference_image(image_path)
     resized_image_before_contrast, resize_scale = _resize_preserve_aspect(original_image, cfg.target_long_side)
+    steps: list[dict[str, Any]] = [
+        {
+            "step": "load_image",
+            "status": "applied",
+            "message": "Loaded source image.",
+            "output_size": {"width": int(original_image.shape[1]), "height": int(original_image.shape[0])},
+            "output_channels": int(original_channel_count),
+        },
+        {
+            "step": "resize",
+            "status": "applied" if float(resize_scale) != 1.0 else "skipped",
+            "message": (
+                f"Resized preserving aspect ratio to {resized_image_before_contrast.shape[1]}x{resized_image_before_contrast.shape[0]}."
+                if float(resize_scale) != 1.0
+                else "Skipped resize because source already matches target long side."
+            ),
+            "parameters": {"policy": "preserve_aspect_ratio_long_side", "target_long_side": int(cfg.target_long_side)},
+            "input_size": {"width": int(original_image.shape[1]), "height": int(original_image.shape[0])},
+            "output_size": {
+                "width": int(resized_image_before_contrast.shape[1]),
+                "height": int(resized_image_before_contrast.shape[0]),
+            },
+            "scale": float(resize_scale),
+        },
+        {
+            "step": "crop",
+            "status": "skipped",
+            "message": "Skipped cropping because it is disabled for ML inference preprocessing.",
+            "parameters": {"enabled": bool(cfg.crop), "crop_percent": float(cfg.crop_percent)},
+        },
+    ]
 
     contrast_metadata: dict[str, Any] = {
         "enabled": False,
@@ -115,6 +150,14 @@ def prepare_gui_inference_input(
             "mode": "manual",
             "parameters": asdict(cfg.manual_adjustment),
         }
+        steps.append(
+            {
+                "step": "contrast",
+                "status": "applied",
+                "message": "Applied manual contrast stretch.",
+                "parameters": asdict(cfg.manual_adjustment),
+            }
+        )
     elif cfg.auto_contrast_enabled:
         processed = _apply_auto_contrast(resized_image_before_contrast)
         contrast_metadata = {
@@ -122,8 +165,38 @@ def prepare_gui_inference_input(
             "mode": cfg.contrast_mode,
             "parameters": {"low_percentile": 1.0, "high_percentile": 99.0},
         }
+        steps.append(
+            {
+                "step": "contrast",
+                "status": "applied",
+                "message": f"Applied {cfg.contrast_mode} auto contrast.",
+                "parameters": {"low_percentile": 1.0, "high_percentile": 99.0},
+            }
+        )
+    else:
+        steps.append(
+            {
+                "step": "contrast",
+                "status": "skipped",
+                "message": "Skipped contrast adjustment because auto_contrast_enabled is false.",
+                "parameters": {},
+            }
+        )
 
     model_ready_image, duplicated = _ensure_three_channels(processed)
+    steps.append(
+        {
+            "step": "channel_normalization",
+            "status": "applied" if duplicated else "skipped",
+            "message": (
+                "Duplicated grayscale channel to produce three-channel model input."
+                if duplicated
+                else "Skipped channel duplication because image is already RGB."
+            ),
+            "input_channels": int(1 if processed.ndim == 2 else processed.shape[2]),
+            "output_channels": int(model_ready_image.shape[2]),
+        }
+    )
     original_size = (int(original_image.shape[1]), int(original_image.shape[0]))
     preprocessed_size = (int(processed.shape[1]), int(processed.shape[0]))
     metadata = {
@@ -143,6 +216,7 @@ def prepare_gui_inference_input(
             },
         },
         "contrast": contrast_metadata,
+        "preprocessing_steps": steps,
     }
     return GuiInferencePreprocessResult(
         original_image=original_image,

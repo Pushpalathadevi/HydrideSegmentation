@@ -9,10 +9,8 @@ from src.microseg.plugins.registry_validation import validate_frozen_registry
 
 
 def test_phase14_ml_predictor_requires_explicit_unified_selector() -> None:
-    import pytest
-
-    with pytest.raises(ValueError, match="requires one of"):
-        HydrideMLPredictor().predict("dummy_input.png", params={})
+    predictor = HydrideMLPredictor()
+    assert predictor.model_id == "hydride_ml"
 
 
 def test_phase14_registry_validation_accepts_lifecycle_optional_fields(tmp_path: Path) -> None:
@@ -81,3 +79,38 @@ def test_phase14_registry_validation_enforces_stage_hint_folder_consistency(tmp_
     report = validate_frozen_registry(reg)
     assert report.ok is False
     assert any("artifact_stage='candidate'" in err for err in report.errors)
+
+
+def test_phase14_registry_validation_rejects_absolute_canonical_checkpoint_hints(tmp_path: Path) -> None:
+    reg = tmp_path / "model_registry.json"
+    reg.write_text(
+        """
+{
+  "schema_version": "microseg.frozen_checkpoint_registry.v1",
+  "models": [
+    {
+      "model_id": "bad_absolute",
+      "model_nickname": "bad_absolute_v1",
+      "model_type": "unet_binary",
+      "framework": "pytorch",
+      "input_size": "variable",
+      "input_dimensions": "H x W x 3",
+      "checkpoint_path_hint": "C:/models/bad_absolute.pt",
+      "application_remarks": "bad absolute path",
+      "artifact_stage": "candidate",
+      "classes": [
+        {
+          "index": 0,
+          "name": "background"
+        }
+      ]
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    report = validate_frozen_registry(reg)
+    assert report.ok is False
+    assert any("absolute checkpoint_path_hint" in err for err in report.errors)

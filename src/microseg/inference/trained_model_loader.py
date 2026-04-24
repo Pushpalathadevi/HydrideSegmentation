@@ -330,6 +330,44 @@ def run_reference_inference(
             },
             "contrast": {"enabled": False, "mode": "disabled", "parameters": {}},
             "rescaled_to_original": False,
+            "preprocessing_steps": [
+                {
+                    "step": "load_image",
+                    "status": "applied",
+                    "message": "Loaded source image.",
+                    "output_size": {"width": int(image.shape[1]), "height": int(image.shape[0])},
+                    "output_channels": int(1 if image.ndim == 2 else image.shape[2]),
+                },
+                {
+                    "step": "resize",
+                    "status": "skipped",
+                    "message": "Skipped resizing because GUI preprocessing is disabled.",
+                    "parameters": {"policy": "none"},
+                },
+                {
+                    "step": "crop",
+                    "status": "skipped",
+                    "message": "Skipped cropping because GUI preprocessing is disabled.",
+                    "parameters": {"enabled": False},
+                },
+                {
+                    "step": "contrast",
+                    "status": "skipped",
+                    "message": "Skipped contrast adjustment because GUI preprocessing is disabled.",
+                    "parameters": {},
+                },
+                {
+                    "step": "channel_normalization",
+                    "status": "applied" if image.ndim == 2 else "skipped",
+                    "message": (
+                        "Duplicated grayscale channel to produce three-channel model input."
+                        if image.ndim == 2
+                        else "Skipped channel duplication because image is already RGB."
+                    ),
+                    "input_channels": int(1 if image.ndim == 2 else image.shape[2]),
+                    "output_channels": int(model_input.shape[2]),
+                },
+            ],
         }
         display_image = model_input if image.ndim == 2 else image.astype(np.uint8, copy=True)
         _LOGGER.info(
@@ -343,6 +381,15 @@ def run_reference_inference(
             int(model_input.shape[2]),
             bool(image.ndim == 2),
         )
+        for step in preprocessing_manifest["preprocessing_steps"]:
+            _LOGGER.info(
+                "GUI_PREPROCESS_STEP | image=%s step=%s status=%s message=%s parameters=%s",
+                image_path,
+                step.get("step"),
+                step.get("status"),
+                step.get("message"),
+                json.dumps(step.get("parameters", {}), sort_keys=True),
+            )
     else:
         preprocess_started = image_load_started
         prepared = prepare_gui_inference_input(
@@ -374,6 +421,15 @@ def run_reference_inference(
             int(prepared.output_channel_count),
             bool(prepared.channel_duplicated),
         )
+        for step in preprocessing_manifest.get("preprocessing_steps", []):
+            _LOGGER.info(
+                "GUI_PREPROCESS_STEP | image=%s step=%s status=%s message=%s parameters=%s",
+                image_path,
+                step.get("step"),
+                step.get("status"),
+                step.get("message"),
+                json.dumps(step.get("parameters", {}), sort_keys=True),
+            )
 
     bundle, cache_hit, bundle_load_seconds = get_or_load_reference_bundle(
         reference,
@@ -397,6 +453,22 @@ def run_reference_inference(
             image_path,
             int(pred.shape[1]),
             int(pred.shape[0]),
+        )
+        preprocessing_manifest.setdefault("preprocessing_steps", []).append(
+            {
+                "step": "mask_rescale",
+                "status": "applied",
+                "message": "Rescaled predicted mask to original image size.",
+                "output_size": {"width": int(pred.shape[1]), "height": int(pred.shape[0])},
+            }
+        )
+    else:
+        preprocessing_manifest.setdefault("preprocessing_steps", []).append(
+            {
+                "step": "mask_rescale",
+                "status": "skipped",
+                "message": "Skipped mask rescale because preprocessing did not change image size.",
+            }
         )
     postprocess_seconds = max(0.0, time.perf_counter() - postprocess_started)
     _LOGGER.info(

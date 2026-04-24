@@ -240,7 +240,15 @@ def _build_gui_preprocess_payload(cfg: dict[str, object], model_name: str) -> di
     else:
         payload = _parse_mapping(raw, field_name="gui_preprocess")
 
-    for key in ("enabled", "target_long_side", "auto_contrast_enabled", "contrast_mode", "manual_adjustment"):
+    for key in (
+        "enabled",
+        "target_long_side",
+        "auto_contrast_enabled",
+        "contrast_mode",
+        "manual_adjustment",
+        "crop",
+        "crop_percent",
+    ):
         if key not in payload and key in cfg:
             payload[key] = cfg.get(key)
 
@@ -248,6 +256,44 @@ def _build_gui_preprocess_payload(cfg: dict[str, object], model_name: str) -> di
     if not bool(enabled):
         return None
     return asdict(coerce_gui_inference_preprocess_config(payload))
+
+
+def _build_result_export_config(cfg: dict[str, object]) -> DesktopResultExportConfig:
+    """Return result export controls from inference config with conservative defaults."""
+
+    raw = cfg.get("result_export", cfg.get("export", {}))
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = _parse_mapping(raw, field_name="result_export")
+    return DesktopResultExportConfig(
+        write_html_report=bool(raw.get("write_html_report", cfg.get("write_html_report", True))),
+        write_pdf_report=bool(raw.get("write_pdf_report", cfg.get("write_pdf_report", True))),
+        write_csv_report=bool(raw.get("write_csv_report", cfg.get("write_csv_report", True))),
+        write_batch_summary=bool(raw.get("write_batch_summary", cfg.get("write_batch_summary", True))),
+        report_profile=str(raw.get("report_profile", cfg.get("report_profile", "balanced"))),
+        sort_metrics=str(raw.get("sort_metrics", cfg.get("sort_metrics", "name"))),
+        top_k_key_metrics=int(raw.get("top_k_key_metrics", cfg.get("top_k_key_metrics", 12))),
+        include_artifact_manifest=bool(
+            raw.get("include_artifact_manifest", cfg.get("include_artifact_manifest", True))
+        ),
+        compute_required_metrics=bool(
+            raw.get("compute_required_metrics", cfg.get("compute_required_metrics", True))
+        ),
+        compute_extended_metrics=bool(
+            raw.get("compute_extended_metrics", cfg.get("compute_extended_metrics", False))
+        ),
+        write_orientation_map=bool(raw.get("write_orientation_map", cfg.get("write_orientation_map", True))),
+        write_distribution_charts=bool(
+            raw.get("write_distribution_charts", cfg.get("write_distribution_charts", False))
+        ),
+        write_physical_calibration_metrics=bool(
+            raw.get(
+                "write_physical_calibration_metrics",
+                cfg.get("write_physical_calibration_metrics", False),
+            )
+        ),
+    )
 
 
 def _infer(args: argparse.Namespace) -> int:
@@ -322,7 +368,7 @@ def _infer(args: argparse.Namespace) -> int:
         include_analysis=include_analysis,
         annotator=str(cfg.get("operator_id", args.operator_id or "unknown_operator")),
         notes=str(cfg.get("batch_notes", "")),
-        export_config=DesktopResultExportConfig(write_batch_summary=True),
+        export_config=_build_result_export_config(cfg),
         resolved_config=cfg,
         finalize_record=_finalize_record,
         progress_callback=_print_batch_progress,

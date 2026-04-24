@@ -1,5 +1,5 @@
 image_path: test_data/3PB_SRT_data_generation_1817_OD_side1_8.png
-model_name: Hydride Conventional
+model_name: Hydride ML (UNet)
 output_dir: outputs/inference
 include_analysis: true
 enable_gpu: false
@@ -13,6 +13,14 @@ gui_preprocess:
   target_long_side: 512
   auto_contrast_enabled: true
   contrast_mode: histogram_stretch
+  crop: false
+  crop_percent: 0
+result_export:
+  compute_required_metrics: true
+  compute_extended_metrics: false
+  write_orientation_map: true
+  write_distribution_charts: false
+  write_physical_calibration_metrics: false
 params:
   clahe:
     clip_limit: 2.0

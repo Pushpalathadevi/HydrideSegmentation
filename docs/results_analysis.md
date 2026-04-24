@@ -20,11 +20,11 @@ Files written by the desktop result exporter typically include:
 - `predicted_overlay.png`
 - `corrected_overlay.png`
 - `predicted_orientation_map.png`
-- `predicted_size_distribution.png`
-- `predicted_orientation_distribution.png`
+- `predicted_size_distribution.png` when distribution chart export is enabled
+- `predicted_orientation_distribution.png` when distribution chart export is enabled
 - `corrected_orientation_map.png`
-- `corrected_size_distribution.png`
-- `corrected_orientation_distribution.png`
+- `corrected_size_distribution.png` when distribution chart export is enabled
+- `corrected_orientation_distribution.png` when distribution chart export is enabled
 - `diff_mask.png`
 - `results_summary.json`
 - `results_report.html`
@@ -41,6 +41,9 @@ The JSON summary contains:
 - selected metric rows and key summary rows
 - artifact names
 - optional artifact-manifest metadata
+- `analysis_config.postprocessing_options`, which records whether extended metrics, distribution charts, orientation maps, and physical-calibration metrics were enabled
+
+Default postprocessing keeps the required scientific summaries fast: hydride count, area fraction, total/feature size, orientation values, and orientation color maps. Distribution chart PNGs, extended scalar summaries, density/equivalent-diameter metrics, histogram vectors, and micron-based metrics are opt-in.
 
 ## Batch Result Packages
 

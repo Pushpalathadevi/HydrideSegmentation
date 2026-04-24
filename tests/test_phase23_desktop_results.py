@@ -132,6 +132,9 @@ def test_phase23_desktop_result_export_package(tmp_path: Path) -> None:
             calibration_notes="test calibration",
             write_html_report=True,
             write_pdf_report=True,
+            compute_extended_metrics=True,
+            write_distribution_charts=True,
+            write_physical_calibration_metrics=True,
         ),
     )
 
@@ -154,3 +157,30 @@ def test_phase23_desktop_result_export_package(tmp_path: Path) -> None:
     assert float(payload["spatial_calibration"]["microns_per_pixel"]) == 0.5
     assert "applied_export_criteria" in payload
     assert payload["report_outputs"]["metrics_csv"] == "results_metrics.csv"
+
+
+def test_phase23_desktop_result_export_skips_optional_distribution_charts(tmp_path: Path) -> None:
+    workflow = DesktopWorkflowManager()
+    model_name = _conventional_model_name(workflow)
+
+    image_path = tmp_path / "input_optional.png"
+    _write_image(image_path, _synthetic_image())
+    record = workflow.run_single(
+        str(image_path),
+        model_name=model_name,
+        params={"image_path": str(image_path)},
+        include_analysis=False,
+    )
+
+    out_dir = DesktopResultExporter().export(
+        record,
+        output_dir=tmp_path / "results_optional",
+        config=DesktopResultExportConfig(write_pdf_report=False),
+    )
+
+    assert (out_dir / "predicted_orientation_map.png").exists()
+    assert not (out_dir / "predicted_size_distribution.png").exists()
+    assert not (out_dir / "predicted_orientation_distribution.png").exists()
+    payload = json.loads((out_dir / "results_summary.json").read_text(encoding="utf-8"))
+    assert payload["analysis_config"]["postprocessing_options"]["write_distribution_charts"] is False
+    assert payload["applied_export_criteria"]["compute_extended_metrics"] is False

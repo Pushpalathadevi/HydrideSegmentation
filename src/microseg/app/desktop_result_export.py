@@ -91,6 +91,11 @@ class DesktopResultExportConfig:
     sort_metrics: str = "name"
     top_k_key_metrics: int = 12
     include_artifact_manifest: bool = True
+    compute_required_metrics: bool = True
+    compute_extended_metrics: bool = False
+    write_orientation_map: bool = True
+    write_distribution_charts: bool = False
+    write_physical_calibration_metrics: bool = False
 
     def visualization_config(self) -> HydrideVisualizationConfig:
         """Return analysis-plot configuration object."""
@@ -164,6 +169,17 @@ class DesktopResultExportConfig:
 
     def normalized_top_k_key_metrics(self) -> int:
         return max(1, min(200, int(self.top_k_key_metrics)))
+
+    def postprocessing_options(self) -> dict[str, bool]:
+        """Return the active postprocessing switches recorded in manifests."""
+
+        return {
+            "compute_required_metrics": bool(self.compute_required_metrics),
+            "compute_extended_metrics": bool(self.compute_extended_metrics),
+            "write_orientation_map": bool(self.write_orientation_map),
+            "write_distribution_charts": bool(self.write_distribution_charts),
+            "write_physical_calibration_metrics": bool(self.write_physical_calibration_metrics),
+        }
 
 
 class DesktopResultExporter:
@@ -423,6 +439,9 @@ class DesktopResultExporter:
             size_bins=vis_cfg.size_bins,
             min_feature_pixels=vis_cfg.min_feature_pixels,
             microns_per_pixel=cfg.microns_per_pixel,
+            include_extended_metrics=bool(cfg.compute_extended_metrics),
+            include_histograms=bool(cfg.write_distribution_charts),
+            include_physical_metrics=bool(cfg.write_physical_calibration_metrics),
         )
         corrected_stats = compute_hydride_statistics(
             corrected,
@@ -430,9 +449,29 @@ class DesktopResultExporter:
             size_bins=vis_cfg.size_bins,
             min_feature_pixels=vis_cfg.min_feature_pixels,
             microns_per_pixel=cfg.microns_per_pixel,
+            include_extended_metrics=bool(cfg.compute_extended_metrics),
+            include_histograms=bool(cfg.write_distribution_charts),
+            include_physical_metrics=bool(cfg.write_physical_calibration_metrics),
         )
-        predicted_visuals = render_hydride_visualizations(predicted_stats, vis_cfg)
-        corrected_visuals = render_hydride_visualizations(corrected_stats, vis_cfg)
+        write_visual_metrics = bool(cfg.write_orientation_map) or bool(cfg.write_distribution_charts)
+        predicted_visuals = (
+            render_hydride_visualizations(
+                predicted_stats,
+                vis_cfg,
+                include_distribution_charts=bool(cfg.write_distribution_charts),
+            )
+            if write_visual_metrics
+            else {}
+        )
+        corrected_visuals = (
+            render_hydride_visualizations(
+                corrected_stats,
+                vis_cfg,
+                include_distribution_charts=bool(cfg.write_distribution_charts),
+            )
+            if write_visual_metrics
+            else {}
+        )
 
         input_path = run_dir / "input.png"
         predicted_mask_indexed_path = run_dir / "predicted_mask_indexed.png"
@@ -456,12 +495,14 @@ class DesktopResultExporter:
         Image.fromarray(colorize_index_mask(corrected, cmap)).save(corrected_mask_color_path)
         _save_rgb(predicted_overlay_path, mask_overlay(base, (predicted_mask > 0).astype(np.uint8) * 255))
         _save_rgb(corrected_overlay_path, mask_overlay(base, (corrected > 0).astype(np.uint8) * 255))
-        _save_rgb(predicted_orientation_map_path, predicted_visuals["orientation_map_rgb"])
-        _save_rgb(predicted_size_hist_path, predicted_visuals["size_distribution_rgb"])
-        _save_rgb(predicted_orientation_hist_path, predicted_visuals["orientation_distribution_rgb"])
-        _save_rgb(corrected_orientation_map_path, corrected_visuals["orientation_map_rgb"])
-        _save_rgb(corrected_size_hist_path, corrected_visuals["size_distribution_rgb"])
-        _save_rgb(corrected_orientation_hist_path, corrected_visuals["orientation_distribution_rgb"])
+        if bool(cfg.write_orientation_map):
+            _save_rgb(predicted_orientation_map_path, predicted_visuals["orientation_map_rgb"])
+            _save_rgb(corrected_orientation_map_path, corrected_visuals["orientation_map_rgb"])
+        if bool(cfg.write_distribution_charts):
+            _save_rgb(predicted_size_hist_path, predicted_visuals["size_distribution_rgb"])
+            _save_rgb(predicted_orientation_hist_path, predicted_visuals["orientation_distribution_rgb"])
+            _save_rgb(corrected_size_hist_path, corrected_visuals["size_distribution_rgb"])
+            _save_rgb(corrected_orientation_hist_path, corrected_visuals["orientation_distribution_rgb"])
         Image.fromarray(np.where(corrected != predicted_mask, 255, 0).astype(np.uint8)).save(diff_mask_path)
 
         predicted_metrics = dict(predicted_stats.scalar_metrics)
@@ -486,14 +527,16 @@ class DesktopResultExporter:
             "corrected_mask_color": corrected_mask_color_path.name,
             "predicted_overlay": predicted_overlay_path.name,
             "corrected_overlay": corrected_overlay_path.name,
-            "predicted_orientation_map": predicted_orientation_map_path.name,
-            "predicted_size_distribution": predicted_size_hist_path.name,
-            "predicted_orientation_distribution": predicted_orientation_hist_path.name,
-            "corrected_orientation_map": corrected_orientation_map_path.name,
-            "corrected_size_distribution": corrected_size_hist_path.name,
-            "corrected_orientation_distribution": corrected_orientation_hist_path.name,
             "diff_mask": diff_mask_path.name,
         }
+        if bool(cfg.write_orientation_map):
+            artifacts["predicted_orientation_map"] = predicted_orientation_map_path.name
+            artifacts["corrected_orientation_map"] = corrected_orientation_map_path.name
+        if bool(cfg.write_distribution_charts):
+            artifacts["predicted_size_distribution"] = predicted_size_hist_path.name
+            artifacts["predicted_orientation_distribution"] = predicted_orientation_hist_path.name
+            artifacts["corrected_size_distribution"] = corrected_size_hist_path.name
+            artifacts["corrected_orientation_distribution"] = corrected_orientation_hist_path.name
 
         summary_payload: dict[str, Any] = {
             "schema_version": self.schema_version,
@@ -513,6 +556,7 @@ class DesktopResultExporter:
                 "min_feature_pixels": vis_cfg.min_feature_pixels,
                 "orientation_cmap": vis_cfg.orientation_cmap,
                 "size_scale": vis_cfg.size_scale,
+                "postprocessing_options": cfg.postprocessing_options(),
             },
             "spatial_calibration": {
                 "microns_per_pixel": None if cfg.microns_per_pixel is None else float(cfg.microns_per_pixel),
@@ -535,6 +579,7 @@ class DesktopResultExporter:
                 "write_pdf_report": bool(cfg.write_pdf_report),
                 "write_csv_report": bool(cfg.write_csv_report),
                 "include_artifact_manifest": bool(cfg.include_artifact_manifest),
+                **cfg.postprocessing_options(),
             },
             "artifacts": artifacts,
             "report_outputs": {
@@ -816,33 +861,34 @@ class DesktopResultExporter:
                 plt.close(fig_comp)
 
             if "distribution_charts" in include_sections:
-                fig_pred, ax_pred = plt.subplots(1, 3, figsize=(11.0, 4.0))
-                pred_panels = [
-                    ("Predicted Orientation Map", predicted_visuals["orientation_map_rgb"]),
-                    ("Predicted Size Distribution", predicted_visuals["size_distribution_rgb"]),
-                    ("Predicted Orientation Distribution", predicted_visuals["orientation_distribution_rgb"]),
-                ]
-                for idx, (title, image) in enumerate(pred_panels):
-                    ax_pred[idx].imshow(image)
-                    ax_pred[idx].set_title(title, fontsize=10)
-                    ax_pred[idx].axis("off")
-                fig_pred.tight_layout()
-                pdf.savefig(fig_pred)
-                plt.close(fig_pred)
+                if predicted_visuals and corrected_visuals and "size_distribution_rgb" in predicted_visuals:
+                    fig_pred, ax_pred = plt.subplots(1, 3, figsize=(11.0, 4.0))
+                    pred_panels = [
+                        ("Predicted Orientation Map", predicted_visuals["orientation_map_rgb"]),
+                        ("Predicted Size Distribution", predicted_visuals["size_distribution_rgb"]),
+                        ("Predicted Orientation Distribution", predicted_visuals["orientation_distribution_rgb"]),
+                    ]
+                    for idx, (title, image) in enumerate(pred_panels):
+                        ax_pred[idx].imshow(image)
+                        ax_pred[idx].set_title(title, fontsize=10)
+                        ax_pred[idx].axis("off")
+                    fig_pred.tight_layout()
+                    pdf.savefig(fig_pred)
+                    plt.close(fig_pred)
 
-                fig_corr, ax_corr = plt.subplots(1, 3, figsize=(11.0, 4.0))
-                corr_panels = [
-                    ("Corrected Orientation Map", corrected_visuals["orientation_map_rgb"]),
-                    ("Corrected Size Distribution", corrected_visuals["size_distribution_rgb"]),
-                    ("Corrected Orientation Distribution", corrected_visuals["orientation_distribution_rgb"]),
-                ]
-                for idx, (title, image) in enumerate(corr_panels):
-                    ax_corr[idx].imshow(image)
-                    ax_corr[idx].set_title(title, fontsize=10)
-                    ax_corr[idx].axis("off")
-                fig_corr.tight_layout()
-                pdf.savefig(fig_corr)
-                plt.close(fig_corr)
+                    fig_corr, ax_corr = plt.subplots(1, 3, figsize=(11.0, 4.0))
+                    corr_panels = [
+                        ("Corrected Orientation Map", corrected_visuals["orientation_map_rgb"]),
+                        ("Corrected Size Distribution", corrected_visuals["size_distribution_rgb"]),
+                        ("Corrected Orientation Distribution", corrected_visuals["orientation_distribution_rgb"]),
+                    ]
+                    for idx, (title, image) in enumerate(corr_panels):
+                        ax_corr[idx].imshow(image)
+                        ax_corr[idx].set_title(title, fontsize=10)
+                        ax_corr[idx].axis("off")
+                    fig_corr.tight_layout()
+                    pdf.savefig(fig_corr)
+                    plt.close(fig_corr)
 
             if "scalar_table" in include_sections and isinstance(metric_rows, list):
                 fig_tbl = plt.figure(figsize=(11.0, 8.5))
@@ -920,6 +966,9 @@ class DesktopResultExporter:
                     size_bins=vis_cfg.size_bins,
                     min_feature_pixels=vis_cfg.min_feature_pixels,
                     microns_per_pixel=um_per_px,
+                    include_extended_metrics=bool(cfg.compute_extended_metrics),
+                    include_histograms=bool(cfg.write_distribution_charts),
+                    include_physical_metrics=bool(cfg.write_physical_calibration_metrics),
                 )
                 pred_metrics = dict(pred_stats.scalar_metrics)
             corr_metrics = dict(pred_metrics)
@@ -931,6 +980,9 @@ class DesktopResultExporter:
                     size_bins=vis_cfg.size_bins,
                     min_feature_pixels=vis_cfg.min_feature_pixels,
                     microns_per_pixel=um_per_px,
+                    include_extended_metrics=bool(cfg.compute_extended_metrics),
+                    include_histograms=bool(cfg.write_distribution_charts),
+                    include_physical_metrics=bool(cfg.write_physical_calibration_metrics),
                 )
                 corr_metrics = dict(corr_stats.scalar_metrics)
             keys = self._pick_metric_keys(config=cfg, predicted_metrics=pred_metrics, corrected_metrics=corr_metrics)
@@ -994,6 +1046,7 @@ class DesktopResultExporter:
                 "min_feature_pixels": vis_cfg.min_feature_pixels,
                 "orientation_cmap": vis_cfg.orientation_cmap,
                 "size_scale": vis_cfg.size_scale,
+                "postprocessing_options": cfg.postprocessing_options(),
             },
             "applied_export_criteria": {
                 "report_profile": profile,
@@ -1004,6 +1057,7 @@ class DesktopResultExporter:
                 "write_html_report": bool(cfg.write_html_report),
                 "write_pdf_report": bool(cfg.write_pdf_report),
                 "write_csv_report": bool(cfg.write_csv_report),
+                **cfg.postprocessing_options(),
             },
             "model_counts": model_counts,
             "rows": rows,
