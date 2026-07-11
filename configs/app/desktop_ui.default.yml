@@ -59,3 +59,7 @@ export_defaults:
   write_orientation_map: true
   write_distribution_charts: false
   write_physical_calibration_metrics: false
+  include_fn_metrics: true
+  fn_angle_threshold_deg: 45.0
+  write_fn_debug_artifacts: false
+  report_decimal_places: 2

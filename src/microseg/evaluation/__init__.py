@@ -5,6 +5,7 @@ from .hydride_statistics import (
     HydrideStatisticsResult,
     HydrideVisualizationConfig,
     compute_hydride_statistics,
+    render_fn_debug_visualizations,
     render_hydride_visualizations,
     statistics_to_json,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "HydrideStatisticsResult",
     "HydrideVisualizationConfig",
     "compute_hydride_statistics",
+    "render_fn_debug_visualizations",
     "render_hydride_visualizations",
     "statistics_to_json",
 ]

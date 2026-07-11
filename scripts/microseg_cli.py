@@ -293,6 +293,12 @@ def _build_result_export_config(cfg: dict[str, object]) -> DesktopResultExportCo
                 cfg.get("write_physical_calibration_metrics", False),
             )
         ),
+        include_fn_metrics=bool(raw.get("include_fn_metrics", cfg.get("include_fn_metrics", True))),
+        fn_angle_threshold_deg=float(raw.get("fn_angle_threshold_deg", cfg.get("fn_angle_threshold_deg", 45.0))),
+        write_fn_debug_artifacts=bool(
+            raw.get("write_fn_debug_artifacts", cfg.get("write_fn_debug_artifacts", False))
+        ),
+        report_decimal_places=int(raw.get("report_decimal_places", cfg.get("report_decimal_places", 2))),
     )
 
 

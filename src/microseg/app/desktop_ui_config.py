@@ -28,6 +28,8 @@ BALANCED_METRIC_KEYS = (
     "hydride_total_area_pixels",
     "size_mean_pixels",
     "orientation_mean_deg",
+    "fn_count",
+    "fn_length_weighted",
     "excluded_small_features",
 )
 
@@ -101,6 +103,10 @@ class DesktopExportDefaultsConfig:
     write_orientation_map: bool = True
     write_distribution_charts: bool = False
     write_physical_calibration_metrics: bool = False
+    include_fn_metrics: bool = True
+    fn_angle_threshold_deg: float = 45.0
+    write_fn_debug_artifacts: bool = False
+    report_decimal_places: int = 2
 
 
 @dataclass(frozen=True)
@@ -162,6 +168,29 @@ def _clamp_int(
         warnings.append(f"{key}: clamped {parsed} -> {maximum}")
         return int(maximum)
     return int(parsed)
+
+
+def _clamp_float(
+    value: object,
+    *,
+    default: float,
+    minimum: float,
+    maximum: float,
+    key: str,
+    warnings: list[str],
+) -> float:
+    try:
+        parsed = float(value)
+    except Exception:
+        warnings.append(f"{key}: invalid value {value!r}; using default={default}")
+        return float(default)
+    if parsed < float(minimum):
+        warnings.append(f"{key}: clamped {parsed} -> {minimum}")
+        return float(minimum)
+    if parsed > float(maximum):
+        warnings.append(f"{key}: clamped {parsed} -> {maximum}")
+        return float(maximum)
+    return float(parsed)
 
 
 def _to_str_tuple(value: object) -> tuple[str, ...]:
@@ -447,6 +476,27 @@ def _sanitize_export_defaults(
         write_physical_calibration_metrics=_as_bool(
             payload.get("write_physical_calibration_metrics", base.write_physical_calibration_metrics),
             base.write_physical_calibration_metrics,
+        ),
+        include_fn_metrics=_as_bool(payload.get("include_fn_metrics", base.include_fn_metrics), base.include_fn_metrics),
+        fn_angle_threshold_deg=_clamp_float(
+            payload.get("fn_angle_threshold_deg", base.fn_angle_threshold_deg),
+            default=base.fn_angle_threshold_deg,
+            minimum=0.0,
+            maximum=90.0,
+            key="export_defaults.fn_angle_threshold_deg",
+            warnings=warnings,
+        ),
+        write_fn_debug_artifacts=_as_bool(
+            payload.get("write_fn_debug_artifacts", base.write_fn_debug_artifacts),
+            base.write_fn_debug_artifacts,
+        ),
+        report_decimal_places=_clamp_int(
+            payload.get("report_decimal_places", base.report_decimal_places),
+            default=base.report_decimal_places,
+            minimum=0,
+            maximum=8,
+            key="export_defaults.report_decimal_places",
+            warnings=warnings,
         ),
     )
 

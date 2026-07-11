@@ -1531,6 +1531,10 @@ class AppearanceExportSettingsDialog(QDialog):
             write_orientation_map=bool(exp_base.write_orientation_map),
             write_distribution_charts=bool(exp_base.write_distribution_charts),
             write_physical_calibration_metrics=bool(exp_base.write_physical_calibration_metrics),
+            include_fn_metrics=bool(exp_base.include_fn_metrics),
+            fn_angle_threshold_deg=float(exp_base.fn_angle_threshold_deg),
+            write_fn_debug_artifacts=bool(exp_base.write_fn_debug_artifacts),
+            report_decimal_places=int(exp_base.report_decimal_places),
         )
         return DesktopUIConfig(
             schema_version="microseg.desktop_ui_config.v1",
@@ -4416,6 +4420,10 @@ class QtSegmentationMainWindow(QMainWindow):
             write_physical_calibration_metrics=bool(
                 self._ui_config.export_defaults.write_physical_calibration_metrics
             ),
+            include_fn_metrics=bool(self._ui_config.export_defaults.include_fn_metrics),
+            fn_angle_threshold_deg=float(self._ui_config.export_defaults.fn_angle_threshold_deg),
+            write_fn_debug_artifacts=bool(self._ui_config.export_defaults.write_fn_debug_artifacts),
+            report_decimal_places=int(self._ui_config.export_defaults.report_decimal_places),
         )
 
     def _apply_calibration(self, calibration: SpatialCalibration | None, *, image_path: str | None = None) -> None:

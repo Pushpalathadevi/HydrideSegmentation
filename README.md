@@ -141,6 +141,7 @@ The ML inference path uses GUI-style preprocessing by default unless disabled in
 The canonical documentation landing page is [`docs/index.md`](docs/index.md).
 For students and new contributors, start with [`docs/cli_windows_linux.md`](docs/cli_windows_linux.md), [`docs/tutorials/05_paired_dataset_preparation_and_training_cli.md`](docs/tutorials/05_paired_dataset_preparation_and_training_cli.md), and [`docs/learning_path.md`](docs/learning_path.md).
 For core terminology, use [`docs/glossary.md`](docs/glossary.md).
+For copy-paste Windows/Linux CLI workflows, use [`docs/usage_commands.md`](docs/usage_commands.md). For Fn formulation, estimation caveats, and audit artifacts, use [`docs/results_analysis.md`](docs/results_analysis.md).
 
 Build the docs locally:
 

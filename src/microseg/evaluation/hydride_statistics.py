@@ -40,6 +40,7 @@ class HydrideVisualizationConfig:
     min_feature_pixels: int = 1
     orientation_cmap: str = "coolwarm"
     size_scale: str = "linear"
+    fn_angle_threshold_deg: float = 45.0
 
 
 @dataclass
@@ -49,7 +50,10 @@ class HydrideStatisticsResult:
     scalar_metrics: dict[str, float | int]
     orientations_deg: list[float]
     sizes_px: list[int]
+    lengths_px: list[float]
     feature_label_ids: list[int]
+    fn_exceeding_angle: list[bool]
+    fn_angle_threshold_deg: float
     orientation_hist_counts: list[int]
     orientation_hist_edges_deg: list[float]
     size_hist_counts: list[int]
@@ -133,6 +137,29 @@ def _orientation_entropy_bits(hist_counts: np.ndarray) -> float:
     return float(-np.sum([p * log2(p) for p in probs if p > 0]))
 
 
+def _feature_orientation_and_length(region: np.ndarray) -> tuple[float, float]:
+    """Estimate orientation and projected major-axis length for one component."""
+
+    filled = binary_fill_holes(region)
+    dilated = morphology.dilation(filled, morphology.disk(1))
+    skel = morphology.skeletonize(dilated)
+    coords_xy = np.column_stack(np.nonzero(skel))[:, ::-1]
+    region_xy = np.column_stack(np.nonzero(region))[:, ::-1].astype(np.float64)
+    if len(coords_xy) < 2:
+        vector = np.array([1.0, 0.0], dtype=np.float64)
+        angle = 0.0
+    else:
+        cov = np.cov(coords_xy, rowvar=False)
+        vals, vecs = np.linalg.eigh(cov)
+        vector = vecs[:, int(np.argmax(vals))].astype(np.float64)
+        angle = float(np.degrees(np.arctan2(vector[1], vector[0])) % 180.0)
+        if angle > 90.0:
+            angle = 180.0 - angle
+    projected = region_xy @ vector
+    length_px = float(max(1.0, np.max(projected) - np.min(projected) + 1.0))
+    return angle, length_px
+
+
 def compute_hydride_statistics(
     mask: np.ndarray,
     *,
@@ -143,6 +170,8 @@ def compute_hydride_statistics(
     include_extended_metrics: bool = True,
     include_histograms: bool = True,
     include_physical_metrics: bool = True,
+    include_fn_metrics: bool = True,
+    fn_angle_threshold_deg: float = 45.0,
 ) -> HydrideStatisticsResult:
     """Compute hydride statistics from a segmented mask.
 
@@ -170,12 +199,14 @@ def compute_hydride_statistics(
         min_feature_pixels = 1
     orientation_bins = max(1, int(orientation_bins))
     size_bins = max(1, int(size_bins))
+    fn_angle_threshold_deg = float(np.clip(fn_angle_threshold_deg, 0.0, 90.0))
 
     binary = np.asarray(mask) > 0
     label_map = measure.label(binary, connectivity=2)
 
     orientations: list[float] = []
     sizes: list[int] = []
+    lengths_px: list[float] = []
     kept_label_ids: list[int] = []
     excluded_small = 0
     n_labels = int(label_map.max())
@@ -187,23 +218,14 @@ def compute_hydride_statistics(
             excluded_small += 1
             continue
 
-        filled = binary_fill_holes(region)
-        dilated = morphology.dilation(filled, morphology.disk(1))
-        skel = morphology.skeletonize(dilated)
-        coords = np.column_stack(np.nonzero(skel))[:, ::-1]
-        if len(coords) < 2:
-            angle = 0.0
-        else:
-            cov = np.cov(coords, rowvar=False)
-            vals, vecs = np.linalg.eigh(cov)
-            vx, vy = vecs[:, int(np.argmax(vals))]
-            angle = float(np.degrees(np.arctan2(vy, vx)) % 180.0)
-            if angle > 90.0:
-                angle = 180.0 - angle
+        angle, length_px = _feature_orientation_and_length(region)
 
         orientations.append(float(angle))
         sizes.append(area)
+        lengths_px.append(float(length_px))
         kept_label_ids.append(label_id)
+
+    fn_exceeding = [bool(v >= fn_angle_threshold_deg) for v in orientations]
 
     if bool(include_histograms):
         orient_counts, orient_edges = np.histogram(
@@ -245,6 +267,24 @@ def compute_hydride_statistics(
         "excluded_small_features": int(excluded_small),
         "min_feature_pixels": int(min_feature_pixels),
     }
+    if bool(include_fn_metrics):
+        fn_count_numerator = int(sum(fn_exceeding))
+        fn_length_numerator = float(sum(v for v, selected in zip(lengths_px, fn_exceeding) if selected))
+        fn_length_denominator = float(sum(lengths_px))
+        scalar_metrics.update(
+            {
+                "fn_angle_threshold_deg": fn_angle_threshold_deg,
+                "fn_count_numerator": fn_count_numerator,
+                "fn_count_denominator": int(len(orientations)),
+                "fn_count": float(fn_count_numerator / len(orientations)) if orientations else 0.0,
+                "fn_length_numerator_px": fn_length_numerator,
+                "fn_length_denominator_px": fn_length_denominator,
+                "fn_length_weighted": float(fn_length_numerator / fn_length_denominator)
+                if fn_length_denominator > 0
+                else 0.0,
+                "fn_excluded_small_features": int(excluded_small),
+            }
+        )
     if bool(include_extended_metrics):
         density_per_megapixel = float(len(sizes) / (total_pixels / 1_000_000.0)) if total_pixels else 0.0
         eq_px_stats = _scalar_summary(eq_diam_px)
@@ -293,6 +333,14 @@ def compute_hydride_statistics(
                 "equivalent_diameter_std_um": eq_um_stats["std"],
                 "equivalent_diameter_min_um": eq_um_stats["min"],
                 "equivalent_diameter_max_um": eq_um_stats["max"],
+                **(
+                    {
+                        "fn_length_numerator_um": float(fn_length_numerator * um_per_px),
+                        "fn_length_denominator_um": float(fn_length_denominator * um_per_px),
+                    }
+                    if bool(include_fn_metrics)
+                    else {}
+                ),
             }
         )
 
@@ -300,7 +348,10 @@ def compute_hydride_statistics(
         scalar_metrics=scalar_metrics,
         orientations_deg=[float(v) for v in orientations],
         sizes_px=[int(v) for v in sizes],
+        lengths_px=[float(v) for v in lengths_px],
         feature_label_ids=[int(v) for v in kept_label_ids],
+        fn_exceeding_angle=[bool(v) for v in fn_exceeding] if bool(include_fn_metrics) else [],
+        fn_angle_threshold_deg=fn_angle_threshold_deg,
         orientation_hist_counts=[int(v) for v in orient_counts.tolist()],
         orientation_hist_edges_deg=[float(v) for v in orient_edges.tolist()],
         size_hist_counts=[int(v) for v in size_counts.tolist()],
@@ -405,7 +456,64 @@ def render_hydride_visualizations(
     }
 
 
-def statistics_to_json(stats: HydrideStatisticsResult) -> dict[str, object]:
+def render_fn_debug_visualizations(
+    stats: HydrideStatisticsResult,
+    *,
+    base_image: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
+    """Render annotated Fn classification and angle-threshold QA images."""
+
+    label_map = np.asarray(stats.label_map)
+    if base_image is None:
+        background = np.zeros((*label_map.shape, 3), dtype=np.float32)
+    else:
+        image = np.asarray(base_image)
+        if image.ndim == 2:
+            image = np.repeat(image[..., None], 3, axis=2)
+        background = image[..., :3].astype(np.float32) / max(float(np.max(image)), 1.0)
+    fig, ax = plt.subplots(figsize=(8.0, 6.5))
+    ax.imshow(background)
+    for index, (label_id, angle, length, selected) in enumerate(
+        zip(stats.feature_label_ids, stats.orientations_deg, stats.lengths_px, stats.fn_exceeding_angle),
+        start=1,
+    ):
+        color = "#00d084" if selected else "#ff3b30"
+        component = label_map == int(label_id)
+        ax.contour(component, levels=[0.5], colors=[color], linewidths=1.8)
+        coords = np.column_stack(np.nonzero(component))
+        if len(coords) and selected:
+            y, x = np.mean(coords, axis=0)
+            ax.text(
+                x,
+                y,
+                f"{index}: {angle:.1f} deg\nL={length:.1f}px",
+                color="white",
+                fontsize=7,
+                ha="center",
+                va="center",
+                bbox={"facecolor": "black", "alpha": 0.65, "pad": 1.5},
+            )
+    ax.set_title(
+        f"Fn classification (threshold >= {stats.fn_angle_threshold_deg:.1f} deg)\n"
+        f"green=counted ({sum(stats.fn_exceeding_angle)}), red=not counted "
+        f"({len(stats.fn_exceeding_angle) - sum(stats.fn_exceeding_angle)}); labels show counted IDs"
+    )
+    ax.axis("off")
+    classification_rgb = _figure_to_rgb(fig)
+
+    fig_hist, ax_hist = plt.subplots(figsize=(7.0, 4.5))
+    if stats.orientations_deg:
+        ax_hist.hist(stats.orientations_deg, bins=18, range=(0.0, 90.0), color="#7aa6d8", edgecolor="black")
+    ax_hist.axvline(stats.fn_angle_threshold_deg, color="#d62728", linewidth=2.0, label="Fn threshold")
+    ax_hist.set_xlabel("Orientation (degrees from horizontal)")
+    ax_hist.set_ylabel("Hydride count")
+    ax_hist.set_title("Fn angle threshold check")
+    ax_hist.legend()
+    angle_rgb = _figure_to_rgb(fig_hist)
+    return {"fn_classification_rgb": classification_rgb, "fn_angle_distribution_rgb": angle_rgb}
+
+
+def statistics_to_json(stats: HydrideStatisticsResult, *, decimal_places: int | None = None) -> dict[str, object]:
     """Convert statistics payload into a JSON-friendly dictionary.
 
     Parameters
@@ -419,24 +527,34 @@ def statistics_to_json(stats: HydrideStatisticsResult) -> dict[str, object]:
         JSON-serializable dictionary for report emission.
     """
 
+    def rounded(value: float | int) -> float | int:
+        if decimal_places is None:
+            return value
+        if isinstance(value, int):
+            return value
+        return round(float(value), max(0, int(decimal_places)))
+
     return {
-        "scalar_metrics": dict(stats.scalar_metrics),
-        "orientations_deg": [float(v) for v in stats.orientations_deg],
+        "scalar_metrics": {key: rounded(value) if isinstance(value, (float, int)) and not isinstance(value, bool) else value for key, value in stats.scalar_metrics.items()},
+        "orientations_deg": [rounded(float(v)) for v in stats.orientations_deg],
         "sizes_px": [int(v) for v in stats.sizes_px],
-        "sizes_um2": [float(v) for v in stats.sizes_um2],
-        "equivalent_diameters_px": [float(v) for v in stats.equivalent_diameters_px],
-        "equivalent_diameters_um": [float(v) for v in stats.equivalent_diameters_um],
-        "microns_per_pixel": None if stats.microns_per_pixel is None else float(stats.microns_per_pixel),
+        "lengths_px": [rounded(float(v)) for v in stats.lengths_px],
+        "fn_exceeding_angle": [bool(v) for v in stats.fn_exceeding_angle],
+        "fn_angle_threshold_deg": rounded(float(stats.fn_angle_threshold_deg)),
+        "sizes_um2": [rounded(float(v)) for v in stats.sizes_um2],
+        "equivalent_diameters_px": [rounded(float(v)) for v in stats.equivalent_diameters_px],
+        "equivalent_diameters_um": [rounded(float(v)) for v in stats.equivalent_diameters_um],
+        "microns_per_pixel": None if stats.microns_per_pixel is None else rounded(float(stats.microns_per_pixel)),
         "orientation_histogram": {
             "counts": [int(v) for v in stats.orientation_hist_counts],
-            "bin_edges_deg": [float(v) for v in stats.orientation_hist_edges_deg],
+            "bin_edges_deg": [rounded(float(v)) for v in stats.orientation_hist_edges_deg],
         },
         "size_histogram": {
             "counts": [int(v) for v in stats.size_hist_counts],
-            "bin_edges_px": [float(v) for v in stats.size_hist_edges_px],
+            "bin_edges_px": [rounded(float(v)) for v in stats.size_hist_edges_px],
         },
         "size_histogram_um2": {
             "counts": [int(v) for v in stats.size_hist_counts_um2],
-            "bin_edges_um2": [float(v) for v in stats.size_hist_edges_um2],
+            "bin_edges_um2": [rounded(float(v)) for v in stats.size_hist_edges_um2],
         },
     }

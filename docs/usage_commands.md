@@ -63,6 +63,56 @@ microseg-cli infer \
 
 To add a new model so it appears here and in the GUI, edit `frozen_checkpoints/model_registry.json` or `frozen_checkpoints/model_registry.local.json` and restart the app.
 
+## Complete ML And Quantification Pipeline
+
+The `infer` command performs model inference and automatically exports quantification reports, including area fraction, hydride count, size/orientation distributions, and Fn metrics. Enable Fn debug artifacts and distribution charts explicitly as shown below.
+
+### Windows PowerShell
+
+Run from the repository root after activating `.venv`:
+
+```powershell
+python scripts\microseg_cli.py dataset-prepare --config configs\dataset_prepare.default.yml --dataset-dir data\my_dataset --output-dir outputs\packaged_dataset
+python scripts\microseg_cli.py train --config configs\train.default.yml --dataset-dir outputs\packaged_dataset --output-dir outputs\training
+python scripts\microseg_cli.py evaluate --config configs\evaluate.default.yml --dataset-dir outputs\packaged_dataset --model-path outputs\training\best_checkpoint.pt --output-path outputs\evaluation\model_eval.json
+python scripts\microseg_cli.py infer --config configs\inference.default.yml --image-dir data\sample_images --output-dir outputs\inference\ml --model-name "Hydride ML (UNet)" --set result_export.write_distribution_charts=true --set result_export.write_fn_debug_artifacts=true --set result_export.report_decimal_places=2
+```
+
+For one image, replace `--image-dir data\sample_images` with `--image test_data\syntheticHydrides.png`.
+
+### Linux Or macOS
+
+Run from the repository root after activating `.venv`:
+
+```bash
+python scripts/microseg_cli.py dataset-prepare --config configs/dataset_prepare.default.yml --dataset-dir data/my_dataset --output-dir outputs/packaged_dataset
+python scripts/microseg_cli.py train --config configs/train.default.yml --dataset-dir outputs/packaged_dataset --output-dir outputs/training
+python scripts/microseg_cli.py evaluate --config configs/evaluate.default.yml --dataset-dir outputs/packaged_dataset --model-path outputs/training/best_checkpoint.pt --output-path outputs/evaluation/model_eval.json
+python scripts/microseg_cli.py infer --config configs/inference.default.yml --image-dir data/sample_images --output-dir outputs/inference/ml --model-name "Hydride ML (UNet)" --set result_export.write_distribution_charts=true --set result_export.write_fn_debug_artifacts=true --set result_export.report_decimal_places=2
+```
+
+For one image, replace `--image-dir data/sample_images` with `--image test_data/syntheticHydrides.png`.
+
+The prepared dataset must contain an organized source/mask layout accepted by `dataset-prepare`. For raw paired files, use `prepare_dataset` first; see [`cli_windows_linux.md`](cli_windows_linux.md) for the paired-folder recipe. The ML checkpoint must be available at the path supplied to `evaluate` and registered or otherwise discoverable by the inference workflow.
+
+## Conventional Segmentation And Quantification
+
+The conventional path requires no trained checkpoint. It produces the same result-package structure and quantification outputs, using deterministic image-processing parameters from the inference configuration.
+
+### Windows PowerShell
+
+```powershell
+python scripts\microseg_cli.py infer --config configs\inference.default.yml --image-dir data\sample_images --output-dir outputs\inference\conventional --model-name "Hydride Conventional" --set params.area_threshold=95 --set result_export.write_distribution_charts=true --set result_export.write_fn_debug_artifacts=true --set result_export.report_decimal_places=2
+```
+
+### Linux Or macOS
+
+```bash
+python scripts/microseg_cli.py infer --config configs/inference.default.yml --image-dir data/sample_images --output-dir outputs/inference/conventional --model-name "Hydride Conventional" --set params.area_threshold=95 --set result_export.write_distribution_charts=true --set result_export.write_fn_debug_artifacts=true --set result_export.report_decimal_places=2
+```
+
+Each exported image receives the top-right Fn box. Inspect `results_summary.json` for machine-readable scalar metrics, `results_report.html` for the report, `results_metrics.csv` for tabular comparison, and the `*_fn_feature_table.csv` files for per-hydride audit. Both `fn_count` and `fn_length_weighted` use retained components after `params.area_threshold` and `result_export.min_feature_pixels` filtering.
+
 ## Dataset Preparation
 
 Primary beginner path, raw paired folder:

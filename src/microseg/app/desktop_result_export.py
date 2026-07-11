@@ -13,7 +13,7 @@ from typing import Any
 
 import matplotlib
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -31,6 +31,7 @@ from src.microseg.corrections.classes import (
 from src.microseg.evaluation.hydride_statistics import (
     HydrideVisualizationConfig,
     compute_hydride_statistics,
+    render_fn_debug_visualizations,
     render_hydride_visualizations,
     statistics_to_json,
 )
@@ -41,18 +42,53 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _fmt_metric(value: object) -> str:
+def _fmt_metric(value: object, *, decimal_places: int = 2) -> str:
     if isinstance(value, bool):
         return str(value)
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return f"{value:.2f}"
+        return f"{value:.{max(0, int(decimal_places))}f}"
     return str(value)
 
 
-def _save_rgb(path: Path, image: np.ndarray) -> None:
-    Image.fromarray(to_rgb(image).astype(np.uint8)).save(path)
+def _annotate_fn_image(image: np.ndarray, stats: Any, *, decimal_places: int) -> np.ndarray:
+    """Add a high-contrast Fn summary box to a visual output image."""
+
+    pil = Image.fromarray(to_rgb(image).astype(np.uint8)).convert("RGB")
+    draw = ImageDraw.Draw(pil)
+    font_size = max(16, min(36, pil.width // 42))
+    font = None
+    for font_path in ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/calibri.ttf"):
+        try:
+            font = ImageFont.truetype(font_path, font_size)
+            break
+        except OSError:
+            continue
+    if font is None:
+        font = ImageFont.load_default()
+    metrics = stats.scalar_metrics
+    lines = [
+        f"Fn (number) = {_fmt_metric(metrics.get('fn_count', 0.0), decimal_places=decimal_places)}",
+        f"Fn (length) = {_fmt_metric(metrics.get('fn_length_weighted', 0.0), decimal_places=decimal_places)}",
+    ]
+    padding = max(8, font_size // 3)
+    line_boxes = [draw.textbbox((0, 0), line, font=font) for line in lines]
+    box_width = max(box[2] - box[0] for box in line_boxes) + 2 * padding
+    box_height = sum(box[3] - box[1] for box in line_boxes) + 2 * padding + padding // 2
+    left = pil.width - box_width - padding
+    top = padding
+    draw.rectangle((left, top, pil.width - padding, top + box_height), fill="white", outline="black", width=2)
+    y = top + padding
+    for line, box in zip(lines, line_boxes):
+        draw.text((left + padding, y), line, fill="black", font=font)
+        y += box[3] - box[1] + padding // 2
+    return np.asarray(pil)
+
+
+def _save_rgb(path: Path, image: np.ndarray, *, stats: Any | None = None, decimal_places: int = 2) -> None:
+    output = image if stats is None else _annotate_fn_image(image, stats, decimal_places=decimal_places)
+    Image.fromarray(to_rgb(output).astype(np.uint8)).save(path)
 
 
 def _to_rel(path: Path, root: Path) -> str:
@@ -67,6 +103,13 @@ def _safe_float(value: object) -> float | None:
         return float(value)
     except Exception:
         return None
+
+
+def _rounded_metrics(metrics: dict[str, Any], decimal_places: int) -> dict[str, Any]:
+    return {
+        key: round(float(value), decimal_places) if isinstance(value, float) else value
+        for key, value in metrics.items()
+    }
 
 
 @dataclass(frozen=True)
@@ -96,6 +139,10 @@ class DesktopResultExportConfig:
     write_orientation_map: bool = True
     write_distribution_charts: bool = False
     write_physical_calibration_metrics: bool = False
+    include_fn_metrics: bool = True
+    fn_angle_threshold_deg: float = 45.0
+    write_fn_debug_artifacts: bool = False
+    report_decimal_places: int = 2
 
     def visualization_config(self) -> HydrideVisualizationConfig:
         """Return analysis-plot configuration object."""
@@ -170,6 +217,9 @@ class DesktopResultExportConfig:
     def normalized_top_k_key_metrics(self) -> int:
         return max(1, min(200, int(self.top_k_key_metrics)))
 
+    def normalized_decimal_places(self) -> int:
+        return max(0, min(8, int(self.report_decimal_places)))
+
     def postprocessing_options(self) -> dict[str, bool]:
         """Return the active postprocessing switches recorded in manifests."""
 
@@ -179,6 +229,10 @@ class DesktopResultExportConfig:
             "write_orientation_map": bool(self.write_orientation_map),
             "write_distribution_charts": bool(self.write_distribution_charts),
             "write_physical_calibration_metrics": bool(self.write_physical_calibration_metrics),
+            "include_fn_metrics": bool(self.include_fn_metrics),
+            "write_fn_debug_artifacts": bool(self.write_fn_debug_artifacts),
+            "fn_angle_threshold_deg": float(self.fn_angle_threshold_deg),
+            "report_decimal_places": self.normalized_decimal_places(),
         }
 
 
@@ -412,6 +466,7 @@ class DesktopResultExporter:
         """
 
         cfg = config or DesktopResultExportConfig()
+        decimal_places = cfg.normalized_decimal_places()
         profile = cfg.normalized_profile()
         include_sections = set(cfg.normalized_sections())
         if not bool(cfg.include_artifact_manifest):
@@ -442,6 +497,8 @@ class DesktopResultExporter:
             include_extended_metrics=bool(cfg.compute_extended_metrics),
             include_histograms=bool(cfg.write_distribution_charts),
             include_physical_metrics=bool(cfg.write_physical_calibration_metrics),
+            include_fn_metrics=bool(cfg.include_fn_metrics),
+            fn_angle_threshold_deg=float(cfg.fn_angle_threshold_deg),
         )
         corrected_stats = compute_hydride_statistics(
             corrected,
@@ -452,6 +509,8 @@ class DesktopResultExporter:
             include_extended_metrics=bool(cfg.compute_extended_metrics),
             include_histograms=bool(cfg.write_distribution_charts),
             include_physical_metrics=bool(cfg.write_physical_calibration_metrics),
+            include_fn_metrics=bool(cfg.include_fn_metrics),
+            fn_angle_threshold_deg=float(cfg.fn_angle_threshold_deg),
         )
         write_visual_metrics = bool(cfg.write_orientation_map) or bool(cfg.write_distribution_charts)
         predicted_visuals = (
@@ -487,26 +546,48 @@ class DesktopResultExporter:
         corrected_size_hist_path = run_dir / "corrected_size_distribution.png"
         corrected_orientation_hist_path = run_dir / "corrected_orientation_distribution.png"
         diff_mask_path = run_dir / "diff_mask.png"
+        predicted_fn_classification_path = run_dir / "predicted_fn_classification.png"
+        corrected_fn_classification_path = run_dir / "corrected_fn_classification.png"
+        predicted_fn_angle_path = run_dir / "predicted_fn_angle_distribution.png"
+        corrected_fn_angle_path = run_dir / "corrected_fn_angle_distribution.png"
+        predicted_fn_csv_path = run_dir / "predicted_fn_feature_table.csv"
+        corrected_fn_csv_path = run_dir / "corrected_fn_feature_table.csv"
 
         _save_rgb(input_path, base)
         Image.fromarray(predicted_mask.astype(np.uint8)).save(predicted_mask_indexed_path)
         Image.fromarray(corrected.astype(np.uint8)).save(corrected_mask_indexed_path)
-        Image.fromarray(colorize_index_mask(predicted_mask, cmap)).save(predicted_mask_color_path)
-        Image.fromarray(colorize_index_mask(corrected, cmap)).save(corrected_mask_color_path)
-        _save_rgb(predicted_overlay_path, mask_overlay(base, (predicted_mask > 0).astype(np.uint8) * 255))
-        _save_rgb(corrected_overlay_path, mask_overlay(base, (corrected > 0).astype(np.uint8) * 255))
+        _save_rgb(predicted_mask_color_path, colorize_index_mask(predicted_mask, cmap), stats=predicted_stats, decimal_places=decimal_places)
+        _save_rgb(corrected_mask_color_path, colorize_index_mask(corrected, cmap), stats=corrected_stats, decimal_places=decimal_places)
+        _save_rgb(predicted_overlay_path, mask_overlay(base, (predicted_mask > 0).astype(np.uint8) * 255), stats=predicted_stats, decimal_places=decimal_places)
+        _save_rgb(corrected_overlay_path, mask_overlay(base, (corrected > 0).astype(np.uint8) * 255), stats=corrected_stats, decimal_places=decimal_places)
         if bool(cfg.write_orientation_map):
-            _save_rgb(predicted_orientation_map_path, predicted_visuals["orientation_map_rgb"])
-            _save_rgb(corrected_orientation_map_path, corrected_visuals["orientation_map_rgb"])
+            _save_rgb(predicted_orientation_map_path, predicted_visuals["orientation_map_rgb"], stats=predicted_stats, decimal_places=decimal_places)
+            _save_rgb(corrected_orientation_map_path, corrected_visuals["orientation_map_rgb"], stats=corrected_stats, decimal_places=decimal_places)
         if bool(cfg.write_distribution_charts):
-            _save_rgb(predicted_size_hist_path, predicted_visuals["size_distribution_rgb"])
-            _save_rgb(predicted_orientation_hist_path, predicted_visuals["orientation_distribution_rgb"])
-            _save_rgb(corrected_size_hist_path, corrected_visuals["size_distribution_rgb"])
-            _save_rgb(corrected_orientation_hist_path, corrected_visuals["orientation_distribution_rgb"])
+            _save_rgb(predicted_size_hist_path, predicted_visuals["size_distribution_rgb"], stats=predicted_stats, decimal_places=decimal_places)
+            _save_rgb(predicted_orientation_hist_path, predicted_visuals["orientation_distribution_rgb"], stats=predicted_stats, decimal_places=decimal_places)
+            _save_rgb(corrected_size_hist_path, corrected_visuals["size_distribution_rgb"], stats=corrected_stats, decimal_places=decimal_places)
+            _save_rgb(corrected_orientation_hist_path, corrected_visuals["orientation_distribution_rgb"], stats=corrected_stats, decimal_places=decimal_places)
         Image.fromarray(np.where(corrected != predicted_mask, 255, 0).astype(np.uint8)).save(diff_mask_path)
+        if bool(cfg.write_fn_debug_artifacts) and bool(cfg.include_fn_metrics):
+            predicted_fn_visuals = render_fn_debug_visualizations(predicted_stats, base_image=base)
+            corrected_fn_visuals = render_fn_debug_visualizations(corrected_stats, base_image=base)
+            _save_rgb(predicted_fn_classification_path, predicted_fn_visuals["fn_classification_rgb"], stats=predicted_stats, decimal_places=decimal_places)
+            _save_rgb(corrected_fn_classification_path, corrected_fn_visuals["fn_classification_rgb"], stats=corrected_stats, decimal_places=decimal_places)
+            _save_rgb(predicted_fn_angle_path, predicted_fn_visuals["fn_angle_distribution_rgb"], stats=predicted_stats, decimal_places=decimal_places)
+            _save_rgb(corrected_fn_angle_path, corrected_fn_visuals["fn_angle_distribution_rgb"], stats=corrected_stats, decimal_places=decimal_places)
+            for csv_path, stats in ((predicted_fn_csv_path, predicted_stats), (corrected_fn_csv_path, corrected_stats)):
+                with csv_path.open("w", newline="", encoding="utf-8") as handle:
+                    writer = csv.writer(handle)
+                    writer.writerow(["feature_index", "label_id", "orientation_deg", "length_px", "exceeds_threshold"])
+                    for index, (label_id, angle, length, selected) in enumerate(
+                        zip(stats.feature_label_ids, stats.orientations_deg, stats.lengths_px, stats.fn_exceeding_angle),
+                        start=1,
+                    ):
+                        writer.writerow([index, label_id, f"{angle:.{decimal_places}f}", f"{length:.{decimal_places}f}", selected])
 
-        predicted_metrics = dict(predicted_stats.scalar_metrics)
-        corrected_metrics = dict(corrected_stats.scalar_metrics)
+        predicted_metrics = _rounded_metrics(dict(predicted_stats.scalar_metrics), decimal_places)
+        corrected_metrics = _rounded_metrics(dict(corrected_stats.scalar_metrics), decimal_places)
         metric_keys = self._pick_metric_keys(
             config=cfg,
             predicted_metrics=predicted_metrics,
@@ -529,6 +610,17 @@ class DesktopResultExporter:
             "corrected_overlay": corrected_overlay_path.name,
             "diff_mask": diff_mask_path.name,
         }
+        if bool(cfg.write_fn_debug_artifacts) and bool(cfg.include_fn_metrics):
+            artifacts.update(
+                {
+                    "predicted_fn_classification": predicted_fn_classification_path.name,
+                    "corrected_fn_classification": corrected_fn_classification_path.name,
+                    "predicted_fn_angle_distribution": predicted_fn_angle_path.name,
+                    "corrected_fn_angle_distribution": corrected_fn_angle_path.name,
+                    "predicted_fn_feature_table": predicted_fn_csv_path.name,
+                    "corrected_fn_feature_table": corrected_fn_csv_path.name,
+                }
+            )
         if bool(cfg.write_orientation_map):
             artifacts["predicted_orientation_map"] = predicted_orientation_map_path.name
             artifacts["corrected_orientation_map"] = corrected_orientation_map_path.name
@@ -556,6 +648,8 @@ class DesktopResultExporter:
                 "min_feature_pixels": vis_cfg.min_feature_pixels,
                 "orientation_cmap": vis_cfg.orientation_cmap,
                 "size_scale": vis_cfg.size_scale,
+                "fn_angle_threshold_deg": float(cfg.fn_angle_threshold_deg),
+                "report_decimal_places": decimal_places,
                 "postprocessing_options": cfg.postprocessing_options(),
             },
             "spatial_calibration": {
@@ -563,9 +657,9 @@ class DesktopResultExporter:
                 "source": str(cfg.calibration_source),
                 "notes": str(cfg.calibration_notes),
             },
-            "pipeline_metrics": run.metrics,
-            "predicted_stats": statistics_to_json(predicted_stats),
-            "corrected_stats": statistics_to_json(corrected_stats),
+            "pipeline_metrics": _rounded_metrics(dict(run.metrics), decimal_places),
+            "predicted_stats": statistics_to_json(predicted_stats, decimal_places=decimal_places),
+            "corrected_stats": statistics_to_json(corrected_stats, decimal_places=decimal_places),
             "selected_metric_rows": metric_rows,
             "key_summary_rows": key_summary_rows,
             "applied_export_criteria": {
@@ -575,6 +669,7 @@ class DesktopResultExporter:
                 "include_sections": sorted(include_sections),
                 "sort_metrics": cfg.normalized_sort_metrics(),
                 "top_k_key_metrics": cfg.normalized_top_k_key_metrics(),
+                "report_decimal_places": decimal_places,
                 "write_html_report": bool(cfg.write_html_report),
                 "write_pdf_report": bool(cfg.write_pdf_report),
                 "write_csv_report": bool(cfg.write_csv_report),
@@ -638,6 +733,7 @@ class DesktopResultExporter:
     @staticmethod
     def _build_html(payload: dict[str, Any]) -> str:
         criteria = payload.get("applied_export_criteria", {})
+        decimal_places = int(criteria.get("report_decimal_places", 2))
         include_sections = set(criteria.get("include_sections", []))
         metric_rows = payload.get("selected_metric_rows", [])
         key_rows = payload.get("key_summary_rows", [])
@@ -651,10 +747,10 @@ class DesktopResultExporter:
             rows_html.append(
                 "<tr>"
                 f"<td>{html.escape(str(row.get('metric', '')))}</td>"
-                f"<td>{html.escape(_fmt_metric(row.get('predicted', '')))}</td>"
-                f"<td>{html.escape(_fmt_metric(row.get('corrected', '')))}</td>"
-                f"<td>{html.escape(_fmt_metric(row.get('delta', '')))}</td>"
-                f"<td>{html.escape(_fmt_metric(row.get('delta_pct', '')))}</td>"
+                f"<td>{html.escape(_fmt_metric(row.get('predicted', ''), decimal_places=decimal_places))}</td>"
+                f"<td>{html.escape(_fmt_metric(row.get('corrected', ''), decimal_places=decimal_places))}</td>"
+                f"<td>{html.escape(_fmt_metric(row.get('delta', ''), decimal_places=decimal_places))}</td>"
+                f"<td>{html.escape(_fmt_metric(row.get('delta_pct', ''), decimal_places=decimal_places))}</td>"
                 "</tr>"
             )
 
@@ -665,9 +761,9 @@ class DesktopResultExporter:
             key_rows_html.append(
                 "<tr>"
                 f"<td>{html.escape(str(row.get('metric', '')))}</td>"
-                f"<td>{html.escape(_fmt_metric(row.get('predicted', '')))}</td>"
-                f"<td>{html.escape(_fmt_metric(row.get('corrected', '')))}</td>"
-                f"<td>{html.escape(_fmt_metric(row.get('delta', '')))}</td>"
+                f"<td>{html.escape(_fmt_metric(row.get('predicted', ''), decimal_places=decimal_places))}</td>"
+                f"<td>{html.escape(_fmt_metric(row.get('corrected', ''), decimal_places=decimal_places))}</td>"
+                f"<td>{html.escape(_fmt_metric(row.get('delta', ''), decimal_places=decimal_places))}</td>"
                 "</tr>"
             )
 
@@ -797,6 +893,7 @@ class DesktopResultExporter:
         corrected_mask: np.ndarray,
     ) -> None:
         criteria = payload.get("applied_export_criteria", {})
+        decimal_places = int(criteria.get("report_decimal_places", 2))
         include_sections = set(criteria.get("include_sections", []))
         pred_overlay = mask_overlay(base, (predicted_mask > 0).astype(np.uint8) * 255)
         corr_overlay = mask_overlay(base, (corrected_mask > 0).astype(np.uint8) * 255)
@@ -835,7 +932,7 @@ class DesktopResultExporter:
                     if not isinstance(row, dict):
                         continue
                     lines.append(
-                        f"- {row.get('metric', '')}: {_fmt_metric(row.get('predicted'))} -> {_fmt_metric(row.get('corrected'))}"
+                        f"- {row.get('metric', '')}: {_fmt_metric(row.get('predicted'), decimal_places=decimal_places)} -> {_fmt_metric(row.get('corrected'), decimal_places=decimal_places)}"
                     )
                 fig_meta.text(0.05, 0.92, "\n".join(lines), va="top", family="monospace", fontsize=10)
                 pdf.savefig(fig_meta)
@@ -900,10 +997,10 @@ class DesktopResultExporter:
                     lines.append(
                         "{} | {} | {} | {} | {}".format(
                             row.get("metric", ""),
-                            _fmt_metric(row.get("predicted", "")),
-                            _fmt_metric(row.get("corrected", "")),
-                            _fmt_metric(row.get("delta", "")),
-                            _fmt_metric(row.get("delta_pct", "")),
+                            _fmt_metric(row.get("predicted", ""), decimal_places=decimal_places),
+                            _fmt_metric(row.get("corrected", ""), decimal_places=decimal_places),
+                            _fmt_metric(row.get("delta", ""), decimal_places=decimal_places),
+                            _fmt_metric(row.get("delta_pct", ""), decimal_places=decimal_places),
                         )
                     )
                 fig_tbl.text(0.05, 0.95, "\n".join(lines), va="top", family="monospace", fontsize=8)
@@ -926,6 +1023,7 @@ class DesktopResultExporter:
         if not runs:
             raise ValueError("runs is empty")
         cfg = config or DesktopResultExportConfig()
+        decimal_places = cfg.normalized_decimal_places()
         profile = cfg.normalized_profile()
         include_sections = set(cfg.normalized_sections())
         if not bool(cfg.include_artifact_manifest):
@@ -957,7 +1055,7 @@ class DesktopResultExporter:
                 config=cfg,
             )
             um_per_px = None if cfg.microns_per_pixel is None else float(cfg.microns_per_pixel)
-            pred_metrics = dict(run.metrics)
+            pred_metrics = _rounded_metrics(dict(run.metrics), decimal_places)
             if not pred_metrics:
                 pred_mask = to_index_mask(np.array(run.mask_image))
                 pred_stats = compute_hydride_statistics(
@@ -969,8 +1067,10 @@ class DesktopResultExporter:
                     include_extended_metrics=bool(cfg.compute_extended_metrics),
                     include_histograms=bool(cfg.write_distribution_charts),
                     include_physical_metrics=bool(cfg.write_physical_calibration_metrics),
+                    include_fn_metrics=bool(cfg.include_fn_metrics),
+                    fn_angle_threshold_deg=float(cfg.fn_angle_threshold_deg),
                 )
-                pred_metrics = dict(pred_stats.scalar_metrics)
+                pred_metrics = _rounded_metrics(dict(pred_stats.scalar_metrics), decimal_places)
             corr_metrics = dict(pred_metrics)
             if corrected_masks and run.run_id in corrected_masks:
                 corr_mask = to_index_mask(np.asarray(corrected_masks[run.run_id]))
@@ -983,8 +1083,10 @@ class DesktopResultExporter:
                     include_extended_metrics=bool(cfg.compute_extended_metrics),
                     include_histograms=bool(cfg.write_distribution_charts),
                     include_physical_metrics=bool(cfg.write_physical_calibration_metrics),
+                    include_fn_metrics=bool(cfg.include_fn_metrics),
+                    fn_angle_threshold_deg=float(cfg.fn_angle_threshold_deg),
                 )
-                corr_metrics = dict(corr_stats.scalar_metrics)
+                corr_metrics = _rounded_metrics(dict(corr_stats.scalar_metrics), decimal_places)
             keys = self._pick_metric_keys(config=cfg, predicted_metrics=pred_metrics, corrected_metrics=corr_metrics)
             if selected_set:
                 keys = [k for k in keys if k in selected_set]
@@ -1054,6 +1156,7 @@ class DesktopResultExporter:
                 "include_sections": sorted(include_sections),
                 "sort_metrics": cfg.normalized_sort_metrics(),
                 "top_k_key_metrics": cfg.normalized_top_k_key_metrics(),
+                "report_decimal_places": decimal_places,
                 "write_html_report": bool(cfg.write_html_report),
                 "write_pdf_report": bool(cfg.write_pdf_report),
                 "write_csv_report": bool(cfg.write_csv_report),

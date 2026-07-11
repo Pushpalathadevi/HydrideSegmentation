@@ -48,6 +48,8 @@ def test_phase23_compute_hydride_statistics_and_visuals() -> None:
     assert float(stats.scalar_metrics["hydride_area_fraction"]) > 0.0
     assert len(stats.orientation_hist_counts) == 12
     assert len(stats.size_hist_counts) == 10
+    assert float(stats.scalar_metrics["fn_count"]) == 0.0
+    assert float(stats.scalar_metrics["fn_length_weighted"]) == 0.0
 
     visuals = render_hydride_visualizations(
         stats,
@@ -83,6 +85,41 @@ def test_phase23_statistics_with_micron_calibration() -> None:
     assert "equivalent_diameter_mean_um" in stats.scalar_metrics
     assert len(stats.sizes_um2) == int(stats.scalar_metrics["hydride_count"])
     assert len(stats.size_hist_counts_um2) == 8
+
+
+def test_phase23_report_precision_default_and_serialization() -> None:
+    stats = compute_hydride_statistics(_synthetic_mask())
+    from src.microseg.evaluation import statistics_to_json
+
+    payload = statistics_to_json(stats, decimal_places=2)
+    assert DesktopResultExportConfig().normalized_decimal_places() == 2
+    assert payload["scalar_metrics"]["hydride_area_fraction"] == round(
+        float(stats.scalar_metrics["hydride_area_fraction"]), 2
+    )
+
+
+def test_phase23_fn_count_and_length_weighting() -> None:
+    mask = np.zeros((100, 180), dtype=np.uint8)
+    mask[15:20, 10:30] = 1       # horizontal, short, excluded
+    mask[40:45, 40:140] = 1     # horizontal, long, excluded
+    mask[70:90, 155:160] = 1    # vertical, short, included
+    stats = compute_hydride_statistics(mask, fn_angle_threshold_deg=45.0)
+    assert stats.orientations_deg[0] < 5.0
+    assert stats.orientations_deg[1] < 5.0
+    assert stats.orientations_deg[2] > 85.0
+    assert int(stats.scalar_metrics["fn_count_numerator"]) == 1
+    assert int(stats.scalar_metrics["fn_count_denominator"]) == 3
+    assert float(stats.scalar_metrics["fn_count"]) == 1.0 / 3.0
+    assert float(stats.scalar_metrics["fn_length_weighted"]) < float(stats.scalar_metrics["fn_count"])
+
+    boundary = np.zeros((80, 80), dtype=np.uint8)
+    boundary[35:45, 20:30] = 1
+    boundary_stats = compute_hydride_statistics(boundary, fn_angle_threshold_deg=0.0)
+    assert float(boundary_stats.scalar_metrics["fn_count"]) == 1.0
+
+    empty = compute_hydride_statistics(np.zeros((20, 20), dtype=np.uint8))
+    assert float(empty.scalar_metrics["fn_count"]) == 0.0
+    assert float(empty.scalar_metrics["fn_length_weighted"]) == 0.0
 
 
 def test_phase23_manual_and_metadata_calibration(tmp_path: Path) -> None:
@@ -135,6 +172,7 @@ def test_phase23_desktop_result_export_package(tmp_path: Path) -> None:
             compute_extended_metrics=True,
             write_distribution_charts=True,
             write_physical_calibration_metrics=True,
+            write_fn_debug_artifacts=True,
         ),
     )
 
@@ -148,6 +186,10 @@ def test_phase23_desktop_result_export_package(tmp_path: Path) -> None:
     assert (out_dir / "corrected_mask_indexed.png").exists()
     assert (out_dir / "predicted_orientation_distribution.png").exists()
     assert (out_dir / "corrected_orientation_distribution.png").exists()
+    assert (out_dir / "predicted_fn_classification.png").exists()
+    assert (out_dir / "corrected_fn_classification.png").exists()
+    assert (out_dir / "predicted_fn_feature_table.csv").exists()
+    assert (out_dir / "corrected_fn_angle_distribution.png").exists()
 
     payload = json.loads((out_dir / "results_summary.json").read_text(encoding="utf-8"))
     assert payload["schema_version"] == "microseg.desktop_results.v2"
@@ -157,6 +199,8 @@ def test_phase23_desktop_result_export_package(tmp_path: Path) -> None:
     assert float(payload["spatial_calibration"]["microns_per_pixel"]) == 0.5
     assert "applied_export_criteria" in payload
     assert payload["report_outputs"]["metrics_csv"] == "results_metrics.csv"
+    assert "fn_count" in payload["predicted_stats"]["scalar_metrics"]
+    assert "predicted_fn_classification" in payload["artifacts"]
 
 
 def test_phase23_desktop_result_export_skips_optional_distribution_charts(tmp_path: Path) -> None:
