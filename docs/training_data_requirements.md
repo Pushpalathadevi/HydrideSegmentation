@@ -127,10 +127,7 @@ Prepare dataset explicitly:
 microseg-cli dataset-prepare --config configs/dataset_prepare.default.yml
 ```
 
-GUI workflow equivalent:
-- Open `Workflow Hub` -> `Dataset Prep + QA`
-- Use `Preview Dataset Plan` before running prepare
-- Optionally run QA and then launch training with QA gate enabled
+Dataset preparation is a CLI workflow. Use the command output and QA report before launching training.
 
 Prepare dataset with RGB colormap masks:
 
@@ -168,40 +165,6 @@ Run dataset QA before training:
 ```bash
 microseg-cli dataset-qa --config configs/dataset_qa.default.yml --strict
 ```
-
-## Feedback-Derived Active-Learning Dataset
-
-Centralized feedback records (`microseg.feedback_record.v1`) can be converted into
-train/val/test datasets using:
-
-```bash
-microseg-cli feedback-build-dataset --config configs/feedback_build_dataset.default.yml
-```
-
-Policy defaults:
-- corrected masks: included with weight `1.0`
-- thumbs-up without correction: included as pseudo-labels with low weight (`0.2`)
-- thumbs-down without correction: excluded from training dataset and routed to review queue during ingest
-
-Generated layout matches canonical split format:
-
-```text
-<output_dir>/
-  train/{images,masks,metadata}
-  val/{images,masks,metadata}
-  test/{images,masks,metadata}
-  sample_weights.csv
-  dataset_manifest.json
-```
-
-Threshold-based retraining trigger (corrected-count or elapsed-days gate):
-
-```bash
-microseg-cli feedback-train-trigger --config configs/feedback_train_trigger.default.yml
-```
-
-This trigger never auto-promotes models; promotion remains human-gated through benchmark/run-review policy flow.
-
 
 Enable binary auto-normalization for legacy masks (`0` background, any non-zero foreground):
 

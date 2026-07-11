@@ -43,13 +43,8 @@ Additional workflow config:
 - `tutorials/train.tiny_unet_from_prepared.yml` for the matching tiny UNet training smoke/tutorial run
 - `segmentation_classes.json` repo-level default class definitions used by correction/export and RGB-mask class-color fallback
 - `hpc_ga.default.yml` for GA-based HPC multi-candidate script bundle generation
-  - includes feedback-hybrid planning controls and metric/runtime fitness weights
+  - uses novelty-based candidate selection and explicit metric/runtime planning weights
 - `hpc_ga.airgap_pretrained.default.yml` for low-friction air-gapped HPC sweeps
   - enables `pretrained_init_mode=auto` with backend-to-model mapping from `pre_trained_weights/registry.json`
 - `hpc_ga.top5_scratch.default.yml` for the canonical top-5 scratch-only hydride sweep
 - `hpc_ga.top5_airgap_pretrained.default.yml` for the canonical top-5 air-gapped local-pretrained sweep
-- `feedback_capture.default.yml` for local per-inference feedback capture defaults
-- `feedback_bundle.default.yml` for deployment-side feedback bundle export
-- `feedback_ingest.default.yml` for central feedback bundle ingest + dedup + review queue
-- `feedback_build_dataset.default.yml` for weighted active-learning dataset build policy
-- `feedback_train_trigger.default.yml` for threshold-based retraining trigger orchestration

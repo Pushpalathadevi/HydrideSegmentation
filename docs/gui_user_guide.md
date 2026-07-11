@@ -5,25 +5,22 @@
 1. Load image (or bundled sample) and select model.
 2. Run segmentation.
 3. Inspect prediction in split view and Results Dashboard.
-4. Rate segmentation quickly with `👍`/`👎` and optional comment (auto-saved).
+4. Inspect the Results Dashboard and Fn metrics.
 5. Correct annotations when needed.
 6. Export corrected sample and/or full results package (`json` + `html` + `pdf` + `csv`).
-7. Package datasets for training.
-8. Save session and resume later.
-9. Run full train/infer/evaluate/package jobs from Workflow Hub.
-10. Review model-specific frozen-checkpoint tips before selecting ML models.
-11. Use Dataset Prep + QA to preview split plans, run data QA, and gate training launches.
+7. Save session and resume later.
+8. Review model-specific frozen-checkpoint tips before selecting ML models.
 
 While inference is running, the top status banner shows the current stage, elapsed time, and an ETA estimate when the app has enough history to infer one.
-During recursive batch jobs it also shows processed-image counts, percent complete, and rolling ETA updates as inference, feedback/provenance capture, and export steps finish.
+During recursive batch jobs it also shows processed-image counts, percent complete, and rolling ETA updates as inference, quantitative analysis, and export steps finish.
 Single-image and batch inference now both run through the in-process background worker path, which keeps the GUI responsive while allowing warmed ML bundles to be reused across runs.
 The main model selector is intentionally ordered for deployment use: discovered trained models appear first, `Hydride ML (UNet)` remains the default trained checkpoint, and `Hydride Conventional` remains available as the fallback baseline.
 The desktop now uses a split layout: the left sidebar holds project/model/correction controls, while the right workspace keeps the image tabs large and readable.
 The left control rail now defaults to a narrower progressive-disclosure layout:
 - `Quick Start` stays visible with load/select/run controls
 - `Run Setup / Status` carries model metadata, preprocessing summary, warm-load status, and segmentation progress
-- `Active Run` appears after inference with review/export shortcuts plus annotator/feedback fields
-- advanced setup, correction tools, export/session, workflow extras, and logs stay hidden behind the gear menu until explicitly opened
+- `Active Run` appears after inference with review/export shortcuts plus optional provenance notes
+- quantification settings are visible and grouped; correction tools, export/session, and logs remain expandable
 
 The desktop log now appears in a shared bottom strip under the main workspace instead of consuming sidebar width, and it is shown by default on startup.
 Input, mask, overlay, and batch-summary image views all expose local zoom, pan, fit, and display-contrast controls. The main active-run image views keep pan and zoom synchronized so inspection stays aligned across tabs.
@@ -31,9 +28,11 @@ Input, mask, overlay, and batch-summary image views all expose local zoom, pan, 
 The control rail keeps image loading, sample selection, and model selection on separate rows so the ML model list remains readable without forcing the image workspace to collapse.
 Advanced controls are grouped behind collapsible sections:
 - `Inference Setup` for config and calibration
-- `Correction Tools` for conventional tools and layer controls
+- `Correction Tools` for optional mask editing and layer controls
 - `Export & Session` for exports, saves, and report options
-- `Workflow Extras` for workflow notes and profile management
+- `Quantification Settings` for Fn metrics, distributions, precision, and debug artifacts
+
+The desktop application intentionally keeps training and active-learning data capture out of the primary inference workflow. Use the dedicated command-line training/evaluation tools when those workflows are needed.
 
 ## Correction Workflow
 
@@ -52,12 +51,6 @@ Inspection controls:
 - synchronized split-view pan/zoom
 - transparency sliders for predicted, corrected, and diff layers
 
-Feedback controls:
-- always-visible `👍` / `👎` buttons for one-click model feedback
-- optional comment text in the notes field (auto-saved to feedback record)
-- no modal prompts; downvote does not require comment or correction
-- corrected masks are linked into the same feedback record when they differ from prediction
-
 Conventional controls (Hydride Conventional model):
 - CLAHE clip limit and tile grid
 - adaptive threshold block size and `C`
@@ -72,7 +65,6 @@ Conventional controls (Hydride Conventional model):
 - NumPy `.npy`
 
 Output includes correction metadata and provenance (`correction_record.json`).
-If available, correction export metadata also includes optional feedback linkage fields (`feedback_record_id`, `feedback_record_dir`).
 
 `Export Results Package` writes deployment-facing outputs:
 - `results_summary.json` with predicted/corrected statistics and analysis config
@@ -102,7 +94,7 @@ Batch export:
 1. Click `Run Batch`.
 2. Select an input folder (or cancel to fall back to manual file selection).
 3. The app scans recursively (default) for configured image globs (`*.png`, `*.jpg`, `*.jpeg`, `*.tif`, `*.tiff`, `*.bmp`).
-4. Each discovered image is inferred, feedback/provenance is captured, and the run is exported under the final batch package in one pass.
+4. Each discovered image is inferred, quantitatively analyzed, and exported under the final batch package in one pass.
 5. The app writes `runs/` per-image artifacts plus `batch_results_summary.json`, `batch_results_report.html`, optional PDF/CSV outputs, `artifacts_manifest.json`, and `resolved_config.json`.
 6. The batch summary inspector opens automatically at the end of the run for immediate review.
 
@@ -157,7 +149,7 @@ The left control rail now uses grouped cards instead of a dense button strip:
 The revised layout puts the most common actions first:
 
 - quick start: load image, sample, and model selection
-- correction tools: interaction, overlay, and feedback controls
+- correction tools: interaction and overlay controls
 - export and session: output packaging and persistence
 
 The goal is to keep the controls readable without forcing the image workspace to become too narrow.
@@ -174,6 +166,9 @@ The goal is to keep the controls readable without forcing the image workspace to
   - minimum feature-pixel threshold
   - size axis scale (`linear`/`log`)
   - orientation colormap
+  - Fn inclusion and angle threshold
+  - report decimal precision
+  - distribution charts, orientation maps, and Fn debug artifacts
 
 ## Spatial Calibration (Optional)
 
@@ -185,76 +180,9 @@ To enable micron-based reporting:
 
 When calibration is active, size-related metrics and report outputs include micron-based values (`um`, `um^2`) in addition to pixel metrics.
 
-## Pipeline Hub
+## CLI For Training And Evaluation
 
-The `Workflow Hub` tab includes orchestration sub-tabs:
-- `Inference`: launches `microseg-cli infer`
-- `Training`: launches `microseg-cli train`
-- `Evaluation`: launches `microseg-cli evaluate`
-- `Packaging`: launches `microseg-cli package`
-- `Dataset Prep + QA`: preview/prepare dataset layouts and run dataset QA checks
-- `Run Review`: inspect and compare training/evaluation report JSON files
-- `HPC GA Planner`: generate scheduler-ready multi-candidate bundles for HPC training/evaluation runs
-- feedback loop commands are available from CLI and can be orchestrated from shell:
-  - `feedback-bundle`
-  - `feedback-ingest`
-  - `feedback-build-dataset`
-  - `feedback-train-trigger`
-
-Operational behavior:
-- one active orchestration job at a time
-- live command output log
-- job completion/failure status dialogs
-- config path + override support per job
-- per-job GPU controls (`Enable GPU` + `device policy`) with CPU fallback behavior
-- default is CPU execution unless GPU is explicitly enabled
-- training tab includes backend selection (`unet_binary`, `smp_unet_resnet18`, `smp_deeplabv3plus_resnet101`, `smp_unetplusplus_resnet101`, `smp_pspnet_resnet101`, `smp_fpn_resnet101`, `hf_segformer_b0`, `hf_segformer_b2`, `hf_segformer_b5`, `hf_upernet_swin_large`, `transunet_tiny`, `segformer_mini`, `torch_pixel`, `sklearn_pixel`)
-- training tab includes optional `Require dataset QA pass before launch` gate
-- `unet_binary` supports early stopping and resume checkpoint path
-- training tab supports validation sample tracking:
-  - total tracked sample count per epoch
-  - fixed val file names (`|` separated)
-  - random remainder sampling
-  - progress logging interval configuration
-  - optional HTML report writing
-- evaluation tab supports tracked sample panel count/seed and HTML report toggle
-
-Dataset Prep + QA tab highlights:
-- supports split-layout and unsplit `source/masks` onboarding
-- configurable leakage-aware split controls (`strategy`, `group mode`, `regex`)
-- optional RGB mask conversion using JSON colormap mapping
-- searchable preview table with global IDs and planned split assignment
-- in-app QA report run with strict/non-strict controls
-
-Workflow profiles:
-- save/load YAML profiles for:
-  - `dataset_prepare`
-  - `training`
-  - `evaluation`
-  - `hpc_ga`
-- profile schema: `microseg.workflow_profile.v1`
-
-Run Review tab highlights:
-- load baseline/candidate report JSON files
-- auto summarize report metadata and key metrics
-- compare metric deltas in table form (`baseline`, `candidate`, `delta`, `delta %`)
-- includes schema/backend/config-consistency indicators for safe run comparisons
-
-HPC GA Planner highlights:
-- architecture list + hyperparameter range controls
-- supports `novelty` and `feedback_hybrid` fitness modes
-- supports air-gapped pretrained sweeps via config-driven fields (`pretrained_init_mode`, `pretrained_model_map`, `pretrained_registry_path`)
-- novelty-oriented synthesis for first-pass sweeps
-- feedback-aware ranking using prior run bundles and metric/runtime weighting
-- scheduler mode selection (`slurm`, `pbs`, `local`)
-- `Analyze Feedback` action to write ranked summary reports before launching next sweep
-- one-click generation of:
-  - `submit_all.sh`
-  - per-candidate job scripts
-  - candidate parameter files (`json` + `yml`)
-  - plan manifest (`ga_plan_manifest.json`)
-- supports profile save/load scope `hpc_ga`
-- recommended air-gapped profile config: `configs/hpc_ga.airgap_pretrained.default.yml`
+Training, evaluation, dataset preparation, and deployment operations are intentionally documented and run through the CLI rather than competing with the inference workspace. Use [`usage_commands.md`](usage_commands.md) for copy-paste Windows and Linux commands.
 
 ## Model Guidance Panel
 

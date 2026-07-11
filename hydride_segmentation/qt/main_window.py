@@ -122,7 +122,6 @@ from src.microseg.evaluation import (
     compute_hydride_statistics,
     render_hydride_visualizations,
 )
-from src.microseg.feedback import FeedbackArtifactWriter, FeedbackCaptureConfig, load_feedback_record
 from src.microseg.inference.gui_preprocessing import (
     GuiInferencePreprocessConfig,
     ManualContrastAdjustment,
@@ -149,8 +148,6 @@ class _UiState:
     class_map: SegmentationClassMap = field(default_factory=lambda: DEFAULT_CLASS_MAP)
     spatial_calibration: SpatialCalibration | None = None
     calibration_image_path: str | None = None
-    current_feedback_record_dir: str = ""
-    current_feedback_rating: str = "unrated"
 
 
 def _discover_sample_images(repo_root: Path) -> list[Path]:
@@ -337,6 +334,8 @@ class _ResultsDashboardWorker(QObject):
                 size_bins=self._cfg.size_bins,
                 min_feature_pixels=self._cfg.min_feature_pixels,
                 microns_per_pixel=self._microns_per_pixel,
+                include_fn_metrics=bool(self._cfg.include_fn_metrics),
+                fn_angle_threshold_deg=float(self._cfg.fn_angle_threshold_deg),
             )
             corr_stats = compute_hydride_statistics(
                 self._corr_mask,
@@ -344,6 +343,8 @@ class _ResultsDashboardWorker(QObject):
                 size_bins=self._cfg.size_bins,
                 min_feature_pixels=self._cfg.min_feature_pixels,
                 microns_per_pixel=self._microns_per_pixel,
+                include_fn_metrics=bool(self._cfg.include_fn_metrics),
+                fn_angle_threshold_deg=float(self._cfg.fn_angle_threshold_deg),
             )
             entry = ResultsDashboardCacheEntry(
                 run_id=str(self._run_id),
@@ -1614,7 +1615,6 @@ class QtSegmentationMainWindow(QMainWindow):
         self._ui_config_source: str = ""
         self._ui_config_warnings: list[str] = []
         self._ui_config: DesktopUIConfig = default_desktop_ui_config()
-        self._suppress_feedback_note_events = False
         self._active_job_thread: QThread | None = None
         self._active_job_worker: _SegmentationWorker | None = None
         self._active_job_label: str = ""
@@ -1664,24 +1664,9 @@ class QtSegmentationMainWindow(QMainWindow):
         self.logger.info("Desktop log file: %s", log_path)
         self._load_ui_config(self._ui_config_path or None)
 
-        self.feedback_writer = FeedbackArtifactWriter(
-            FeedbackCaptureConfig(
-                feedback_root=str(self.orchestrator.repo_root / "outputs" / "feedback_records"),
-                deployment_id=str(os.environ.get("MICROSEG_DEPLOYMENT_ID", "desktop_local")),
-                operator_id=str(os.environ.get("MICROSEG_OPERATOR_ID", "unknown_operator")),
-                source="desktop_gui",
-            )
-        )
-
         self._results_refresh_timer = QTimer(self)
         self._results_refresh_timer.setSingleShot(True)
         self._results_refresh_timer.timeout.connect(self._update_results_dashboard)
-        self._feedback_comment_timer = QTimer(self)
-        self._feedback_comment_timer.setSingleShot(True)
-        self._feedback_comment_timer.timeout.connect(self._flush_feedback_comment)
-        self._feedback_correction_timer = QTimer(self)
-        self._feedback_correction_timer.setSingleShot(True)
-        self._feedback_correction_timer.timeout.connect(self._flush_feedback_correction)
         self._segmentation_progress_timer = QTimer(self)
         self._segmentation_progress_timer.setSingleShot(False)
         self._segmentation_progress_timer.timeout.connect(self._refresh_segmentation_progress)
@@ -1967,7 +1952,6 @@ class QtSegmentationMainWindow(QMainWindow):
         cli_cfg["image_path"] = image_path
         cli_cfg["model_name"] = model_name
         cli_cfg["output_dir"] = str(output_dir)
-        cli_cfg["capture_feedback"] = False
         cli_cfg.setdefault("include_analysis", True)
 
         config_path = output_dir / "gui_inference_config.json"
@@ -2219,7 +2203,6 @@ class QtSegmentationMainWindow(QMainWindow):
         view_menu.addAction("Zoom Out", self.corrected_canvas.zoom_out)
         view_menu.addAction("Zoom Reset", self.corrected_canvas.zoom_reset)
         view_menu.addAction("Results Dashboard", self.on_open_results_dashboard)
-        view_menu.addAction("Workflow Hub", self.on_open_workflow_hub)
 
         settings_menu = menu.addMenu("Settings")
         settings_menu.addAction("Appearance & Export Settings", self.on_open_appearance_settings)
@@ -2246,10 +2229,10 @@ class QtSegmentationMainWindow(QMainWindow):
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setFrameShape(QFrame.NoFrame)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sidebar_scroll.setFixedWidth(470)
+        sidebar_scroll.setFixedWidth(380)
         sidebar_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         sidebar_container = QWidget()
-        sidebar_container.setFixedWidth(448)
+        sidebar_container.setFixedWidth(358)
         sidebar_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         sidebar_layout = QVBoxLayout(sidebar_container)
         sidebar_layout.setContentsMargins(4, 4, 4, 4)
@@ -2267,7 +2250,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.main_splitter.setStretchFactor(1, 1)
 
         self._apply_main_splitter_sizes()
-        self.main_splitter.setSizes([500, 1200])
+        self.main_splitter.setSizes([390, 1310])
 
         self.workspace_splitter = QSplitter(Qt.Vertical)
         self.workspace_splitter.setChildrenCollapsible(False)
@@ -2279,7 +2262,7 @@ class QtSegmentationMainWindow(QMainWindow):
 
         quick_intro = QLabel(
             "Load an image or sample, choose a model, then run segmentation. "
-            "Use the gear menu only when you need setup, correction, export, or workflow detail."
+            "Use the gear menu only when you need setup, correction, export, or report detail."
         )
         quick_intro.setWordWrap(True)
         controls.addWidget(quick_intro)
@@ -2458,21 +2441,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.annotator_edit.setMinimumHeight(32)
 
         self.notes_edit = QLineEdit()
-        self.notes_edit.setPlaceholderText("Notes for feedback/export/session")
-        self.notes_edit.textChanged.connect(self._on_feedback_comment_changed)
+        self.notes_edit.setPlaceholderText("Optional notes for the exported result package")
         self.notes_edit.setMinimumHeight(32)
-
-        self.btn_thumb_up = QPushButton("👍")
-        self.btn_thumb_up.setToolTip("Rate segmentation as acceptable")
-        self.btn_thumb_up.clicked.connect(lambda: self._on_feedback_rating_clicked("thumbs_up"))
-        self.btn_thumb_up.setMinimumSize(36, 32)
-
-        self.btn_thumb_down = QPushButton("👎")
-        self.btn_thumb_down.setToolTip("Rate segmentation as poor")
-        self.btn_thumb_down.clicked.connect(lambda: self._on_feedback_rating_clicked("thumbs_down"))
-        self.btn_thumb_down.setMinimumSize(36, 32)
-
-        self.feedback_rating_label = QLabel("Feedback: unrated")
 
         self.active_run_box = QGroupBox("Active Run")
         active_run_layout = QVBoxLayout(self.active_run_box)
@@ -2497,9 +2467,6 @@ class QtSegmentationMainWindow(QMainWindow):
         active_identity_grid.addWidget(self.annotator_edit, 0, 1, 1, 3)
         active_identity_grid.addWidget(QLabel("Notes"), 1, 0)
         active_identity_grid.addWidget(self.notes_edit, 1, 1, 1, 3)
-        active_identity_grid.addWidget(self.btn_thumb_up, 2, 0)
-        active_identity_grid.addWidget(self.btn_thumb_down, 2, 1)
-        active_identity_grid.addWidget(self.feedback_rating_label, 2, 2, 1, 2)
         active_run_layout.addLayout(active_identity_grid)
 
         active_actions = QGridLayout()
@@ -2823,7 +2790,7 @@ class QtSegmentationMainWindow(QMainWindow):
         interaction_layout.addWidget(tool_panel, 0, 0)
         correction_tools_layout.addWidget(interaction_box)
 
-        overlay_box = QGroupBox("Overlay + Feedback")
+        overlay_box = QGroupBox("Overlay Display")
         overlay_layout = QVBoxLayout(overlay_box)
         overlay_layout.setContentsMargins(10, 10, 10, 10)
         overlay_layout.setSpacing(8)
@@ -2965,6 +2932,38 @@ class QtSegmentationMainWindow(QMainWindow):
         self.results_summary_label = QLabel("Results: run segmentation to populate dashboard")
         self.results_summary_label.setWordWrap(True)
         results_root.addWidget(self.results_summary_label)
+
+        self.results_quant_group = QGroupBox("Quantification Settings")
+        self.results_quant_group.setCheckable(True)
+        self.results_quant_group.setChecked(True)
+        quant_grid = QGridLayout(self.results_quant_group)
+        quant_grid.setHorizontalSpacing(10)
+        quant_grid.setVerticalSpacing(6)
+        self.chk_results_include_fn = QCheckBox("Include Fn metrics")
+        self.chk_results_include_fn.setChecked(bool(self._ui_config.export_defaults.include_fn_metrics))
+        quant_grid.addWidget(self.chk_results_include_fn, 0, 0, 1, 2)
+        quant_grid.addWidget(QLabel("Fn angle threshold"), 0, 2)
+        self.results_fn_threshold = QDoubleSpinBox()
+        self.results_fn_threshold.setRange(0.0, 90.0)
+        self.results_fn_threshold.setSingleStep(0.5)
+        self.results_fn_threshold.setDecimals(1)
+        self.results_fn_threshold.setValue(float(self._ui_config.export_defaults.fn_angle_threshold_deg))
+        quant_grid.addWidget(self.results_fn_threshold, 0, 3)
+        quant_grid.addWidget(QLabel("Report decimals"), 0, 4)
+        self.results_decimal_places = QSpinBox()
+        self.results_decimal_places.setRange(0, 8)
+        self.results_decimal_places.setValue(int(self._ui_config.export_defaults.report_decimal_places))
+        quant_grid.addWidget(self.results_decimal_places, 0, 5)
+        self.chk_results_distribution = QCheckBox("Distribution charts")
+        self.chk_results_distribution.setChecked(bool(self._ui_config.export_defaults.write_distribution_charts))
+        quant_grid.addWidget(self.chk_results_distribution, 1, 0, 1, 2)
+        self.chk_results_fn_debug = QCheckBox("Fn debug artifacts")
+        self.chk_results_fn_debug.setChecked(bool(self._ui_config.export_defaults.write_fn_debug_artifacts))
+        quant_grid.addWidget(self.chk_results_fn_debug, 1, 2, 1, 2)
+        self.chk_results_orientation_map = QCheckBox("Orientation map")
+        self.chk_results_orientation_map.setChecked(bool(self._ui_config.export_defaults.write_orientation_map))
+        quant_grid.addWidget(self.chk_results_orientation_map, 1, 4, 1, 2)
+        results_root.addWidget(self.results_quant_group)
 
         self.results_table = QTableWidget(0, 3)
         self.results_table.setHorizontalHeaderLabels(["Metric", "Predicted", "Corrected"])
@@ -3435,16 +3434,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_hpc_ms_max.setRange(1, 1000000000)
         self.orch_hpc_ms_max.setValue(250000)
         self.orch_hpc_fitness_mode = QComboBox()
-        self.orch_hpc_fitness_mode.addItems(["novelty", "feedback_hybrid"])
+        self.orch_hpc_fitness_mode.addItems(["novelty"])
         self.orch_hpc_fitness_mode.setCurrentText("novelty")
-        self.orch_hpc_feedback_sources = QLineEdit()
-        self.orch_hpc_feedback_sources.setPlaceholderText("Comma-separated prior bundle dirs or ga_plan_manifest.json paths")
-        self.orch_hpc_feedback_min_samples = QSpinBox()
-        self.orch_hpc_feedback_min_samples.setRange(1, 2000)
-        self.orch_hpc_feedback_min_samples.setValue(3)
-        self.orch_hpc_feedback_k = QSpinBox()
-        self.orch_hpc_feedback_k.setRange(1, 200)
-        self.orch_hpc_feedback_k.setValue(5)
         self.orch_hpc_exploration_weight = QDoubleSpinBox()
         self.orch_hpc_exploration_weight.setRange(0.0, 1.0)
         self.orch_hpc_exploration_weight.setDecimals(3)
@@ -3494,10 +3485,6 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_hpc_eval_split = QComboBox()
         self.orch_hpc_eval_split.addItems(["val", "test", "train"])
         self.orch_hpc_eval_split.setCurrentText("val")
-        self.orch_hpc_feedback_top_k = QSpinBox()
-        self.orch_hpc_feedback_top_k.setRange(1, 500)
-        self.orch_hpc_feedback_top_k.setValue(10)
-        self.orch_hpc_feedback_report_output = QLineEdit("outputs/hpc_ga_feedback/feedback_report.json")
 
         hpc_form.addRow("Config", self.orch_hpc_config_edit)
         hpc_form.addRow("Overrides", self.orch_hpc_set_edit)
@@ -3523,9 +3510,6 @@ class QtSegmentationMainWindow(QMainWindow):
         hpc_form.addRow("Max Samples Min", self.orch_hpc_ms_min)
         hpc_form.addRow("Max Samples Max", self.orch_hpc_ms_max)
         hpc_form.addRow("Fitness Mode", self.orch_hpc_fitness_mode)
-        hpc_form.addRow("Feedback Sources", self.orch_hpc_feedback_sources)
-        hpc_form.addRow("Feedback Min Samples", self.orch_hpc_feedback_min_samples)
-        hpc_form.addRow("Feedback K (kNN)", self.orch_hpc_feedback_k)
         hpc_form.addRow("Exploration Weight", self.orch_hpc_exploration_weight)
         hpc_form.addRow("Fitness Weight Mean IoU", self.orch_hpc_w_iou)
         hpc_form.addRow("Fitness Weight Macro F1", self.orch_hpc_w_f1)
@@ -3545,17 +3529,12 @@ class QtSegmentationMainWindow(QMainWindow):
         hpc_form.addRow("Base Train Config", self.orch_hpc_base_train)
         hpc_form.addRow("Base Eval Config", self.orch_hpc_base_eval)
         hpc_form.addRow("Eval Split", self.orch_hpc_eval_split)
-        hpc_form.addRow("Feedback Top K", self.orch_hpc_feedback_top_k)
-        hpc_form.addRow("Feedback Report Output", self.orch_hpc_feedback_report_output)
         hpc_root.addLayout(hpc_form)
 
         hpc_actions = QHBoxLayout()
         self.btn_orch_hpc_generate = QPushButton("Generate HPC GA Bundle")
         self.btn_orch_hpc_generate.clicked.connect(self.on_orchestrate_hpc_ga)
         hpc_actions.addWidget(self.btn_orch_hpc_generate)
-        self.btn_orch_hpc_feedback = QPushButton("Analyze Feedback")
-        self.btn_orch_hpc_feedback.clicked.connect(self.on_orchestrate_hpc_feedback_report)
-        hpc_actions.addWidget(self.btn_orch_hpc_feedback)
         hpc_actions.addStretch(1)
         hpc_root.addLayout(hpc_actions)
 
@@ -3565,8 +3544,6 @@ class QtSegmentationMainWindow(QMainWindow):
         self.orch_hpc_preview.setPlainText(
             "HPC GA Planner\n"
             "- Configure architectures + GA search ranges.\n"
-            "- Optional: set feedback sources and switch fitness mode to feedback_hybrid.\n"
-            "- Use 'Analyze Feedback' to build a ranked report from previous runs.\n"
             "- Click 'Generate HPC GA Bundle' to write scheduler scripts.\n"
             "- Upload the bundle to HPC and run submit_all.sh."
         )
@@ -3609,7 +3586,8 @@ class QtSegmentationMainWindow(QMainWindow):
         workflow_aux_layout.addWidget(self.workflow_notes)
         wf_root.addWidget(self.workflow_aux_group)
 
-        self.tabs.addTab(self.workflow_widget, "Workflow Hub")
+        # Training/dataops orchestration remains available from the CLI; keep
+        # the desktop surface focused on inference, correction, and analysis.
 
         self._connect_scroll_sync()
         self._reload_class_combo()
@@ -3620,6 +3598,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.results_min_feature.valueChanged.connect(self._queue_results_refresh)
         self.results_size_scale.currentTextChanged.connect(self._queue_results_refresh)
         self.results_cmap.currentTextChanged.connect(self._queue_results_refresh)
+        self.chk_results_include_fn.toggled.connect(self._queue_results_refresh)
+        self.results_fn_threshold.valueChanged.connect(self._queue_results_refresh)
 
         self.zoom_label = QLabel("Zoom: 100%")
         self.cursor_label = QLabel("Cursor: -,-")
@@ -3649,14 +3629,12 @@ class QtSegmentationMainWindow(QMainWindow):
         self._workspace_toggle_actions: dict[str, QAction] = {}
         self.model_desc.hide()
         self.active_run_box.hide()
-        self.inference_options_group.hide()
+        self.inference_options_group.show()
         self.history_box.hide()
         self.correction_tools_group.hide()
-        self.export_group.hide()
+        self.export_group.show()
         self.workflow_aux_group.hide()
         self.log_panel.show()
-        if bool(self._ui_config.window.show_workflow_dock_on_start):
-            self.tabs.setCurrentWidget(self.workflow_widget)
 
         workspace_menu = QMenu(self)
         workspace_menu.addAction("Appearance & Export Settings", self.on_open_appearance_settings)
@@ -3679,7 +3657,7 @@ class QtSegmentationMainWindow(QMainWindow):
         _add_toggle_action("Recent Runs", [self.history_box], checked=False)
         _add_toggle_action("Correction Tools", [self.correction_tools_group], checked=False)
         _add_toggle_action("Export & Session", [self.export_group], checked=False)
-        _add_toggle_action("Workflow Extras", [self.workflow_aux_group], checked=False)
+        _add_toggle_action("Quantification Settings", [self.results_quant_group], checked=True)
         _add_toggle_action("Run Setup / Status", [self.setup_status_box], checked=True)
         _add_toggle_action(
             "Advanced report options",
@@ -3688,7 +3666,6 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         _add_toggle_action("Desktop log", [self.log_panel], checked=True)
         workspace_menu.addSeparator()
-        workspace_menu.addAction("Workflow Hub", self.on_open_workflow_hub)
         workspace_menu.addAction("Results Dashboard", self.on_open_results_dashboard)
         self.btn_workspace_gear.setMenu(workspace_menu)
         self.tabs.currentChanged.connect(self._on_main_tab_changed)
@@ -3699,7 +3676,7 @@ class QtSegmentationMainWindow(QMainWindow):
         if not hasattr(self, "main_splitter"):
             return
         total_width = max(1, self.width())
-        sidebar_width = min(500, max(380, int(total_width * 0.29)))
+        sidebar_width = min(420, max(340, int(total_width * 0.23)))
         workspace_width = max(600, total_width - sidebar_width)
         self.main_splitter.setSizes([sidebar_width, workspace_width])
         self._splitter_geometry_applied = True
@@ -3715,7 +3692,7 @@ class QtSegmentationMainWindow(QMainWindow):
             "Recent Runs": [self.history_box] if hasattr(self, "history_box") else [],
             "Correction Tools": [self.correction_tools_group] if hasattr(self, "correction_tools_group") else [],
             "Export & Session": [self.export_group] if hasattr(self, "export_group") else [],
-            "Workflow Extras": [self.workflow_aux_group] if hasattr(self, "workflow_aux_group") else [],
+            "Quantification Settings": [self.results_quant_group] if hasattr(self, "results_quant_group") else [],
             "Advanced report options": [self.report_advanced_group] if hasattr(self, "report_advanced_group") else [],
             "Desktop log": [self.log_panel] if hasattr(self, "log_panel") else [],
         }
@@ -3896,6 +3873,8 @@ class QtSegmentationMainWindow(QMainWindow):
             or int(cfg.min_feature_pixels) != 1
             or str(cfg.orientation_cmap) != "coolwarm"
             or str(cfg.size_scale) != "linear"
+            or bool(cfg.include_fn_metrics) is not True
+            or abs(float(cfg.fn_angle_threshold_deg) - 45.0) > 1e-6
         ):
             return None
         images = dict(run.analysis_images_b64 or {})
@@ -4312,6 +4291,8 @@ class QtSegmentationMainWindow(QMainWindow):
             min_feature_pixels=int(self.results_min_feature.value()),
             orientation_cmap=self.results_cmap.currentText(),
             size_scale=self.results_size_scale.currentText(),
+            include_fn_metrics=bool(self.chk_results_include_fn.isChecked()),
+            fn_angle_threshold_deg=float(self.results_fn_threshold.value()),
         )
 
     def _selected_report_sections(self) -> tuple[str, ...]:
@@ -4415,15 +4396,15 @@ class QtSegmentationMainWindow(QMainWindow):
             include_artifact_manifest=bool(self.chk_artifact_manifest.isChecked()),
             compute_required_metrics=bool(self._ui_config.export_defaults.compute_required_metrics),
             compute_extended_metrics=bool(self._ui_config.export_defaults.compute_extended_metrics),
-            write_orientation_map=bool(self._ui_config.export_defaults.write_orientation_map),
-            write_distribution_charts=bool(self._ui_config.export_defaults.write_distribution_charts),
+            write_orientation_map=bool(self.chk_results_orientation_map.isChecked()),
+            write_distribution_charts=bool(self.chk_results_distribution.isChecked()),
             write_physical_calibration_metrics=bool(
                 self._ui_config.export_defaults.write_physical_calibration_metrics
             ),
-            include_fn_metrics=bool(self._ui_config.export_defaults.include_fn_metrics),
-            fn_angle_threshold_deg=float(self._ui_config.export_defaults.fn_angle_threshold_deg),
-            write_fn_debug_artifacts=bool(self._ui_config.export_defaults.write_fn_debug_artifacts),
-            report_decimal_places=int(self._ui_config.export_defaults.report_decimal_places),
+            include_fn_metrics=bool(self.chk_results_include_fn.isChecked()),
+            fn_angle_threshold_deg=float(self.results_fn_threshold.value()),
+            write_fn_debug_artifacts=bool(self.chk_results_fn_debug.isChecked()),
+            report_decimal_places=int(self.results_decimal_places.value()),
         )
 
     def _apply_calibration(self, calibration: SpatialCalibration | None, *, image_path: str | None = None) -> None:
@@ -5323,9 +5304,6 @@ class QtSegmentationMainWindow(QMainWindow):
                 "max_samples_min": int(self.orch_hpc_ms_min.value()),
                 "max_samples_max": int(self.orch_hpc_ms_max.value()),
                 "fitness_mode": self.orch_hpc_fitness_mode.currentText(),
-                "feedback_sources": self.orch_hpc_feedback_sources.text().strip(),
-                "feedback_min_samples": int(self.orch_hpc_feedback_min_samples.value()),
-                "feedback_k": int(self.orch_hpc_feedback_k.value()),
                 "exploration_weight": float(self.orch_hpc_exploration_weight.value()),
                 "fitness_weight_mean_iou": float(self.orch_hpc_w_iou.value()),
                 "fitness_weight_macro_f1": float(self.orch_hpc_w_f1.value()),
@@ -5346,8 +5324,6 @@ class QtSegmentationMainWindow(QMainWindow):
                 "base_train_config": self.orch_hpc_base_train.text().strip(),
                 "base_eval_config": self.orch_hpc_base_eval.text().strip(),
                 "eval_split": self.orch_hpc_eval_split.currentText(),
-                "feedback_top_k": int(self.orch_hpc_feedback_top_k.value()),
-                "feedback_report_output": self.orch_hpc_feedback_report_output.text().strip(),
             }
         raise ValueError(f"Unsupported profile scope: {scope}")
 
@@ -5439,9 +5415,6 @@ class QtSegmentationMainWindow(QMainWindow):
             self.orch_hpc_ms_min.setValue(int(values.get("max_samples_min", self.orch_hpc_ms_min.value())))
             self.orch_hpc_ms_max.setValue(int(values.get("max_samples_max", self.orch_hpc_ms_max.value())))
             self.orch_hpc_fitness_mode.setCurrentText(str(values.get("fitness_mode", self.orch_hpc_fitness_mode.currentText())))
-            self.orch_hpc_feedback_sources.setText(str(values.get("feedback_sources", self.orch_hpc_feedback_sources.text())))
-            self.orch_hpc_feedback_min_samples.setValue(int(values.get("feedback_min_samples", self.orch_hpc_feedback_min_samples.value())))
-            self.orch_hpc_feedback_k.setValue(int(values.get("feedback_k", self.orch_hpc_feedback_k.value())))
             self.orch_hpc_exploration_weight.setValue(float(values.get("exploration_weight", self.orch_hpc_exploration_weight.value())))
             self.orch_hpc_w_iou.setValue(float(values.get("fitness_weight_mean_iou", self.orch_hpc_w_iou.value())))
             self.orch_hpc_w_f1.setValue(float(values.get("fitness_weight_macro_f1", self.orch_hpc_w_f1.value())))
@@ -5462,10 +5435,6 @@ class QtSegmentationMainWindow(QMainWindow):
             self.orch_hpc_base_train.setText(str(values.get("base_train_config", self.orch_hpc_base_train.text())))
             self.orch_hpc_base_eval.setText(str(values.get("base_eval_config", self.orch_hpc_base_eval.text())))
             self.orch_hpc_eval_split.setCurrentText(str(values.get("eval_split", self.orch_hpc_eval_split.currentText())))
-            self.orch_hpc_feedback_top_k.setValue(int(values.get("feedback_top_k", self.orch_hpc_feedback_top_k.value())))
-            self.orch_hpc_feedback_report_output.setText(
-                str(values.get("feedback_report_output", self.orch_hpc_feedback_report_output.text()))
-            )
             self.workflow_tabs.setCurrentIndex(self.workflow_tabs.indexOf(self.workflow_hpc_tab))
             return
         raise ValueError(f"Unsupported profile scope: {scope}")
@@ -5622,9 +5591,6 @@ class QtSegmentationMainWindow(QMainWindow):
                 f"max_samples_min={int(self.orch_hpc_ms_min.value())}",
                 f"max_samples_max={int(self.orch_hpc_ms_max.value())}",
                 f"fitness_mode={self.orch_hpc_fitness_mode.currentText()}",
-                f"feedback_sources={self.orch_hpc_feedback_sources.text().strip()}",
-                f"feedback_min_samples={int(self.orch_hpc_feedback_min_samples.value())}",
-                f"feedback_k={int(self.orch_hpc_feedback_k.value())}",
                 f"exploration_weight={float(self.orch_hpc_exploration_weight.value())}",
                 f"fitness_weight_mean_iou={float(self.orch_hpc_w_iou.value())}",
                 f"fitness_weight_macro_f1={float(self.orch_hpc_w_f1.value())}",
@@ -5655,42 +5621,6 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         self.orch_hpc_preview.appendPlainText("$ " + " ".join(command))
         self._start_orchestration_job(command, "HPC-GA-Bundle")
-
-    def on_orchestrate_hpc_feedback_report(self) -> None:
-        feedback_sources = self.orch_hpc_feedback_sources.text().strip()
-        if not feedback_sources:
-            QMessageBox.warning(
-                self,
-                "Missing Feedback Sources",
-                "Set one or more feedback sources (bundle directory or ga_plan_manifest.json path).",
-            )
-            return
-        overrides = self._parse_override_text(self.orch_hpc_set_edit.text())
-        overrides.extend(
-            [
-                f"dataset_dir={self.orch_hpc_dataset_edit.text().strip()}",
-                f"output_dir={self.orch_hpc_output_edit.text().strip()}",
-                f"architectures={self.orch_hpc_architectures_edit.text().strip()}",
-                f"batch_size_choices={self.orch_hpc_batch_sizes.text().strip()}",
-                f"fitness_mode={self.orch_hpc_fitness_mode.currentText()}",
-                f"feedback_min_samples={int(self.orch_hpc_feedback_min_samples.value())}",
-                f"feedback_k={int(self.orch_hpc_feedback_k.value())}",
-                f"exploration_weight={float(self.orch_hpc_exploration_weight.value())}",
-                f"fitness_weight_mean_iou={float(self.orch_hpc_w_iou.value())}",
-                f"fitness_weight_macro_f1={float(self.orch_hpc_w_f1.value())}",
-                f"fitness_weight_pixel_accuracy={float(self.orch_hpc_w_acc.value())}",
-                f"fitness_weight_runtime={float(self.orch_hpc_w_runtime.value())}",
-                f"top_k={int(self.orch_hpc_feedback_top_k.value())}",
-            ]
-        )
-        command = self.orchestrator.hpc_ga_feedback_report(
-            config=self.orch_hpc_config_edit.text().strip() or None,
-            overrides=overrides,
-            feedback_sources=feedback_sources,
-            output_path=self.orch_hpc_feedback_report_output.text().strip() or None,
-        )
-        self.orch_hpc_preview.appendPlainText("$ " + " ".join(command))
-        self._start_orchestration_job(command, "HPC-GA-Feedback")
 
     def on_edit_classes(self) -> None:
         dlg = QDialog(self)
@@ -5750,7 +5680,6 @@ class QtSegmentationMainWindow(QMainWindow):
     def _on_correction_changed(self) -> None:
         self._update_action_label()
         self._queue_results_refresh()
-        self._feedback_correction_timer.start(700)
 
     def _on_tool_changed(self, tool: str) -> None:
         self.corrected_canvas.set_tool(tool)
@@ -5791,10 +5720,7 @@ class QtSegmentationMainWindow(QMainWindow):
             "7. Optionally calibrate scale (manual line or TIFF metadata) for micron-based reporting.\n"
             "8. Export correction masks and full JSON/HTML/PDF result packages.\n"
             "9. Tune conventional model controls when running Hydride Conventional.\n"
-            "10. Use Workflow Hub for train/infer/evaluate/package orchestration jobs.\n"
-            "11. Use Dataset Prep + QA for split preview, colormap conversion, and QA gating.\n"
-            "12. Use Run Review to compare training/evaluation reports.\n"
-            "13. Use HPC GA Planner to generate Slurm/PBS/local job bundles.",
+            "10. Use the CLI guide for training, evaluation, and dataset preparation commands.",
         )
 
     def on_show_about(self) -> None:
@@ -6034,10 +5960,8 @@ class QtSegmentationMainWindow(QMainWindow):
             params["enable_gpu"] = bool(cfg.get("enable_gpu", self.orch_infer_enable_gpu.isChecked()))
             params["device_policy"] = str(cfg.get("device_policy", self.orch_infer_device_policy.currentText()))
             params["image_path"] = path
-            operator_id = self._active_operator_id()
             self.logger.info("Running segmentation on %s with %s", path, model_name)
             cfg = dict(cfg)
-            cfg["operator_id"] = operator_id
             self._start_background_job(
                 label="single",
                 job=lambda report_status: self._run_desktop_segmentation_job(
@@ -6047,7 +5971,6 @@ class QtSegmentationMainWindow(QMainWindow):
                     params=params,
                     include_analysis=include_analysis,
                     resolved_config=cfg,
-                    operator_id=operator_id,
                 ),
                 on_finished=self._on_single_run_finished,
             )
@@ -6095,7 +6018,6 @@ class QtSegmentationMainWindow(QMainWindow):
             params.setdefault("image_path", paths[0])
             params["enable_gpu"] = bool(cfg.get("enable_gpu", self.orch_infer_enable_gpu.isChecked()))
             params["device_policy"] = str(cfg.get("device_policy", self.orch_infer_device_policy.currentText()))
-            operator_id = self._active_operator_id()
             output_dir = str(cfg.get("output_dir") or (self.orchestrator.repo_root / "outputs" / "inference"))
             batch_notes = self.notes_edit.text().strip()
             export_config = self._results_export_config_from_ui()
@@ -6110,7 +6032,6 @@ class QtSegmentationMainWindow(QMainWindow):
                     params=params,
                     include_analysis=include_analysis,
                     resolved_config=cfg,
-                    operator_id=operator_id,
                     output_dir=output_dir,
                     batch_notes=batch_notes,
                     export_config=export_config,
@@ -6131,7 +6052,6 @@ class QtSegmentationMainWindow(QMainWindow):
         params: dict[str, object],
         include_analysis: bool,
         resolved_config: dict[str, object],
-        operator_id: str,
     ) -> DesktopRunRecord:
         estimate = self._estimate_model_runtime_seconds(self._selected_model_id(model_name))
         self._segmentation_estimate_seconds = estimate
@@ -6150,14 +6070,7 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         if include_analysis:
             record.manifest["analysis_deferred"] = True
-        report_status("Inference complete. Capturing feedback metadata and preparing the view.")
-        self._capture_feedback_for_record(
-            record,
-            resolved_config=resolved_config,
-            params=params,
-            source="desktop_gui",
-            operator_id=operator_id,
-        )
+        report_status("Inference complete. Preparing the result view.")
         if include_analysis:
             report_status("Rendering result in the GUI. Scientific statistics will compute asynchronously when needed.")
         else:
@@ -6173,7 +6086,6 @@ class QtSegmentationMainWindow(QMainWindow):
         params: dict[str, object],
         include_analysis: bool,
         resolved_config: dict[str, object],
-        operator_id: str,
         output_dir: str,
         batch_notes: str,
         export_config: DesktopResultExportConfig,
@@ -6195,18 +6107,11 @@ class QtSegmentationMainWindow(QMainWindow):
             output_dir=output_dir,
             params=params,
             include_analysis=include_analysis,
-            annotator=operator_id or "unknown",
+            annotator=self.annotator_edit.text().strip() or "unknown",
             notes=batch_notes,
             class_map=class_map,
             export_config=export_config,
             resolved_config=resolved_config,
-            finalize_record=lambda record: self._capture_feedback_for_record(
-                record,
-                resolved_config=resolved_config,
-                params={**params, "image_path": record.image_path},
-                source="desktop_gui",
-                operator_id=operator_id,
-            ),
             progress_callback=lambda update: report_status(update),
             initial_per_image_seconds=estimate,
         )
@@ -6239,129 +6144,6 @@ class QtSegmentationMainWindow(QMainWindow):
         self.history_list.addItem(record.history_label)
         self._update_progressive_disclosure()
 
-    def _active_operator_id(self) -> str:
-        text = self.annotator_edit.text().strip()
-        if text:
-            return text
-        return str(self.feedback_writer.config.operator_id)
-
-    def _capture_feedback_for_record(
-        self,
-        record: DesktopRunRecord,
-        *,
-        resolved_config: dict[str, object] | None,
-        params: dict[str, object] | None,
-        source: str,
-        operator_id: str | None = None,
-    ) -> None:
-        if str(record.feedback_record_dir).strip():
-            return
-        try:
-            # Background workers must not read GUI widgets. Resolve the operator
-            # from the explicit argument, then fall back to the writer config.
-            resolved_operator_id = str(operator_id or self.feedback_writer.config.operator_id)
-            capture = self.feedback_writer.create_from_desktop_run(
-                record,
-                source=source,
-                resolved_config=dict(resolved_config or {}),
-                params=dict(params or {}),
-                runtime={
-                    "enable_gpu": bool((params or {}).get("enable_gpu", False)),
-                    "device_policy": str((params or {}).get("device_policy", "cpu")),
-                },
-                operator_id=resolved_operator_id,
-            )
-            record.feedback_record_dir = str(capture.record_dir)
-            record.feedback_record_id = str(capture.record_id)
-            self.logger.info("Feedback record captured: %s", record.feedback_record_dir)
-        except Exception:
-            self.logger.exception("Failed to capture feedback record for run_id=%s", record.run_id)
-
-    def _apply_feedback_rating_ui(self) -> None:
-        rating = str(self.state.current_feedback_rating or "unrated")
-        self.feedback_rating_label.setText(f"Feedback: {rating}")
-        up_active = rating == "thumbs_up"
-        down_active = rating == "thumbs_down"
-        self.btn_thumb_up.setStyleSheet("background-color: #dff0d8;" if up_active else "")
-        self.btn_thumb_down.setStyleSheet("background-color: #f2dede;" if down_active else "")
-
-    def _load_feedback_for_record(self, record: DesktopRunRecord) -> None:
-        self.state.current_feedback_record_dir = str(record.feedback_record_dir or "")
-        self.state.current_feedback_rating = "unrated"
-        comment = ""
-        if self.state.current_feedback_record_dir:
-            try:
-                payload = load_feedback_record(self.state.current_feedback_record_dir)
-                self.state.current_feedback_rating = str(payload.get("feedback", {}).get("rating", "unrated"))
-                comment = str(payload.get("feedback", {}).get("comment", ""))
-                record.feedback_record_id = str(payload.get("record_id", record.feedback_record_id))
-            except Exception:
-                self.logger.exception("Failed to load feedback record: %s", self.state.current_feedback_record_dir)
-        self._suppress_feedback_note_events = True
-        self.notes_edit.setText(comment)
-        self._suppress_feedback_note_events = False
-        self._apply_feedback_rating_ui()
-
-    def _persist_feedback(self, *, rating: str | None = None, comment: str | None = None) -> None:
-        record_dir = str(self.state.current_feedback_record_dir or "").strip()
-        if not record_dir:
-            return
-        try:
-            payload = self.feedback_writer.update_feedback(
-                record_dir,
-                rating=rating if rating in {"unrated", "thumbs_up", "thumbs_down"} else None,
-                comment=comment,
-                operator_id=self._active_operator_id(),
-            )
-            self.state.current_feedback_rating = str(payload.get("feedback", {}).get("rating", "unrated"))
-            self._apply_feedback_rating_ui()
-        except Exception:
-            self.logger.exception("Failed to persist feedback: %s", record_dir)
-
-    def _on_feedback_rating_clicked(self, rating: str) -> None:
-        if rating not in {"thumbs_up", "thumbs_down"}:
-            return
-        self._persist_feedback(rating=rating, comment=self.notes_edit.text().strip())
-        self._maybe_attach_current_correction()
-
-    def _on_feedback_comment_changed(self) -> None:
-        if self._suppress_feedback_note_events:
-            return
-        self._feedback_comment_timer.start(350)
-
-    def _flush_feedback_comment(self) -> None:
-        self._persist_feedback(comment=self.notes_edit.text().strip())
-
-    def _flush_feedback_correction(self) -> None:
-        self._maybe_attach_current_correction()
-
-    def _maybe_attach_current_correction(self) -> None:
-        record_dir = str(self.state.current_feedback_record_dir or "").strip()
-        sess = self.state.correction_session
-        run = self.state.current_run
-        if not record_dir or sess is None or run is None:
-            return
-        try:
-            pred = to_index_mask(np.array(run.mask_image))
-            corr = to_index_mask(np.array(sess.current_mask))
-            if np.array_equal(pred, corr):
-                return
-            self.feedback_writer.attach_corrected_mask(record_dir, corr)
-        except Exception:
-            self.logger.exception("Failed to attach corrected mask to feedback record: %s", record_dir)
-
-    def _link_feedback_correction_export(self, correction_record_path: str) -> None:
-        record_dir = str(self.state.current_feedback_record_dir or "").strip()
-        if not record_dir:
-            return
-        try:
-            self.feedback_writer.link_correction_export(
-                record_dir,
-                correction_record_path=str(correction_record_path),
-            )
-        except Exception:
-            self.logger.exception("Failed to link correction export to feedback record: %s", record_dir)
-
     def _mark_results_dashboard_dirty(self) -> None:
         self._results_dirty = True
         if self.tabs.currentWidget() is self.results_widget:
@@ -6375,19 +6157,6 @@ class QtSegmentationMainWindow(QMainWindow):
         started = time.perf_counter()
         self._save_active_viewer_state()
         self.state.current_run = record
-        if not str(record.feedback_record_dir).strip():
-            params = {}
-            if isinstance(record.manifest, dict):
-                raw = record.manifest.get("params", {})
-                if isinstance(raw, dict):
-                    params = dict(raw)
-            self._capture_feedback_for_record(
-                record,
-                resolved_config={"from_history": True, "manifest": record.manifest},
-                params=params,
-                source="desktop_gui",
-                operator_id=self._active_operator_id(),
-            )
         self.path_edit.setText(record.image_path)
         self.state.image_path = record.image_path
         self.orch_infer_image_edit.setText(record.image_path)
@@ -6410,7 +6179,6 @@ class QtSegmentationMainWindow(QMainWindow):
         self._restore_viewer_state_for_run(str(record.run_id))
         self._update_action_label()
         self._mark_results_dashboard_dirty()
-        self._load_feedback_for_record(record)
         self._update_progressive_disclosure()
 
         self.logger.info("Active run: %s", record.history_label)
@@ -6509,7 +6277,6 @@ class QtSegmentationMainWindow(QMainWindow):
             return
 
         try:
-            self._maybe_attach_current_correction()
             sample_dir = self.exporter.export_sample(
                 run,
                 sess.current_mask,
@@ -6518,10 +6285,7 @@ class QtSegmentationMainWindow(QMainWindow):
                 notes=self.notes_edit.text().strip(),
                 class_map=self.state.class_map,
                 formats=self._selected_export_formats(),
-                feedback_record_id=str(run.feedback_record_id or ""),
-                feedback_record_dir=str(run.feedback_record_dir or ""),
             )
-            self._link_feedback_correction_export(str(Path(sample_dir) / "correction_record.json"))
             self.logger.info("Exported corrected sample: %s", sample_dir)
             QMessageBox.information(self, "Export complete", f"Saved to:\n{sample_dir}")
         except Exception as exc:
@@ -6538,7 +6302,6 @@ class QtSegmentationMainWindow(QMainWindow):
             return
         sess = self.state.correction_session
         corrected_mask = sess.current_mask if sess is not None else None
-        self._maybe_attach_current_correction()
         try:
             export_cfg = self._results_export_config_from_ui()
             export_dir = self.result_exporter.export(
@@ -6708,6 +6471,12 @@ class QtSegmentationMainWindow(QMainWindow):
                     "results_min_feature": int(self.results_min_feature.value()),
                     "results_size_scale": self.results_size_scale.currentText(),
                     "results_cmap": self.results_cmap.currentText(),
+                    "results_include_fn": bool(self.chk_results_include_fn.isChecked()),
+                    "results_fn_threshold": float(self.results_fn_threshold.value()),
+                    "results_decimal_places": int(self.results_decimal_places.value()),
+                    "results_distribution": bool(self.chk_results_distribution.isChecked()),
+                    "results_fn_debug": bool(self.chk_results_fn_debug.isChecked()),
+                    "results_orientation_map": bool(self.chk_results_orientation_map.isChecked()),
                     "report_html": bool(self.chk_report_html.isChecked()),
                     "report_pdf": bool(self.chk_report_pdf.isChecked()),
                     "report_csv": bool(self.chk_report_csv.isChecked()),
@@ -6801,6 +6570,12 @@ class QtSegmentationMainWindow(QMainWindow):
                 str(loaded.ui_state.get("results_size_scale", self.results_size_scale.currentText()))
             )
             self.results_cmap.setCurrentText(str(loaded.ui_state.get("results_cmap", self.results_cmap.currentText())))
+            self.chk_results_include_fn.setChecked(bool(loaded.ui_state.get("results_include_fn", self.chk_results_include_fn.isChecked())))
+            self.results_fn_threshold.setValue(float(loaded.ui_state.get("results_fn_threshold", self.results_fn_threshold.value())))
+            self.results_decimal_places.setValue(int(loaded.ui_state.get("results_decimal_places", self.results_decimal_places.value())))
+            self.chk_results_distribution.setChecked(bool(loaded.ui_state.get("results_distribution", self.chk_results_distribution.isChecked())))
+            self.chk_results_fn_debug.setChecked(bool(loaded.ui_state.get("results_fn_debug", self.chk_results_fn_debug.isChecked())))
+            self.chk_results_orientation_map.setChecked(bool(loaded.ui_state.get("results_orientation_map", self.chk_results_orientation_map.isChecked())))
             self.chk_report_html.setChecked(bool(loaded.ui_state.get("report_html", self.chk_report_html.isChecked())))
             self.chk_report_pdf.setChecked(bool(loaded.ui_state.get("report_pdf", self.chk_report_pdf.isChecked())))
             self.chk_report_csv.setChecked(bool(loaded.ui_state.get("report_csv", self.chk_report_csv.isChecked())))

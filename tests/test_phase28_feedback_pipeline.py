@@ -40,6 +40,29 @@ def _mask(value: int = 1) -> np.ndarray:
     return m
 
 
+def test_phase28_cli_surface_is_inference_and_analysis_only() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    help_proc = subprocess.run(
+        [sys.executable, "scripts/microseg_cli.py", "--help"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    infer_proc = subprocess.run(
+        [sys.executable, "scripts/microseg_cli.py", "infer", "--help"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    forbidden_commands = ("feedback-bundle", "feedback-ingest", "feedback-build-dataset", "feedback-train-trigger")
+    assert not any(command in help_proc.stdout for command in forbidden_commands)
+    assert "hpc-ga-feedback-report" not in help_proc.stdout
+    assert "--capture-feedback" not in infer_proc.stdout
+    assert "--feedback-root" not in infer_proc.stdout
+
+
 def test_phase28_feedback_writer_lifecycle(tmp_path: Path) -> None:
     writer = FeedbackArtifactWriter(
         FeedbackCaptureConfig(
@@ -263,7 +286,7 @@ def test_phase28_feedback_trigger_report(tmp_path: Path) -> None:
     assert Path(report.dataset_manifest_path).exists()
 
 
-def test_phase28_cli_infer_creates_feedback_record(tmp_path: Path) -> None:
+def test_phase28_cli_infer_does_not_create_feedback_record(tmp_path: Path) -> None:
     img_path = tmp_path / "input.png"
     Image.fromarray(np.zeros((32, 32), dtype=np.uint8)).save(img_path)
     out_dir = tmp_path / "infer_out"
@@ -281,22 +304,11 @@ def test_phase28_cli_infer_creates_feedback_record(tmp_path: Path) -> None:
         str(out_dir),
         "--set",
         "include_analysis=false",
-        "--set",
-        f"feedback_root={feedback_root}",
-        "--set",
-        "deployment_id=site_cli_test",
-        "--set",
-        "operator_id=operator_cli",
-        "--set",
-        "capture_feedback=true",
     ]
     proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr + "\n" + proc.stdout
-    record_dirs = discover_feedback_record_dirs(feedback_root)
-    assert len(record_dirs) == 1
-    payload = load_feedback_record(record_dirs[0])
-    assert payload["source"] == "cli_infer"
-    assert payload["deployment_id"] == "site_cli_test"
+    assert not feedback_root.exists()
+    assert "feedback" not in proc.stdout.lower()
 
 
 def test_phase28_service_worker_captures_feedback(monkeypatch, tmp_path: Path) -> None:

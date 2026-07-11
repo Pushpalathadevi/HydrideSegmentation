@@ -29,9 +29,7 @@ from src.microseg.app.hpc_ga import (
     generate_hpc_ga_bundle,
     parse_architectures,
     parse_batch_sizes,
-    parse_feedback_sources,
     parse_pretrained_model_map,
-    summarize_feedback_sources,
 )
 from src.microseg.corrections import CorrectionDatasetPackager
 from src.microseg.data_preparation.config import DatasetPrepConfig
@@ -94,18 +92,6 @@ from src.microseg.training import (
     UNetBinaryTrainingConfig,
 )
 from src.microseg.evaluation.pixel_model_eval import PixelEvaluationConfig, PixelModelEvaluator
-from src.microseg.feedback import (
-    FeedbackArtifactWriter,
-    FeedbackBundleConfig,
-    FeedbackCaptureConfig,
-    FeedbackDatasetBuildConfig,
-    FeedbackIngestConfig,
-    FeedbackTrainTriggerConfig,
-    build_feedback_training_dataset,
-    evaluate_feedback_train_trigger,
-    export_feedback_bundle,
-    ingest_feedback_bundles,
-)
 from src.microseg.workflows import PhaseIdBenchmarkWorkflowConfig, run_phaseid_benchmark_workflow
 from hydride_segmentation.microseg_adapter import resolve_gui_model_id
 
@@ -333,37 +319,6 @@ def _infer(args: argparse.Namespace) -> int:
     if gui_preprocess is not None:
         params["gui_preprocess"] = gui_preprocess
 
-    capture_feedback = bool(cfg.get("capture_feedback", args.capture_feedback))
-    feedback_writer: FeedbackArtifactWriter | None = None
-    if capture_feedback:
-        feedback_writer = FeedbackArtifactWriter(
-            FeedbackCaptureConfig(
-                feedback_root=str(cfg.get("feedback_root", args.feedback_root or "outputs/feedback_records")),
-                deployment_id=str(cfg.get("deployment_id", args.deployment_id or "cli_infer")),
-                operator_id=str(cfg.get("operator_id", args.operator_id or "unknown_operator")),
-                source="cli_infer",
-            )
-        )
-
-    def _finalize_record(record) -> None:
-        if feedback_writer is None:
-            return
-        row_params = dict(params)
-        row_params["image_path"] = str(record.image_path)
-        feedback_capture = feedback_writer.create_from_desktop_run(
-            record,
-            source="cli_infer",
-            resolved_config=cfg,
-            params=row_params,
-            runtime={
-                "enable_gpu": bool(params.get("enable_gpu", False)),
-                "device_policy": str(params.get("device_policy", args.device_policy)),
-            },
-            operator_id=str(cfg.get("operator_id", args.operator_id or "unknown_operator")),
-        )
-        record.feedback_record_dir = str(feedback_capture.record_dir)
-        record.feedback_record_id = str(feedback_capture.record_id)
-
     batch_result = run_desktop_batch_job(
         workflow=mgr,
         result_exporter=DesktopResultExporter(),
@@ -372,18 +327,15 @@ def _infer(args: argparse.Namespace) -> int:
         output_dir=out_dir,
         params=params,
         include_analysis=include_analysis,
-        annotator=str(cfg.get("operator_id", args.operator_id or "unknown_operator")),
+        annotator=str(cfg.get("annotator", "unknown")),
         notes=str(cfg.get("batch_notes", "")),
         export_config=_build_result_export_config(cfg),
         resolved_config=cfg,
-        finalize_record=_finalize_record,
         progress_callback=_print_batch_progress,
     )
     print(f"inference export: {batch_result.batch_dir}")
     print(f"inference summary: {batch_result.summary_json_path}")
     print(f"inference image count: {len(batch_result.records)}")
-    if capture_feedback:
-        print("feedback capture: enabled")
     return 0
 
 
@@ -946,9 +898,6 @@ def _hpc_ga_generate(args: argparse.Namespace) -> int:
     batch_sizes = parse_batch_sizes(cfg.get("batch_size_choices", args.batch_size_choices))
     if not batch_sizes:
         batch_sizes = parse_batch_sizes(args.batch_size_choices)
-    feedback_sources = parse_feedback_sources(cfg.get("feedback_sources", args.feedback_sources))
-    if not feedback_sources:
-        feedback_sources = parse_feedback_sources(args.feedback_sources)
     pretrained_model_map = parse_pretrained_model_map(cfg.get("pretrained_model_map", args.pretrained_model_map))
     if not pretrained_model_map:
         pretrained_model_map = parse_pretrained_model_map(args.pretrained_model_map)
@@ -978,10 +927,7 @@ def _hpc_ga_generate(args: argparse.Namespace) -> int:
             weight_decay_max=float(cfg.get("weight_decay_max", args.weight_decay_max)),
             max_samples_min=int(cfg.get("max_samples_min", args.max_samples_min)),
             max_samples_max=int(cfg.get("max_samples_max", args.max_samples_max)),
-            fitness_mode=str(cfg.get("fitness_mode", args.fitness_mode)),
-            feedback_sources=feedback_sources,
-            feedback_min_samples=int(cfg.get("feedback_min_samples", args.feedback_min_samples)),
-            feedback_k=int(cfg.get("feedback_k", args.feedback_k)),
+            fitness_mode="novelty",
             exploration_weight=float(cfg.get("exploration_weight", args.exploration_weight)),
             fitness_weight_mean_iou=float(cfg.get("fitness_weight_mean_iou", args.fitness_weight_mean_iou)),
             fitness_weight_macro_f1=float(cfg.get("fitness_weight_macro_f1", args.fitness_weight_macro_f1)),
@@ -1015,76 +961,6 @@ def _hpc_ga_generate(args: argparse.Namespace) -> int:
     print(f"manifest: {result.manifest_path}")
     print(f"submit script: {result.submit_script}")
     print(f"candidates: {len(result.candidates)}")
-    return 0
-
-
-def _hpc_ga_feedback_report(args: argparse.Namespace) -> int:
-    cfg = resolve_config(args.config, args.set)
-    feedback_sources = parse_feedback_sources(cfg.get("feedback_sources", args.feedback_sources))
-    if not feedback_sources:
-        feedback_sources = parse_feedback_sources(args.feedback_sources)
-    if not feedback_sources:
-        raise ValueError("feedback sources are required (--feedback-sources or config:feedback_sources)")
-
-    architectures = parse_architectures(cfg.get("architectures", args.architectures))
-    if not architectures:
-        architectures = parse_architectures(args.architectures)
-    batch_sizes = parse_batch_sizes(cfg.get("batch_size_choices", args.batch_size_choices))
-    if not batch_sizes:
-        batch_sizes = parse_batch_sizes(args.batch_size_choices)
-
-    plan_cfg = HpcGaPlanConfig(
-        dataset_dir=str(cfg.get("dataset_dir", args.dataset_dir or "outputs/prepared_dataset")),
-        output_dir=str(cfg.get("output_dir", args.output_dir or "outputs/hpc_ga_bundle")),
-        architectures=architectures,
-        batch_size_choices=batch_sizes,
-        fitness_mode=str(cfg.get("fitness_mode", args.fitness_mode)),
-        feedback_sources=feedback_sources,
-        feedback_min_samples=int(cfg.get("feedback_min_samples", args.feedback_min_samples)),
-        feedback_k=int(cfg.get("feedback_k", args.feedback_k)),
-        exploration_weight=float(cfg.get("exploration_weight", args.exploration_weight)),
-        fitness_weight_mean_iou=float(cfg.get("fitness_weight_mean_iou", args.fitness_weight_mean_iou)),
-        fitness_weight_macro_f1=float(cfg.get("fitness_weight_macro_f1", args.fitness_weight_macro_f1)),
-        fitness_weight_pixel_accuracy=float(cfg.get("fitness_weight_pixel_accuracy", args.fitness_weight_pixel_accuracy)),
-        fitness_weight_runtime=float(cfg.get("fitness_weight_runtime", args.fitness_weight_runtime)),
-    )
-    report = summarize_feedback_sources(
-        feedback_sources,
-        cfg=plan_cfg,
-        top_k=int(cfg.get("top_k", args.top_k)),
-    )
-    output_path = str(args.output_path or cfg.get("output_path") or "outputs/hpc_ga_feedback/feedback_report.json")
-    out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
-
-    md = out.with_suffix(".md")
-    lines = [
-        "# HPC GA Feedback Report",
-        "",
-        f"- samples: {int(report.get('sample_count', 0))}",
-        f"- fitness_mode: {report.get('fitness_mode', '')}",
-        "",
-        "| candidate | backend | fitness | mean_iou | macro_f1 | pixel_acc | runtime_s |",
-        "|---|---:|---:|---:|---:|---:|---:|",
-    ]
-    for row in report.get("top_candidates", []):
-        lines.append(
-            "| {cid} | {backend} | {fit:.4f} | {mi:.4f} | {f1:.4f} | {pa:.4f} | {rt:.2f} |".format(
-                cid=str(row.get("candidate_id", "")),
-                backend=str(row.get("backend", "")),
-                fit=float(row.get("fitness_score", 0.0)),
-                mi=float(row.get("mean_iou", 0.0)),
-                f1=float(row.get("macro_f1", 0.0)),
-                pa=float(row.get("pixel_accuracy", 0.0)),
-                rt=float(row.get("runtime_seconds", 0.0)),
-            )
-        )
-    md.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    print(f"feedback report: {out}")
-    print(f"markdown: {md}")
-    print(f"samples: {int(report.get('sample_count', 0))}")
     return 0
 
 
@@ -1284,10 +1160,6 @@ def _deploy_worker_run(args: argparse.Namespace) -> int:
             max_queue_size=max(1, int(cfg.get("max_queue_size", args.max_queue_size))),
             enable_gpu=bool(cfg.get("enable_gpu", args.enable_gpu)),
             device_policy=str(cfg.get("device_policy", args.device_policy)),
-            capture_feedback=bool(cfg.get("capture_feedback", args.capture_feedback)),
-            feedback_root=str(cfg.get("feedback_root", args.feedback_root or "outputs/feedback_records")),
-            deployment_id=str(cfg.get("deployment_id", args.deployment_id or "deployment_service")),
-            operator_id=str(cfg.get("operator_id", args.operator_id or "unknown_operator")),
         ),
         image_paths=image_paths,
         image_dir=str(args.image_dir or cfg.get("image_dir") or ""),
@@ -1549,159 +1421,6 @@ def _phase_gate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _feedback_bundle(args: argparse.Namespace) -> int:
-    cfg = resolve_config(args.config, args.set)
-    result = export_feedback_bundle(
-        FeedbackBundleConfig(
-            feedback_root=str(args.feedback_root or cfg.get("feedback_root") or "outputs/feedback_records"),
-            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/feedback_bundles"),
-            deployment_id=str(args.deployment_id or cfg.get("deployment_id") or "deployment_local"),
-            max_records=int(cfg.get("max_records", args.max_records)),
-            state_path=str(args.state_path or cfg.get("state_path") or ""),
-            cadence_days=int(cfg.get("cadence_days", args.cadence_days)),
-            cadence_record_count=int(cfg.get("cadence_record_count", args.cadence_record_count)),
-        )
-    )
-    if not result.bundle_zip_path:
-        print("feedback bundle: no unsent records")
-        print(f"pending records: {result.pending_records}")
-        return 0
-    print(f"feedback bundle zip: {result.bundle_zip_path}")
-    print(f"bundle manifest: {result.manifest_path}")
-    print(f"selected records: {result.selected_records}")
-    print(f"pending records: {result.pending_records}")
-    return 0
-
-
-def _feedback_ingest(args: argparse.Namespace) -> int:
-    cfg = resolve_config(args.config, args.set)
-    if args.bundle_path:
-        bundle_paths = tuple(str(v).strip() for v in args.bundle_path if str(v).strip())
-    else:
-        bundle_paths = tuple(_parse_name_list(cfg.get("bundle_paths", "")))
-    if not bundle_paths:
-        raise ValueError("bundle paths are required (--bundle-path or config:bundle_paths)")
-
-    output_path = str(args.output_path or cfg.get("output_path") or "outputs/feedback_ingest/ingest_report.json")
-    report = ingest_feedback_bundles(
-        FeedbackIngestConfig(
-            bundle_paths=bundle_paths,
-            ingest_root=str(args.ingest_root or cfg.get("ingest_root") or "outputs/feedback_lake"),
-            output_path=output_path,
-            dedup_index_path=str(
-                args.dedup_index_path
-                or cfg.get("dedup_index_path")
-                or "outputs/feedback_ingest/feedback_ingest_index.json"
-            ),
-            review_queue_path=str(
-                args.review_queue_path
-                or cfg.get("review_queue_path")
-                or "outputs/feedback_ingest/review_queue.jsonl"
-            ),
-        )
-    )
-    print(f"feedback ingest report: {output_path}")
-    print(f"accepted: {report.accepted_records}")
-    print(f"duplicates: {report.duplicate_records}")
-    print(f"rejected: {report.rejected_records}")
-    print(f"review queue appended: {report.review_queue_records}")
-    if bool(cfg.get("strict", args.strict)) and report.rejected_records > 0:
-        return 2
-    return 0
-
-
-def _feedback_build_dataset(args: argparse.Namespace) -> int:
-    cfg = resolve_config(args.config, args.set)
-    result = build_feedback_training_dataset(
-        FeedbackDatasetBuildConfig(
-            feedback_root=str(args.feedback_root or cfg.get("feedback_root") or "outputs/feedback_lake"),
-            output_dir=str(args.output_dir or cfg.get("output_dir") or "outputs/feedback_training_dataset"),
-            train_ratio=float(cfg.get("train_ratio", args.train_ratio)),
-            val_ratio=float(cfg.get("val_ratio", args.val_ratio)),
-            seed=int(cfg.get("seed", args.seed)),
-            thumbs_up_weight=float(cfg.get("thumbs_up_weight", args.thumbs_up_weight)),
-            corrected_weight=float(cfg.get("corrected_weight", args.corrected_weight)),
-            leakage_group=str(cfg.get("leakage_group", args.leakage_group)),
-        )
-    )
-    print(f"feedback dataset output: {result.output_dir}")
-    print(f"manifest: {result.manifest_path}")
-    print(f"included samples: {result.included_samples}")
-    print(f"corrected samples: {result.corrected_samples}")
-    print(f"pseudo-labeled samples: {result.pseudo_labeled_samples}")
-    print(f"excluded downvote-no-correction: {result.excluded_downvote_without_correction}")
-    return 0
-
-
-def _feedback_train_trigger(args: argparse.Namespace) -> int:
-    cfg = resolve_config(args.config, args.set)
-    execute = bool(cfg.get("execute", args.execute))
-    if args.train_override:
-        train_overrides = tuple(str(v).strip() for v in args.train_override if str(v).strip())
-    else:
-        train_overrides = tuple(_parse_name_list(cfg.get("train_overrides", "")))
-    if args.evaluate_override:
-        evaluate_overrides = tuple(str(v).strip() for v in args.evaluate_override if str(v).strip())
-    else:
-        evaluate_overrides = tuple(_parse_name_list(cfg.get("evaluate_overrides", "")))
-
-    report = evaluate_feedback_train_trigger(
-        FeedbackTrainTriggerConfig(
-            feedback_root=str(args.feedback_root or cfg.get("feedback_root") or "outputs/feedback_lake"),
-            output_path=str(
-                args.output_path or cfg.get("output_path") or "outputs/feedback_trigger/trigger_report.json"
-            ),
-            state_path=str(
-                args.state_path or cfg.get("state_path") or "outputs/feedback_trigger/trigger_state.json"
-            ),
-            corrected_threshold=int(cfg.get("corrected_threshold", args.corrected_threshold)),
-            max_days_since_last_trigger=int(
-                cfg.get("max_days_since_last_trigger", args.max_days_since_last_trigger)
-            ),
-            train_config=str(args.train_config or cfg.get("train_config") or "configs/train.default.yml"),
-            evaluate_config=str(
-                args.evaluate_config or cfg.get("evaluate_config") or "configs/evaluate.default.yml"
-            ),
-            dataset_output_dir=str(
-                args.dataset_output_dir
-                or cfg.get("dataset_output_dir")
-                or "outputs/feedback_training_dataset"
-            ),
-            train_output_dir=str(
-                args.train_output_dir
-                or cfg.get("train_output_dir")
-                or "outputs/training_feedback_cycle"
-            ),
-            evaluate_output_path=str(
-                args.evaluate_output_path
-                or cfg.get("evaluate_output_path")
-                or "outputs/evaluation/feedback_cycle_eval.json"
-            ),
-            execute=execute,
-            train_overrides=train_overrides,
-            evaluate_overrides=evaluate_overrides,
-        )
-    )
-    print(f"feedback trigger report: {report.report_path}")
-    print(f"should trigger: {report.should_trigger}")
-    print(f"reason: {report.trigger_reason}")
-    print(f"corrected since last trigger: {report.corrected_records_since_last_trigger}")
-    print(f"days since last trigger: {report.days_since_last_trigger:.2f}")
-    if report.dataset_manifest_path:
-        print(f"dataset manifest: {report.dataset_manifest_path}")
-    if report.commands:
-        print("planned commands:")
-        for cmd in report.commands:
-            print("$ " + " ".join(cmd))
-    if execute:
-        print(f"train exit code: {report.train_exit_code}")
-        print(f"evaluate exit code: {report.evaluate_exit_code}")
-    if bool(cfg.get("strict", args.strict)) and execute:
-        if report.should_trigger and (report.train_exit_code not in {None, 0} or report.evaluate_exit_code not in {None, 0}):
-            return 2
-    return 0
-
-
 def _phaseid_benchmark(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     raw_input_dir = str(args.raw_input_dir or cfg.get("raw_input_dir") or "").strip()
@@ -1831,10 +1550,6 @@ def _build_parser() -> argparse.ArgumentParser:
     infer.add_argument("--output-dir", type=str, help="Export output directory")
     infer.add_argument("--enable-gpu", action="store_true", help="Enable GPU auto-selection for ML inference")
     infer.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
-    infer.add_argument("--capture-feedback", action=argparse.BooleanOptionalAction, default=True)
-    infer.add_argument("--feedback-root", type=str, default="")
-    infer.add_argument("--deployment-id", type=str, default="")
-    infer.add_argument("--operator-id", type=str, default="")
     infer.set_defaults(handler=_infer)
 
     train = sub.add_parser("train", help="Train segmentation model backend")
@@ -2120,10 +1835,7 @@ def _build_parser() -> argparse.ArgumentParser:
     hpc_ga.add_argument("--weight-decay-max", type=float, default=1e-3)
     hpc_ga.add_argument("--max-samples-min", type=int, default=50000)
     hpc_ga.add_argument("--max-samples-max", type=int, default=250000)
-    hpc_ga.add_argument("--fitness-mode", choices=["novelty", "feedback_hybrid"], default="novelty")
-    hpc_ga.add_argument("--feedback-sources", type=str, default="")
-    hpc_ga.add_argument("--feedback-min-samples", type=int, default=3)
-    hpc_ga.add_argument("--feedback-k", type=int, default=5)
+    hpc_ga.add_argument("--fitness-mode", choices=["novelty"], default="novelty")
     hpc_ga.add_argument("--exploration-weight", type=float, default=0.55)
     hpc_ga.add_argument("--fitness-weight-mean-iou", type=float, default=0.50)
     hpc_ga.add_argument("--fitness-weight-macro-f1", type=float, default=0.30)
@@ -2158,34 +1870,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     hpc_ga.add_argument("--pretrained-strict", action=argparse.BooleanOptionalAction, default=False)
     hpc_ga.set_defaults(handler=_hpc_ga_generate)
-
-    hpc_ga_feedback = sub.add_parser("hpc-ga-feedback-report", help="Summarize prior HPC GA run feedback")
-    hpc_ga_feedback.add_argument("--config", type=str, help="YAML config path")
-    hpc_ga_feedback.add_argument("--set", action="append", default=[], help="Override key=value (supports dotted keys)")
-    hpc_ga_feedback.add_argument("--feedback-sources", type=str, default="")
-    hpc_ga_feedback.add_argument("--output-path", type=str, help="Output JSON report path")
-    hpc_ga_feedback.add_argument("--dataset-dir", type=str, default="outputs/prepared_dataset")
-    hpc_ga_feedback.add_argument("--output-dir", type=str, default="outputs/hpc_ga_bundle")
-    hpc_ga_feedback.add_argument(
-        "--architectures",
-        type=str,
-        default=(
-            "unet_binary,smp_unet_resnet18,smp_deeplabv3plus_resnet101,smp_unetplusplus_resnet101,"
-            "smp_pspnet_resnet101,smp_fpn_resnet101,hf_segformer_b0,hf_segformer_b2,hf_segformer_b5,"
-            "hf_upernet_swin_large,transunet_tiny,segformer_mini,torch_pixel"
-        ),
-    )
-    hpc_ga_feedback.add_argument("--batch-size-choices", type=str, default="4,8,16,32")
-    hpc_ga_feedback.add_argument("--fitness-mode", choices=["novelty", "feedback_hybrid"], default="feedback_hybrid")
-    hpc_ga_feedback.add_argument("--feedback-min-samples", type=int, default=3)
-    hpc_ga_feedback.add_argument("--feedback-k", type=int, default=5)
-    hpc_ga_feedback.add_argument("--exploration-weight", type=float, default=0.55)
-    hpc_ga_feedback.add_argument("--fitness-weight-mean-iou", type=float, default=0.50)
-    hpc_ga_feedback.add_argument("--fitness-weight-macro-f1", type=float, default=0.30)
-    hpc_ga_feedback.add_argument("--fitness-weight-pixel-accuracy", type=float, default=0.20)
-    hpc_ga_feedback.add_argument("--fitness-weight-runtime", type=float, default=0.05)
-    hpc_ga_feedback.add_argument("--top-k", type=int, default=10)
-    hpc_ga_feedback.set_defaults(handler=_hpc_ga_feedback_report)
 
     preflight = sub.add_parser("preflight", help="Run unified train/eval/benchmark/deploy preflight checks")
     preflight.add_argument("--config", type=str, help="YAML config path")
@@ -2292,10 +1976,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     deploy_worker.add_argument("--enable-gpu", action="store_true")
     deploy_worker.add_argument("--device-policy", choices=["cpu", "auto", "cuda", "mps"], default="cpu")
-    deploy_worker.add_argument("--capture-feedback", action=argparse.BooleanOptionalAction, default=True)
-    deploy_worker.add_argument("--feedback-root", type=str, default="")
-    deploy_worker.add_argument("--deployment-id", type=str, default="")
-    deploy_worker.add_argument("--operator-id", type=str, default="")
     deploy_worker.add_argument("--strict", action="store_true")
     deploy_worker.set_defaults(handler=_deploy_worker_run)
 
@@ -2381,73 +2061,6 @@ def _build_parser() -> argparse.ArgumentParser:
     compat.add_argument("--set", action="append", default=[], help="Override key=value")
     compat.add_argument("--output-path", type=str, default="outputs/support_bundles/compatibility_matrix.json")
     compat.set_defaults(handler=_compatibility_matrix)
-
-    feedback_bundle = sub.add_parser(
-        "feedback-bundle",
-        help="Export unsent local feedback records into deployment bundle zip",
-    )
-    feedback_bundle.add_argument("--config", type=str, help="YAML config path")
-    feedback_bundle.add_argument("--set", action="append", default=[], help="Override key=value")
-    feedback_bundle.add_argument("--feedback-root", type=str, default="")
-    feedback_bundle.add_argument("--output-dir", type=str, default="")
-    feedback_bundle.add_argument("--deployment-id", type=str, default="")
-    feedback_bundle.add_argument("--max-records", type=int, default=200)
-    feedback_bundle.add_argument("--state-path", type=str, default="")
-    feedback_bundle.add_argument("--cadence-days", type=int, default=7)
-    feedback_bundle.add_argument("--cadence-record-count", type=int, default=200)
-    feedback_bundle.set_defaults(handler=_feedback_bundle)
-
-    feedback_ingest = sub.add_parser(
-        "feedback-ingest",
-        help="Ingest feedback bundles into central lake with dedup and validation",
-    )
-    feedback_ingest.add_argument("--config", type=str, help="YAML config path")
-    feedback_ingest.add_argument("--set", action="append", default=[], help="Override key=value")
-    feedback_ingest.add_argument("--bundle-path", action="append", default=[], help="Bundle zip/dir path (repeatable)")
-    feedback_ingest.add_argument("--ingest-root", type=str, default="")
-    feedback_ingest.add_argument("--output-path", type=str, default="")
-    feedback_ingest.add_argument("--dedup-index-path", type=str, default="")
-    feedback_ingest.add_argument("--review-queue-path", type=str, default="")
-    feedback_ingest.add_argument("--strict", action="store_true")
-    feedback_ingest.set_defaults(handler=_feedback_ingest)
-
-    feedback_dataset = sub.add_parser(
-        "feedback-build-dataset",
-        help="Build train/val/test dataset from ingested feedback records",
-    )
-    feedback_dataset.add_argument("--config", type=str, help="YAML config path")
-    feedback_dataset.add_argument("--set", action="append", default=[], help="Override key=value")
-    feedback_dataset.add_argument("--feedback-root", type=str, default="")
-    feedback_dataset.add_argument("--output-dir", type=str, default="")
-    feedback_dataset.add_argument("--train-ratio", type=float, default=0.8)
-    feedback_dataset.add_argument("--val-ratio", type=float, default=0.1)
-    feedback_dataset.add_argument("--seed", type=int, default=42)
-    feedback_dataset.add_argument("--thumbs-up-weight", type=float, default=0.2)
-    feedback_dataset.add_argument("--corrected-weight", type=float, default=1.0)
-    feedback_dataset.add_argument("--leakage-group", choices=["source_stem", "record_id"], default="source_stem")
-    feedback_dataset.set_defaults(handler=_feedback_build_dataset)
-
-    feedback_trigger = sub.add_parser(
-        "feedback-train-trigger",
-        help="Evaluate/execute threshold-based retrain cycle from feedback records",
-    )
-    feedback_trigger.add_argument("--config", type=str, help="YAML config path")
-    feedback_trigger.add_argument("--set", action="append", default=[], help="Override key=value")
-    feedback_trigger.add_argument("--feedback-root", type=str, default="")
-    feedback_trigger.add_argument("--output-path", type=str, default="")
-    feedback_trigger.add_argument("--state-path", type=str, default="")
-    feedback_trigger.add_argument("--corrected-threshold", type=int, default=500)
-    feedback_trigger.add_argument("--max-days-since-last-trigger", type=int, default=14)
-    feedback_trigger.add_argument("--train-config", type=str, default="configs/train.default.yml")
-    feedback_trigger.add_argument("--evaluate-config", type=str, default="configs/evaluate.default.yml")
-    feedback_trigger.add_argument("--dataset-output-dir", type=str, default="outputs/feedback_training_dataset")
-    feedback_trigger.add_argument("--train-output-dir", type=str, default="outputs/training_feedback_cycle")
-    feedback_trigger.add_argument("--evaluate-output-path", type=str, default="outputs/evaluation/feedback_cycle_eval.json")
-    feedback_trigger.add_argument("--train-override", action="append", default=[], help="Repeatable --set value for train command")
-    feedback_trigger.add_argument("--evaluate-override", action="append", default=[], help="Repeatable --set value for evaluate command")
-    feedback_trigger.add_argument("--execute", action=argparse.BooleanOptionalAction, default=False)
-    feedback_trigger.add_argument("--strict", action="store_true")
-    feedback_trigger.set_defaults(handler=_feedback_train_trigger)
 
     pack = sub.add_parser("package", help="Package correction exports into dataset splits")
     pack.add_argument("--config", type=str, help="YAML config path")

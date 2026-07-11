@@ -14,7 +14,6 @@ from src.microseg.app.desktop_workflow import DesktopRunRecord, DesktopWorkflowM
 from src.microseg.corrections.classes import SegmentationClassMap
 
 ProgressCallback = Callable[["DesktopBatchProgress"], None]
-RecordFinalizeCallback = Callable[[DesktopRunRecord], None]
 
 
 @dataclass(frozen=True)
@@ -110,7 +109,6 @@ def run_desktop_batch_job(
     class_map: SegmentationClassMap | None = None,
     export_config: DesktopResultExportConfig | None = None,
     resolved_config: dict[str, Any] | None = None,
-    finalize_record: RecordFinalizeCallback | None = None,
     progress_callback: ProgressCallback | None = None,
     initial_per_image_seconds: float | None = None,
 ) -> DesktopBatchJobResult:
@@ -200,16 +198,14 @@ def run_desktop_batch_job(
         )
 
         _emit(
-            "finalize",
-            f"[{index}/{total_images}] Writing feedback and provenance for {image_name}.",
+            "analyze",
+            f"[{index}/{total_images}] Preparing quantitative analysis for {image_name}.",
             current_image=image_name,
         )
-        if finalize_record is not None:
-            finalize_record(record)
         completed_steps += 1
         _emit(
-            "finalize",
-            f"[{index}/{total_images}] Finalized {image_name}.",
+            "analyze",
+            f"[{index}/{total_images}] Analysis ready for {image_name}.",
             current_image=image_name,
         )
 

@@ -9,9 +9,9 @@ Provide a reproducible, code-driven way to generate HPC experiment bundles for m
 - Planner and bundle writer:
   - `src/microseg/app/hpc_ga.py`
 - CLI integration:
-  - `scripts/microseg_cli.py` (`hpc-ga-generate`, `hpc-ga-feedback-report`)
+  - `scripts/microseg_cli.py` (`hpc-ga-generate`)
 - GUI integration:
-  - `hydride_segmentation/qt/main_window.py` (`HPC GA Planner` tab)
+  - HPC planning is intentionally outside the primary inference/results desktop surface.
 - Command-builder integration:
   - `src/microseg/app/orchestration.py`
 - Profile persistence:
@@ -24,11 +24,7 @@ Provide a reproducible, code-driven way to generate HPC experiment bundles for m
 
 `HpcGaCandidate`
 - one candidate's backend/hyperparameters/seed/novelty score
-- includes optional `predicted_fitness` and `selection_score` fields for feedback mode
-
-`HpcGaHistoricalSample`
-- one parsed feedback sample from prior `candidates/cand_*.json` + `runs/cand_*/eval_report.json`
-- includes derived `fitness_score`
+- includes novelty-based `selection_score` fields
 
 `HpcGaBundleResult`
 - generated bundle and manifest paths plus selected candidates
@@ -43,33 +39,13 @@ Supported modes:
   - crossover + mutation
   - final ranking by novelty distance in normalized parameter space
 
-- `feedback_hybrid`
-  - initial random population from configured ranges
-  - tournament selection
-  - crossover + mutation
-  - kNN predicted fitness from historical runs
-  - blended ranking: `exploration_weight * novelty + (1-exploration_weight) * predicted_fitness`
-  - automatic fallback to novelty when feedback sample count is below `feedback_min_samples`
-
-Feedback fitness function uses weighted metrics:
-- `mean_iou`
-- `macro_f1`
-- `pixel_accuracy`
-- runtime penalty (`runtime_seconds`, normalized)
-
 ## Generated Artifact Schemas
 
 Manifest:
 - `microseg.hpc_ga_bundle.v1` (`ga_plan_manifest.json`)
-- includes optional `feedback_summary`
-
 Candidate payload:
 - `microseg.hpc_ga_candidate.v1` (`candidates/cand_XXX.json`)
-- may include `predicted_fitness` and `selection_score`
-
-Feedback summary:
-- `microseg.hpc_ga_feedback_summary.v1`
-- produced by `microseg-cli hpc-ga-feedback-report`
+- includes novelty-based `selection_score`
 
 ## Script Generation Rules
 

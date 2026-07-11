@@ -29,7 +29,7 @@ Implemented:
 - GUI Dataset Prep + QA workspace with searchable preview table and optional training QA gate
 - GUI Run Review workspace for training/evaluation report summaries and metric-delta comparison
 - GA-based HPC bundle generation (Slurm/PBS/local) from GUI/CLI for architecture/hyperparameter comparison sweeps
-- Feedback-aware HPC GA planning mode with kNN fitness estimation and report summarization (`hpc-ga-feedback-report`)
+- Legacy feedback/active-learning modules remain isolated from the primary desktop and CLI inference surface.
 - HPC GA pretrained-init hardening (`scratch/auto/local` modes, backend-to-model mapping, and explicit backend/model_architecture script overrides)
 - Single-script top-5 hydride benchmark orchestration with consolidated JSON/CSV/HTML summary outputs
 - Single dashboard benchmark analytics now includes tracked validation sample IoU summaries and panel galleries

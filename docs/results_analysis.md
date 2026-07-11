@@ -159,7 +159,6 @@ Useful roots:
 
 - `outputs/logs/desktop/`
 - `outputs/support_bundles/`
-- `outputs/feedback_records/`
 
 Support bundles should be used when a run needs to be reconstructed with its runtime context, manifests, and failure details.
 

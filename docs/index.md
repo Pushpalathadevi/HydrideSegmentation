@@ -47,7 +47,7 @@ python -m http.server 8000 -d docs/_build/html
 - CPU-first local inference is available.
 - Qt desktop workflows, correction export, and result packaging are implemented.
 - Config-driven CLI and GUI orchestration share the same core contracts.
-- Training, evaluation, deployment, and feedback loops emit structured reports.
+- Training, evaluation, and deployment emit structured reports.
 - Student notebook tutorials cover the hydride sample workflow from dataset prep to evaluation.
 - The docs system itself is a first-class build artifact with searchable notebook pages.
 

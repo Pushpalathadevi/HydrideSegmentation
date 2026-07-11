@@ -40,6 +40,7 @@ class HydrideVisualizationConfig:
     min_feature_pixels: int = 1
     orientation_cmap: str = "coolwarm"
     size_scale: str = "linear"
+    include_fn_metrics: bool = True
     fn_angle_threshold_deg: float = 45.0
 
 

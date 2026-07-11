@@ -20,42 +20,7 @@ This is designed for:
 - `novelty`:
   - diversity-first search in parameter space
   - recommended for first sweep when no prior run metrics exist
-- `feedback_hybrid`:
-  - combines novelty with predicted fitness from previous run reports
-  - fitness uses `mean_iou`, `macro_f1`, `pixel_accuracy`, and runtime penalty weights
-  - recommended for second+ sweeps after you have candidate `eval_report.json` artifacts
-
-## Quick Start (GUI)
-
-1. Launch GUI:
-```bash
-hydride-gui
-```
-2. Open `Workflow Hub` -> `HPC GA Planner`.
-3. Fill minimum required fields:
-- `Dataset Dir`
-- `Bundle Output Dir`
-- `Architectures` (comma-separated)
-4. Choose scheduler:
-- `slurm`, `pbs`, or `local`
-5. Click `Generate HPC GA Bundle`.
-6. Check `Orchestration Log` for command and completion status.
-7. Open generated bundle directory and inspect:
-- `ga_plan_manifest.json`
-- `submit_all.sh`
-- `jobs/*.sh`
-- `candidates/*.json` and `candidates/*.yml`
-
-Feedback analysis in GUI:
-1. Set `Feedback Sources` to one or more prior bundle directories (or `ga_plan_manifest.json` paths), comma-separated.
-2. Set `Fitness Mode` to `feedback_hybrid`.
-3. Optionally tune:
-- `Feedback Min Samples`
-- `Feedback K (kNN)`
-- metric/runtime fitness weights
-4. Click `Analyze Feedback` to generate:
-- JSON report at `Feedback Report Output`
-- markdown summary table next to it (`.md` suffix)
+The desktop application is intentionally focused on inference, correction, quantification, and results review. HPC planning is a CLI workflow.
 
 ## Quick Start (CLI)
 
@@ -95,14 +60,6 @@ microseg-cli hpc-ga-generate \
   --config configs/hpc_ga.top5_airgap_pretrained.default.yml \
   --dataset-dir outputs/prepared_dataset_hydride_v1 \
   --output-dir outputs/hpc_ga_bundle_top5_airgap_pretrained
-```
-
-Feedback summary from prior bundles:
-```bash
-microseg-cli hpc-ga-feedback-report \
-  --config configs/hpc_ga.default.yml \
-  --feedback-sources outputs/hpc_ga_bundle_a,outputs/hpc_ga_bundle_b \
-  --output-path outputs/hpc_ga_feedback/feedback_report.json
 ```
 
 If CLI import errors occur (`No module named src`), run from repo root using module form:
@@ -147,30 +104,16 @@ outputs/hpc_ga_bundle/
     (created when jobs execute)
 ```
 
-Feedback report outputs:
-```text
-outputs/hpc_ga_feedback/
-  feedback_report.json
-  feedback_report.md
-```
-
 ## Recommended Beginner Workflow
 
 1. Start with 4 candidates, 2 backends, small epochs.
 2. Run `train_eval` mode to get both train and eval artifacts.
-3. Use GUI `Run Review` tab to compare reports.
-4. Add previous bundle paths into `Feedback Sources`.
-5. Switch planner to `feedback_hybrid` and click `Analyze Feedback`.
-6. Narrow ranges/weights and regenerate the next bundle.
+3. Review the generated training/evaluation reports and narrow ranges before regenerating the next bundle.
 
 ## Common Problems And Fixes
 
 `Dataset Dir missing`
 - Set `Dataset Dir` in GUI or pass `--dataset-dir`.
-
-`feedback_hybrid behaves like novelty`
-- Ensure enough valid samples are found in feedback sources.
-- Increase feedback coverage or lower `feedback_min_samples`.
 
 `No GPU available on HPC node`
 - Keep `enable_gpu=true` but ensure scheduler resources request GPU.
@@ -195,5 +138,4 @@ outputs/hpc_ga_feedback/
 - `docs/configuration_workflow.md`
 - `docs/gui_user_guide.md`
 - `docs/phase15_hpc_ga_hpc_bundle.md`
-- `docs/phase17_hpc_ga_feedback.md`
 - `docs/offline_pretrained_transfer_workflow.md`

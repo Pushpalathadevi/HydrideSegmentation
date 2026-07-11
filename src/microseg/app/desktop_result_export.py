@@ -153,6 +153,8 @@ class DesktopResultExportConfig:
             min_feature_pixels=max(1, int(self.min_feature_pixels)),
             orientation_cmap=str(self.orientation_cmap),
             size_scale=str(self.size_scale),
+            include_fn_metrics=bool(self.include_fn_metrics),
+            fn_angle_threshold_deg=float(self.fn_angle_threshold_deg),
         )
 
     def normalized_profile(self) -> str:
@@ -705,8 +707,6 @@ class DesktopResultExporter:
             "finished_utc": run.finished_utc,
             "metrics": corrected_metrics,
             "manifest": run.manifest,
-            "feedback_record_dir": run.feedback_record_dir,
-            "feedback_record_id": run.feedback_record_id,
         }
         (run_dir / "manifest.json").write_text(json.dumps(compatibility_manifest, indent=2), encoding="utf-8")
         (run_dir / "metrics.json").write_text(json.dumps(corrected_metrics, indent=2), encoding="utf-8")

@@ -23,7 +23,7 @@ See `docs/mission_statement.md`.
   - file/edit/view/help desktop-style menus
   - bundled sample image onboarding (`Load Sample` / `File -> Open Sample`)
   - split dashboard layout with a fixed-width, scrollable control sidebar and a large central visual workspace
-  - collapsible sidebar groups for inference setup, correction tools, export/session actions, and workflow extras
+  - collapsible sidebar groups for inference setup, correction tools, quantification, and export/session actions
   - in-view zoom, pan, fit-to-view, and 100% controls on each image canvas
   - brush/polygon/lasso tools
   - connected-feature delete/relabel
@@ -32,21 +32,17 @@ See `docs/mission_statement.md`.
   - optional spatial calibration (manual line-draw or TIFF metadata scan) for micron-based reporting
   - split-view synchronized zoom/pan and layer transparency
   - Results Dashboard with adjustable orientation/size plotting controls
-  - scalar statistics panel (fraction/count/density/orientation/size summaries)
+  - scalar statistics panel (fraction/count/density/orientation/size summaries) with number- and length-weighted Fn metrics
   - full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`, `results_metrics.csv`, `artifacts_manifest.json`)
   - configurable report profiles (`balanced`/`full`/`audit`) with section + metric selection
   - one-action recursive batch inference + export with per-run manifests under `runs/`, aggregate outputs (`batch_results_summary.json`, `batch_results_report.html`, `batch_results_report.pdf`, `batch_metrics.csv`), and auto-opened summary review in the GUI
   - YAML-driven desktop appearance settings (font sizes, contrast, spacing, startup geometry) with in-app settings dialog
   - gear menu for secondary panels and a real status bar so the workspace stays image-first
   - project/session save-load
-  - always-visible thumbs-up/thumbs-down result feedback with optional comment (auto-saved, non-blocking)
-  - Dataset Prep + QA workspace (preview, prepare, QA, training gate)
-  - Run Review workspace for report summary + metric-delta comparison
-  - HPC GA Planner for scheduler-ready multi-candidate bundle generation and feedback analysis
+  - focused inference, correction, quantification, and results-review workspace
   - persistent desktop logs under `outputs/logs/desktop/`
 - Student notebook labs under `docs/student_notebooks.md`, `docs/tutorials/*.md`, and `docs/notebooks/*.ipynb` for preprocessing, training, correction, evaluation, and inference-loop walkthroughs
 - Correction export schema `microseg.correction.v1`
-- Per-inference feedback evidence schema `microseg.feedback_record.v1` (GUI + CLI + deployment worker)
 - Deterministic correction dataset packaging
 - Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
 - Default trained hydride inference checkpoint is registered via `frozen_checkpoints/model_registry.json` and resolved from `frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt` when present locally; additional trained models can be added through `frozen_checkpoints/model_registry.local.json` and will appear in GUI/CLI discovery automatically
@@ -355,29 +351,6 @@ microseg-cli deploy-worker-run \
   --max-workers 4 --max-queue-size 64 --strict
 ```
 
-Feedback bundle export from deployment (weekly or 200 records):
-```bash
-microseg-cli feedback-bundle --config configs/feedback_bundle.default.yml
-```
-
-Central feedback ingest + dedup + review queue:
-```bash
-microseg-cli feedback-ingest \
-  --config configs/feedback_ingest.default.yml \
-  --bundle-path outputs/feedback_bundles/<bundle>.zip \
-  --strict
-```
-
-Build active-learning dataset from ingested feedback:
-```bash
-microseg-cli feedback-build-dataset --config configs/feedback_build_dataset.default.yml
-```
-
-Threshold-based retrain trigger (>=500 corrected or 14 days):
-```bash
-microseg-cli feedback-train-trigger --config configs/feedback_train_trigger.default.yml
-```
-
 Canary-shadow package comparison:
 ```bash
 microseg-cli deploy-canary-shadow \
@@ -443,14 +416,6 @@ microseg-cli hpc-ga-generate \
   --output-dir outputs/hpc_ga_bundle_top5_airgap_pretrained
 ```
 
-HPC GA feedback summary report:
-```bash
-microseg-cli hpc-ga-feedback-report \
-  --config configs/hpc_ga.default.yml \
-  --feedback-sources outputs/hpc_ga_bundle \
-  --output-path outputs/hpc_ga_feedback/feedback_report.json
-```
-
 Single-script top-10 hydride benchmark run + dashboard:
 ```bash
 python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_suite.top5.yml --strict
@@ -503,19 +468,15 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
   - The main window opens maximized by default when the UI config keeps `start_maximized: true`, and the image canvas now re-fits on tab switches and resize events.
 - A live status banner shows the current stage, processed-image counts, elapsed time, percent complete, and ETA during batch jobs.
 3. Correct masks:
-- Use GUI correction tools and thumbs feedback (optional comment), then export corrected samples as needed.
+- Use GUI correction tools when necessary, then export corrected samples as needed.
 4. Train and evaluate:
 - Use GUI `Training` + `Evaluation` tabs or CLI `train` + `evaluate`.
 5. Compare runs:
 - Use GUI `Run Review` tab for metric deltas.
 6. Scale on HPC:
-- Use GUI `HPC GA Planner` or CLI `hpc-ga-generate`.
-- Optionally run `Analyze Feedback` in GUI or `hpc-ga-feedback-report` in CLI before the next sweep.
+- Use the CLI `hpc-ga-generate` command for scheduler-ready bundles.
 - Upload bundle and run `submit_all.sh` on scheduler environment.
-7. Continuous feedback retraining loop:
-- Export deployment feedback bundles (`feedback-bundle`) and ingest centrally (`feedback-ingest`).
-- Build weighted dataset (`feedback-build-dataset`) and evaluate trigger (`feedback-train-trigger`).
-- Keep promotion human-gated through run review/policy checks.
+7. Review benchmark and deployment reports, then keep promotion human-gated through policy checks.
 
 ## Frozen Checkpoints
 
@@ -541,7 +502,6 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - HPC GA user guide: `docs/hpc_ga_user_guide.md`
 - HPC GA developer guide: `docs/hpc_ga_developer_guide.md`
 - Hydride end-to-end research workflow: `docs/hydride_research_workflow.md`
-- Phase 17 HPC GA feedback status: `docs/phase17_hpc_ga_feedback.md`
 - Phase 18 transformer backend status: `docs/phase18_transformer_backends.md`
 - Phase 19 SOTA HF transformer integration status: `docs/phase19_hf_sota_transformers.md`
 - Phase 20 benchmark suite orchestration status: `docs/phase20_benchmark_suite_orchestration.md`
@@ -553,7 +513,6 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Pretrained citation BibTeX: `docs/pretrained_model_citations.bib`
 - Configuration workflow: `docs/configuration_workflow.md`
 - Deployment operations workflow: `docs/deployment_ops_workflow.md`
-- Feedback active-learning pipeline: `docs/feedback_active_learning_pipeline.md`
 - Failure taxonomy and error codes: `docs/failure_taxonomy.md`
 - Development workflow + phase closeout gate: `docs/development_workflow.md`
 - Developer guide: `developer_guide.md`

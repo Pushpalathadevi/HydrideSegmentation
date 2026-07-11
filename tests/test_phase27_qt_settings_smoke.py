@@ -69,9 +69,9 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     assert win.chk_report_csv.isChecked() is True
     assert win.chk_report_pdf.isChecked() is False
     assert win.report_profile_combo.currentText().lower() == "audit"
-    assert win.btn_thumb_up.text() == "👍"
-    assert win.btn_thumb_down.text() == "👎"
-    assert "Feedback:" in win.feedback_rating_label.text()
+    assert not hasattr(win, "btn_thumb_up")
+    assert not hasattr(win, "btn_thumb_down")
+    assert not hasattr(win, "feedback_rating_label")
     assert win.model_combo.minimumWidth() >= 320
     assert win.inference_options_group.isCheckable() is True
     assert win.inference_options_group.isChecked() is True
@@ -79,6 +79,11 @@ def test_phase27_qt_window_applies_ui_config(tmp_path: Path) -> None:
     assert win.correction_tools_group.isCheckable() is True
     assert win.export_group.isCheckable() is True
     assert win.workflow_aux_group.isCheckable() is True
+    assert win.results_quant_group.isCheckable() is True
+    assert win.chk_results_include_fn.isChecked() is True
+    assert win.results_fn_threshold.value() == 45.0
+    assert win.results_decimal_places.value() == 2
+    assert win.tabs.indexOf(win.workflow_widget) == -1
     assert win.active_run_box.isHidden() is True
     assert win.history_box.isHidden() is True
     assert win.log_panel.isHidden() is False

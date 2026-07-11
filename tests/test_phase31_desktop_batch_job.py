@@ -67,10 +67,6 @@ def test_phase31_batch_job_exports_runs_manifest_and_progress(tmp_path: Path) ->
 
     updates: list[DesktopBatchProgress] = []
 
-    def _finalize(record) -> None:
-        record.feedback_record_dir = f"feedback/{record.run_id}"
-        record.feedback_record_id = f"fb-{record.run_id}"
-
     result = run_desktop_batch_job(
         workflow=workflow,
         result_exporter=DesktopResultExporter(),
@@ -83,7 +79,6 @@ def test_phase31_batch_job_exports_runs_manifest_and_progress(tmp_path: Path) ->
         notes="phase31 batch",
         export_config=DesktopResultExportConfig(write_pdf_report=False),
         resolved_config={"output_dir": str(tmp_path / "batch"), "recursive": True},
-        finalize_record=_finalize,
         progress_callback=updates.append,
     )
 

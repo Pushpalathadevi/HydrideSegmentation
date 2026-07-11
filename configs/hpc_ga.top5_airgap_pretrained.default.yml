@@ -28,9 +28,6 @@ max_samples_min: 50000
 max_samples_max: 250000
 
 fitness_mode: novelty
-feedback_sources: ""
-feedback_min_samples: 3
-feedback_k: 5
 exploration_weight: 0.55
 fitness_weight_mean_iou: 0.50
 fitness_weight_macro_f1: 0.30

@@ -76,7 +76,7 @@ class ServiceWorkerConfig:
     max_queue_size: int = 32
     enable_gpu: bool = False
     device_policy: str = "cpu"
-    capture_feedback: bool = True
+    capture_feedback: bool = False
     feedback_root: str = "outputs/feedback_records"
     deployment_id: str = "deployment_service"
     operator_id: str = "unknown_operator"

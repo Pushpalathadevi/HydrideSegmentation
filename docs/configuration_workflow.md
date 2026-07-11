@@ -310,14 +310,6 @@ microseg-cli hpc-ga-generate \
   --output-dir outputs/hpc_ga_bundle_top5_airgap_pretrained
 ```
 
-HPC GA feedback report generation:
-```bash
-microseg-cli hpc-ga-feedback-report \
-  --config configs/hpc_ga.default.yml \
-  --feedback-sources outputs/hpc_ga_bundle \
-  --output-path outputs/hpc_ga_feedback/feedback_report.json
-```
-
 GPU-enabled runs (auto policy with CPU fallback):
 ```bash
 microseg-cli train --config configs/train.default.yml --enable-gpu --device-policy auto
@@ -333,11 +325,7 @@ microseg-cli evaluate --config configs/evaluate.default.yml --enable-gpu --devic
   - YAML base
   - GUI override entries
   - runtime image path
-- Workflow Hub supports YAML profile save/load for:
-  - `dataset_prepare`
-  - `training`
-  - `evaluation`
-  - `hpc_ga`
+- Training, dataset preparation, and HPC orchestration remain CLI/config workflows; the desktop surface is reserved for inference, correction, quantification, and results review.
 
 ## Override Conventions
 

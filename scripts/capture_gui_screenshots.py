@@ -85,6 +85,10 @@ def main() -> None:
 
     app = QApplication.instance() or QApplication([])
     win = QtSegmentationMainWindow()
+    # Offscreen Qt often advertises a tiny virtual screen; allow a desktop-sized
+    # capture so the layout audit exercises the intended geometry.
+    win.setMinimumSize(100, 100)
+    win.setMaximumSize(2400, 1600)
     win.resize(1780, 1080)
     win.show()
     app.processEvents()
@@ -112,28 +116,7 @@ def main() -> None:
     win.tabs.setCurrentIndex(_tab_index(win.tabs, "Correction Split View"))
     _save(win, app, out_dir / "qt_gui_phase13_correction_split_v0160.png")
 
-    # 3) Workflow hub - training tab.
-    win.tabs.setCurrentIndex(_tab_index(win.tabs, "Workflow Hub"))
-    win.workflow_tabs.setCurrentIndex(_tab_index(win.workflow_tabs, "Training"))
-    _save(win, app, out_dir / "qt_gui_phase13_workflow_training_v0160.png")
-
-    # 4) Workflow hub - dataset prep + QA tab.
-    win.workflow_tabs.setCurrentIndex(_tab_index(win.workflow_tabs, "Dataset Prep + QA"))
-    win.orch_prepare_colormap.setPlainText('{"0":[0,0,0],"1":[255,0,0],"2":[0,255,0]}')
-    win.dataset_preview_filter.setText("train")
-    _save(win, app, out_dir / "qt_gui_phase13_workflow_dataset_prep_qa_v0160.png")
-
-    # 5) Workflow hub - run review tab (with loaded demo reports).
-    report_a, report_b = _prepare_demo_reports(repo_root)
-    win.workflow_tabs.setCurrentIndex(_tab_index(win.workflow_tabs, "Run Review"))
-    win.review_report_a_edit.setText(str(report_a))
-    win.review_report_b_edit.setText(str(report_b))
-    win.on_load_review_report_a()
-    win.on_load_review_report_b()
-    win.on_compare_review_reports()
-    _save(win, app, out_dir / "qt_gui_phase13_workflow_run_review_v0160.png")
-
-    # 6) Results dashboard tab.
+    # 3) Results dashboard tab.
     win.tabs.setCurrentIndex(_tab_index(win.tabs, "Results Dashboard"))
     win.results_orientation_bins.setValue(24)
     win.results_size_bins.setValue(24)
@@ -147,9 +130,6 @@ def main() -> None:
     for name in [
         "qt_gui_phase13_input_v0160.png",
         "qt_gui_phase13_correction_split_v0160.png",
-        "qt_gui_phase13_workflow_training_v0160.png",
-        "qt_gui_phase13_workflow_dataset_prep_qa_v0160.png",
-        "qt_gui_phase13_workflow_run_review_v0160.png",
         "qt_gui_phase23_results_dashboard_v0230.png",
     ]:
         print(str(out_dir / name))
