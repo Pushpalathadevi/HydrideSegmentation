@@ -1,4 +1,4 @@
-"""Qt desktop GUI for segmentation, correction, and correction export."""
+"""Qt desktop GUI for segmentation, quantification, and result export."""
 
 from __future__ import annotations
 
@@ -101,7 +101,6 @@ from src.microseg.app.desktop_ui_config import DesktopAppearanceConfig, DesktopE
 from src.microseg.app.desktop_workflow import DesktopRunRecord, DesktopWorkflowManager
 from src.microseg.corrections import (
     DEFAULT_CLASS_MAP,
-    CorrectionExporter,
     CorrectionSession,
     SegmentationClass,
     SegmentationClassMap,
@@ -313,7 +312,6 @@ class _ResultsDashboardWorker(QObject):
         run_id: str,
         cache_key: str,
         pred_mask: np.ndarray,
-        corr_mask: np.ndarray,
         cfg: HydrideVisualizationConfig,
         microns_per_pixel: float | None,
     ) -> None:
@@ -322,7 +320,6 @@ class _ResultsDashboardWorker(QObject):
         self._run_id = run_id
         self._cache_key = cache_key
         self._pred_mask = np.asarray(pred_mask)
-        self._corr_mask = np.asarray(corr_mask)
         self._cfg = cfg
         self._microns_per_pixel = microns_per_pixel
 
@@ -337,22 +334,13 @@ class _ResultsDashboardWorker(QObject):
                 include_fn_metrics=bool(self._cfg.include_fn_metrics),
                 fn_angle_threshold_deg=float(self._cfg.fn_angle_threshold_deg),
             )
-            corr_stats = compute_hydride_statistics(
-                self._corr_mask,
-                orientation_bins=self._cfg.orientation_bins,
-                size_bins=self._cfg.size_bins,
-                min_feature_pixels=self._cfg.min_feature_pixels,
-                microns_per_pixel=self._microns_per_pixel,
-                include_fn_metrics=bool(self._cfg.include_fn_metrics),
-                fn_angle_threshold_deg=float(self._cfg.fn_angle_threshold_deg),
-            )
             entry = ResultsDashboardCacheEntry(
                 run_id=str(self._run_id),
                 cache_key=str(self._cache_key),
                 predicted_metrics=dict(pred_stats.scalar_metrics),
-                corrected_metrics=dict(corr_stats.scalar_metrics),
+                corrected_metrics={},
                 predicted_visuals=render_hydride_visualizations(pred_stats, self._cfg),
-                corrected_visuals=render_hydride_visualizations(corr_stats, self._cfg),
+                corrected_visuals={},
             )
         except Exception as exc:  # pragma: no cover - defensive GUI path
             self.failed.emit(self._generation, str(exc))
@@ -1585,7 +1573,7 @@ class AppearanceExportSettingsDialog(QDialog):
 
 
 class QtSegmentationMainWindow(QMainWindow):
-    """Qt main window for phase-3 correction workflow."""
+    """Qt main window for local segmentation and quantification workflows."""
 
     log_message_requested = Signal(str)
 
@@ -1595,7 +1583,6 @@ class QtSegmentationMainWindow(QMainWindow):
         self.resize(1700, 1050)
 
         self.workflow = DesktopWorkflowManager(max_history=400)
-        self.exporter = CorrectionExporter()
         self.result_exporter = DesktopResultExporter()
         self.project_store = ProjectStateStore()
         self.orchestrator = OrchestrationCommandBuilder.discover(start=Path(__file__))
@@ -2172,8 +2159,8 @@ class QtSegmentationMainWindow(QMainWindow):
         act_open_batch_results.triggered.connect(self.on_open_batch_results_summary)
         file_menu.addAction(act_open_batch_results)
 
-        act_export = QAction("Export Corrected Sample", self)
-        act_export.triggered.connect(self.on_export_correction)
+        act_export = QAction("Export Results Package", self)
+        act_export.triggered.connect(self.on_export_results_package)
         file_menu.addAction(act_export)
 
         act_save_project = QAction("Save Project Session", self)
@@ -2194,9 +2181,7 @@ class QtSegmentationMainWindow(QMainWindow):
         file_menu.addAction(act_exit)
 
         edit_menu = menu.addMenu("Edit")
-        edit_menu.addAction("Undo", self.on_undo)
-        edit_menu.addAction("Redo", self.on_redo)
-        edit_menu.addAction("Reset Corrections", self.on_reset_corrections)
+        edit_menu.addAction("Refresh Results", self._update_results_dashboard)
 
         view_menu = menu.addMenu("View")
         view_menu.addAction("Zoom In", self.corrected_canvas.zoom_in)
@@ -2262,7 +2247,7 @@ class QtSegmentationMainWindow(QMainWindow):
 
         quick_intro = QLabel(
             "Load an image or sample, choose a model, then run segmentation. "
-            "Use the gear menu only when you need setup, correction, export, or report detail."
+            "Use the gear menu only when you need setup, export, or report detail."
         )
         quick_intro.setWordWrap(True)
         controls.addWidget(quick_intro)
@@ -2454,7 +2439,7 @@ class QtSegmentationMainWindow(QMainWindow):
         active_run_layout.addWidget(self.active_run_summary_label)
 
         self.active_run_hint_label = QLabel(
-            "Run inference to unlock correction, review, and export actions. "
+            "Run inference to unlock results, review, and export actions. "
             "Advanced knobs remain available behind the gear menu."
         )
         self.active_run_hint_label.setWordWrap(True)
@@ -2463,10 +2448,8 @@ class QtSegmentationMainWindow(QMainWindow):
         active_identity_grid = QGridLayout()
         active_identity_grid.setHorizontalSpacing(8)
         active_identity_grid.setVerticalSpacing(8)
-        active_identity_grid.addWidget(QLabel("Annotator"), 0, 0)
-        active_identity_grid.addWidget(self.annotator_edit, 0, 1, 1, 3)
-        active_identity_grid.addWidget(QLabel("Notes"), 1, 0)
-        active_identity_grid.addWidget(self.notes_edit, 1, 1, 1, 3)
+        active_identity_grid.addWidget(QLabel("Notes"), 0, 0)
+        active_identity_grid.addWidget(self.notes_edit, 0, 1, 1, 3)
         active_run_layout.addLayout(active_identity_grid)
 
         active_actions = QGridLayout()
@@ -2477,8 +2460,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.btn_open_results.setMinimumHeight(34)
         active_actions.addWidget(self.btn_open_results, 0, 0)
 
-        self.btn_open_correction = QPushButton("Open Correction")
-        self.btn_open_correction.clicked.connect(lambda: self.tabs.setCurrentWidget(self.split_widget))
+        self.btn_open_correction = QPushButton("Open Mask")
+        self.btn_open_correction.clicked.connect(lambda: self.tabs.setCurrentWidget(self.mask_view))
         self.btn_open_correction.setMinimumHeight(34)
         active_actions.addWidget(self.btn_open_correction, 0, 1)
 
@@ -2488,7 +2471,7 @@ class QtSegmentationMainWindow(QMainWindow):
         active_actions.addWidget(self.btn_export_results_quick, 1, 0)
 
         self.btn_export_mask_quick = QPushButton("Export Mask")
-        self.btn_export_mask_quick.clicked.connect(self.on_export_correction)
+        self.btn_export_mask_quick.clicked.connect(self.on_export_results_package)
         self.btn_export_mask_quick.setMinimumHeight(34)
         active_actions.addWidget(self.btn_export_mask_quick, 1, 1)
 
@@ -2746,8 +2729,8 @@ class QtSegmentationMainWindow(QMainWindow):
         self.btn_export_batch = QPushButton("Export Batch Summary")
         self.btn_export_batch.clicked.connect(self.on_export_batch_results)
         self.btn_export_batch.setMinimumHeight(34)
-        self.btn_export = QPushButton("Export Corrected Sample")
-        self.btn_export.clicked.connect(self.on_export_correction)
+        self.btn_export = QPushButton("Export Results Package")
+        self.btn_export.clicked.connect(self.on_export_results_package)
         self.btn_export.setMinimumHeight(34)
 
         self.btn_export_results = QPushButton("Export Results Package")
@@ -2774,7 +2757,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.history_box.setMinimumHeight(180)
         sidebar_layout.addWidget(self.history_box)
 
-        self.correction_tools_group = QGroupBox("Correction Tools")
+        self.correction_tools_group = QGroupBox("Advanced Display Tools")
         self.correction_tools_group.setCheckable(True)
         self.correction_tools_group.setChecked(True)
         correction_tools_layout = QVBoxLayout(self.correction_tools_group)
@@ -2880,7 +2863,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.splitter.addWidget(self.corrected_scroll)
         self.splitter.setSizes([700, 900])
 
-        self.tabs.addTab(self.split_widget, "Correction Split View")
+        self.tabs.addTab(self.split_widget, "Mask Review")
 
         self.results_widget = QWidget()
         results_root = QVBoxLayout(self.results_widget)
@@ -2965,8 +2948,8 @@ class QtSegmentationMainWindow(QMainWindow):
         quant_grid.addWidget(self.chk_results_orientation_map, 1, 4, 1, 2)
         results_root.addWidget(self.results_quant_group)
 
-        self.results_table = QTableWidget(0, 3)
-        self.results_table.setHorizontalHeaderLabels(["Metric", "Predicted", "Corrected"])
+        self.results_table = QTableWidget(0, 2)
+        self.results_table.setHorizontalHeaderLabels(["Metric", "Value"])
         self.results_table.horizontalHeader().setStretchLastSection(True)
         self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.results_table.setAlternatingRowColors(True)
@@ -2983,7 +2966,7 @@ class QtSegmentationMainWindow(QMainWindow):
         pred_layout.addWidget(self.results_pred_orientation_view, stretch=1)
         pred_layout.addWidget(self.results_pred_size_view, stretch=1)
         pred_layout.addWidget(self.results_pred_angle_view, stretch=1)
-        self.results_plot_tabs.addTab(self.results_pred_widget, "Predicted")
+        self.results_plot_tabs.addTab(self.results_pred_widget, "Analysis")
 
         self.results_corr_widget = QWidget()
         corr_layout = QHBoxLayout(self.results_corr_widget)
@@ -2993,7 +2976,7 @@ class QtSegmentationMainWindow(QMainWindow):
         corr_layout.addWidget(self.results_corr_orientation_view, stretch=1)
         corr_layout.addWidget(self.results_corr_size_view, stretch=1)
         corr_layout.addWidget(self.results_corr_angle_view, stretch=1)
-        self.results_plot_tabs.addTab(self.results_corr_widget, "Corrected")
+        self.results_corr_widget.hide()
 
         self.tabs.addTab(self.results_widget, "Results Dashboard")
 
@@ -3178,7 +3161,7 @@ class QtSegmentationMainWindow(QMainWindow):
         package_tab = QWidget()
         package_form = QFormLayout(package_tab)
         self.dataset_input_edit = QLineEdit()
-        self.dataset_input_edit.setPlaceholderText("Correction exports directory")
+        self.dataset_input_edit.setPlaceholderText("Training dataset directory")
         self.dataset_output_edit = QLineEdit()
         self.dataset_output_edit.setPlaceholderText("Packaged dataset output directory")
         self.train_ratio_spin = QDoubleSpinBox()
@@ -3587,7 +3570,7 @@ class QtSegmentationMainWindow(QMainWindow):
         wf_root.addWidget(self.workflow_aux_group)
 
         # Training/dataops orchestration remains available from the CLI; keep
-        # the desktop surface focused on inference, correction, and analysis.
+        # the desktop surface focused on inference, quantification, and analysis.
 
         self._connect_scroll_sync()
         self._reload_class_combo()
@@ -3655,7 +3638,7 @@ class QtSegmentationMainWindow(QMainWindow):
         _add_toggle_action("Model summary", [self.model_desc], checked=False)
         _add_toggle_action("Inference Setup", [self.inference_options_group], checked=False)
         _add_toggle_action("Recent Runs", [self.history_box], checked=False)
-        _add_toggle_action("Correction Tools", [self.correction_tools_group], checked=False)
+        _add_toggle_action("Advanced Display Tools", [self.correction_tools_group], checked=False)
         _add_toggle_action("Export & Session", [self.export_group], checked=False)
         _add_toggle_action("Quantification Settings", [self.results_quant_group], checked=True)
         _add_toggle_action("Run Setup / Status", [self.setup_status_box], checked=True)
@@ -3690,7 +3673,7 @@ class QtSegmentationMainWindow(QMainWindow):
             "Inference Setup": [self.inference_options_group] if hasattr(self, "inference_options_group") else [],
             "Run Setup / Status": [self.setup_status_box] if hasattr(self, "setup_status_box") else [],
             "Recent Runs": [self.history_box] if hasattr(self, "history_box") else [],
-            "Correction Tools": [self.correction_tools_group] if hasattr(self, "correction_tools_group") else [],
+            "Advanced Display Tools": [self.correction_tools_group] if hasattr(self, "correction_tools_group") else [],
             "Export & Session": [self.export_group] if hasattr(self, "export_group") else [],
             "Quantification Settings": [self.results_quant_group] if hasattr(self, "results_quant_group") else [],
             "Advanced report options": [self.report_advanced_group] if hasattr(self, "report_advanced_group") else [],
@@ -3746,7 +3729,7 @@ class QtSegmentationMainWindow(QMainWindow):
         if hasattr(self, "active_run_hint_label"):
             if self.state.current_run is None:
                 self.active_run_hint_label.setText(
-                    "Run inference to unlock correction, review, and export actions. Advanced knobs remain behind the gear menu."
+                    "Run inference to unlock results, review, and export actions. Advanced knobs remain behind the gear menu."
                 )
             else:
                 history_text = f"{self.history_list.count()} saved run(s) in this session"
@@ -3798,8 +3781,6 @@ class QtSegmentationMainWindow(QMainWindow):
         QShortcut(QKeySequence("A"), self, activated=lambda: self.mode_combo.setCurrentText("add"))
         QShortcut(QKeySequence("R"), self, activated=lambda: self.mode_combo.setCurrentText("erase"))
 
-        QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.on_undo)
-        QShortcut(QKeySequence("Ctrl+Y"), self, activated=self.on_redo)
         QShortcut(QKeySequence("Ctrl++"), self, activated=self.corrected_canvas.zoom_in)
         QShortcut(QKeySequence("Ctrl+-"), self, activated=self.corrected_canvas.zoom_out)
         QShortcut(QKeySequence("Ctrl+0"), self, activated=self.corrected_canvas.zoom_reset)
@@ -3894,9 +3875,9 @@ class QtSegmentationMainWindow(QMainWindow):
             run_id=str(run.run_id),
             cache_key=str(cache_key),
             predicted_metrics=pred_metrics,
-            corrected_metrics=dict(pred_metrics),
+            corrected_metrics={},
             predicted_visuals=pred_visuals,
-            corrected_visuals=dict(pred_visuals),
+            corrected_visuals={},
             payload={"source": "run_record"},
         )
 
@@ -3906,7 +3887,6 @@ class QtSegmentationMainWindow(QMainWindow):
         run_id: str,
         cache_key: str,
         pred_mask: np.ndarray,
-        corr_mask: np.ndarray,
         cfg: HydrideVisualizationConfig,
         microns_per_pixel: float | None,
     ) -> None:
@@ -3925,7 +3905,6 @@ class QtSegmentationMainWindow(QMainWindow):
             run_id=str(run_id),
             cache_key=str(cache_key),
             pred_mask=pred_mask,
-            corr_mask=corr_mask,
             cfg=cfg,
             microns_per_pixel=microns_per_pixel,
         )
@@ -3951,15 +3930,10 @@ class QtSegmentationMainWindow(QMainWindow):
     ) -> None:
         um_per_px = None if cal is None else float(cal.microns_per_pixel)
         pred_visuals = cache_entry.predicted_visuals
-        corr_visuals = cache_entry.corrected_visuals
         pred_metrics = dict(cache_entry.predicted_metrics)
-        corr_metrics = dict(cache_entry.corrected_metrics)
         self._set_image_preview(self.results_pred_orientation_view, pred_visuals["orientation_map_rgb"])
         self._set_image_preview(self.results_pred_size_view, pred_visuals["size_distribution_rgb"])
         self._set_image_preview(self.results_pred_angle_view, pred_visuals["orientation_distribution_rgb"])
-        self._set_image_preview(self.results_corr_orientation_view, corr_visuals["orientation_map_rgb"])
-        self._set_image_preview(self.results_corr_size_view, corr_visuals["size_distribution_rgb"])
-        self._set_image_preview(self.results_corr_angle_view, corr_visuals["orientation_distribution_rgb"])
         preferred = [
             "hydride_area_fraction_percent",
             "hydride_count",
@@ -3974,8 +3948,8 @@ class QtSegmentationMainWindow(QMainWindow):
             "orientation_entropy_bits",
             "excluded_small_features",
         ]
-        metric_keys = [k for k in preferred if k in pred_metrics or k in corr_metrics]
-        extra_keys = sorted((set(pred_metrics.keys()) | set(corr_metrics.keys())) - set(metric_keys))
+        metric_keys = [k for k in preferred if k in pred_metrics]
+        extra_keys = sorted(set(pred_metrics.keys()) - set(metric_keys))
         metric_keys.extend(extra_keys)
         selected_defaults = (
             self._selected_report_metric_keys()
@@ -3987,14 +3961,11 @@ class QtSegmentationMainWindow(QMainWindow):
         for r, key in enumerate(metric_keys):
             self.results_table.setItem(r, 0, QTableWidgetItem(str(key)))
             self.results_table.setItem(r, 1, QTableWidgetItem(_fmt_metric(pred_metrics.get(key, ""))))
-            self.results_table.setItem(r, 2, QTableWidgetItem(_fmt_metric(corr_metrics.get(key, ""))))
 
         self.results_summary_label.setText(
-            "Results | predicted area={} count={} | corrected area={} count={} | bins(o={}, s={}) | units={}".format(
+            "Results | predicted area={} count={} | bins(o={}, s={}) | units={}".format(
                 _fmt_metric(float(pred_metrics.get("hydride_area_fraction_percent", 0.0))),
                 int(pred_metrics.get("hydride_count", 0)),
-                _fmt_metric(float(corr_metrics.get("hydride_area_fraction_percent", 0.0))),
-                int(corr_metrics.get("hydride_count", 0)),
                 int(cfg.orientation_bins),
                 int(cfg.size_bins),
                 "um (calibrated)" if um_per_px is not None else "pixels",
@@ -4002,7 +3973,6 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         self._latest_results_payload = {
             "predicted_metrics": pred_metrics,
-            "corrected_metrics": corr_metrics,
             "analysis_config": {
                 "orientation_bins": cfg.orientation_bins,
                 "size_bins": cfg.size_bins,
@@ -4367,8 +4337,7 @@ class QtSegmentationMainWindow(QMainWindow):
         available = [str(self.report_metric_list.item(i).text()) for i in range(self.report_metric_list.count())]
         if not available and isinstance(self._latest_results_payload, dict):
             pred = self._latest_results_payload.get("predicted_metrics", {})
-            corr = self._latest_results_payload.get("corrected_metrics", {})
-            keys = sorted(set(pred.keys()) | set(corr.keys())) if isinstance(pred, dict) and isinstance(corr, dict) else []
+            keys = sorted(pred.keys()) if isinstance(pred, dict) else []
             self._refresh_report_metric_checklist(keys, selected=defaults)
             return
         self._refresh_report_metric_checklist(available, selected=defaults)
@@ -4476,16 +4445,14 @@ class QtSegmentationMainWindow(QMainWindow):
             self.results_summary_label.setText("Results: run segmentation to populate dashboard")
             self.results_table.setRowCount(0)
             return
-        sess = self.state.correction_session
         pred_mask = to_index_mask(np.array(run.mask_image))
-        corr_mask = to_index_mask(sess.current_mask) if sess is not None else pred_mask
         cfg = self._analysis_config_from_ui()
         cal = self.state.spatial_calibration
         um_per_px = None if cal is None else float(cal.microns_per_pixel)
         cache_key = self._results_cache_key(
             run_id=str(run.run_id),
             pred_mask=pred_mask,
-            corr_mask=corr_mask,
+            corr_mask=pred_mask,
             calibration=cal,
             cfg=cfg,
         )
@@ -4496,7 +4463,7 @@ class QtSegmentationMainWindow(QMainWindow):
                     run=run,
                     cache_key=cache_key,
                     pred_mask=pred_mask,
-                    corr_mask=corr_mask,
+                    corr_mask=pred_mask,
                     cfg=cfg,
                     cal=cal,
                 )
@@ -4510,7 +4477,6 @@ class QtSegmentationMainWindow(QMainWindow):
                     run_id=str(run.run_id),
                     cache_key=cache_key,
                     pred_mask=pred_mask,
-                    corr_mask=corr_mask,
                     cfg=cfg,
                     microns_per_pixel=um_per_px,
                 )
@@ -5702,25 +5668,21 @@ class QtSegmentationMainWindow(QMainWindow):
             "F: Feature-select tool (delete/relabel connected feature)\n"
             "A: Add mode\n"
             "R: Erase mode\n"
-            "Ctrl+Z/Ctrl+Y: Undo/Redo\n"
             "Ctrl+Wheel or Ctrl+/-, Ctrl+0: Zoom\n"
-            "Esc: Cancel polygon/lasso preview",
+            "Esc: Cancel preview",
         )
 
     def on_show_guide(self) -> None:
         QMessageBox.information(
             self,
-            "Correction Guide",
+            "Workflow Guide",
             "1. Load a file or sample image and run segmentation.\n"
-            "2. Open 'Correction Split View'.\n"
-            "3. Pick class index/color map and select tool/mode.\n"
-            "4. For wrong objects: feature-select + erase to delete component.\n"
-            "5. Redraw with brush/polygon/lasso in add mode.\n"
-            "6. Tune layer transparency and inspect 'Results Dashboard'.\n"
-            "7. Optionally calibrate scale (manual line or TIFF metadata) for micron-based reporting.\n"
-            "8. Export correction masks and full JSON/HTML/PDF result packages.\n"
-            "9. Tune conventional model controls when running Hydride Conventional.\n"
-            "10. Use the CLI guide for training, evaluation, and dataset preparation commands.",
+            "2. Open 'Mask Review'.\n"
+            "3. Inspect the input, predicted mask, overlay, and results dashboard.\n"
+            "4. Optionally calibrate scale (manual line or TIFF metadata) for micron-based reporting.\n"
+            "5. Export mask artifacts and full JSON/HTML/PDF result packages.\n"
+            "6. Tune conventional model controls when running Hydride Conventional.\n"
+            "7. Use the CLI guide for training, evaluation, and dataset preparation commands.",
         )
 
     def on_show_about(self) -> None:
@@ -5728,7 +5690,7 @@ class QtSegmentationMainWindow(QMainWindow):
             self,
             "About MicroSeg Desktop",
             f"MicroSeg Desktop v{__version__}\n"
-            "Qt-based local application for segmentation review and correction\n"
+            "Qt-based local application for segmentation review and quantification\n"
             "Designed for field deployment workflows.",
         )
 
@@ -6266,31 +6228,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.logger.info("Corrections reset to initial prediction")
 
     def on_export_correction(self) -> None:
-        run = self.state.current_run
-        sess = self.state.correction_session
-        if run is None or sess is None:
-            QMessageBox.warning(self, "No run", "Run segmentation first")
-            return
-
-        out_dir = QFileDialog.getExistingDirectory(self, "Select export directory")
-        if not out_dir:
-            return
-
-        try:
-            sample_dir = self.exporter.export_sample(
-                run,
-                sess.current_mask,
-                out_dir,
-                annotator=self.annotator_edit.text().strip() or "unknown",
-                notes=self.notes_edit.text().strip(),
-                class_map=self.state.class_map,
-                formats=self._selected_export_formats(),
-            )
-            self.logger.info("Exported corrected sample: %s", sample_dir)
-            QMessageBox.information(self, "Export complete", f"Saved to:\n{sample_dir}")
-        except Exception as exc:
-            self.logger.exception("Correction export failed")
-            QMessageBox.critical(self, "Export Error", str(exc))
+        self.on_export_results_package()
 
     def on_export_results_package(self) -> None:
         run = self.state.current_run
@@ -6300,14 +6238,12 @@ class QtSegmentationMainWindow(QMainWindow):
         out_dir = QFileDialog.getExistingDirectory(self, "Select results export directory")
         if not out_dir:
             return
-        sess = self.state.correction_session
-        corrected_mask = sess.current_mask if sess is not None else None
         try:
             export_cfg = self._results_export_config_from_ui()
             export_dir = self.result_exporter.export(
                 run,
                 output_dir=out_dir,
-                corrected_mask=corrected_mask,
+                corrected_mask=None,
                 annotator=self.annotator_edit.text().strip() or "unknown",
                 notes=self.notes_edit.text().strip(),
                 class_map=self.state.class_map,
@@ -6349,15 +6285,11 @@ class QtSegmentationMainWindow(QMainWindow):
         out_dir = QFileDialog.getExistingDirectory(self, "Select batch export directory")
         if not out_dir:
             return
-        corrected_map: dict[str, np.ndarray] = {}
-        if self.state.current_run is not None and self.state.correction_session is not None:
-            corrected_map[str(self.state.current_run.run_id)] = np.asarray(self.state.correction_session.current_mask)
-            self._maybe_attach_current_correction()
         try:
             export_dir = self.result_exporter.export_batch(
                 records,
                 output_dir=out_dir,
-                corrected_masks=corrected_map,
+                corrected_masks={},
                 annotator=self.annotator_edit.text().strip() or "unknown",
                 notes=self.notes_edit.text().strip(),
                 class_map=self.state.class_map,
@@ -6427,20 +6359,19 @@ class QtSegmentationMainWindow(QMainWindow):
 
     def on_save_project(self) -> None:
         run = self.state.current_run
-        sess = self.state.correction_session
-        if run is None or sess is None:
+        if run is None:
             QMessageBox.warning(self, "No run", "Run segmentation first")
             return
         out_dir = QFileDialog.getExistingDirectory(self, "Select project save directory")
         if not out_dir:
             return
-        self._maybe_attach_current_correction()
         try:
+            predicted_mask = to_index_mask(np.array(run.mask_image))
             req = ProjectSaveRequest(
                 record=run,
-                corrected_mask=sess.current_mask,
+                corrected_mask=predicted_mask,
                 class_map=self.state.class_map,
-                annotator=self.annotator_edit.text().strip(),
+                annotator="",
                 notes=self.notes_edit.text().strip(),
                 ui_state={
                     "tool": self.tool_combo.currentText(),

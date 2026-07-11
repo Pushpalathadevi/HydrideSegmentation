@@ -32,7 +32,6 @@ setup(
             'hydride-gui-qt=hydride_segmentation.qt_gui:main',
             'hydride-orientation=hydride_segmentation.hydride_orientation_analyzer:main',
             'segmentation-eval=hydride_segmentation.segmentation_evaluator:main',
-            'package-corrections-dataset=scripts.package_corrections_dataset:main',
             'microseg-cli=scripts.microseg_cli:main',
             'microseg-phase-gate=scripts.run_phase_gate:main',
             'microseg-benchmark-suite=scripts.hydride_benchmark_suite:main',

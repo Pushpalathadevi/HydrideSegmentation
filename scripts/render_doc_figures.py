@@ -446,7 +446,7 @@ def svg_gui_sidebar_redesign_comparison() -> str:
         (514, 300, 86, "Undo"),
         (610, 300, 86, "+"),
         (130, 370, 150, "Export Batch"),
-        (290, 370, 170, "Export Corrected"),
+        (290, 370, 170, "Export Results"),
         (470, 370, 160, "Save / Load"),
         (130, 440, 570, 72, "Advanced report options, metrics, and session buttons all stacked into one narrow rail",),
     ]

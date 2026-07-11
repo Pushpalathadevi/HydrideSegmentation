@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from math import log2, pi, sqrt
+from typing import Any
 
 import matplotlib
 import numpy as np
@@ -161,6 +162,24 @@ def _feature_orientation_and_length(region: np.ndarray) -> tuple[float, float]:
     return angle, length_px
 
 
+def _feature_orientation_and_length_from_props(region: Any) -> tuple[float, float]:
+    """Estimate orientation and length from a component bbox instead of the full mask."""
+
+    min_row, min_col, max_row, max_col = region.bbox
+    local = region.image
+    angle, _ = _feature_orientation_and_length(local)
+    coords = region.coords.astype(np.float64)
+    if coords.size == 0:
+        return angle, 1.0
+    yx_centered = coords - np.array([float(min_row), float(min_col)], dtype=np.float64)
+    xy = yx_centered[:, ::-1]
+    rad = np.deg2rad(angle)
+    vector = np.array([np.cos(rad), np.sin(rad)], dtype=np.float64)
+    projected = xy @ vector
+    length_px = float(max(1.0, np.max(projected) - np.min(projected) + 1.0))
+    return angle, length_px
+
+
 def compute_hydride_statistics(
     mask: np.ndarray,
     *,
@@ -210,21 +229,18 @@ def compute_hydride_statistics(
     lengths_px: list[float] = []
     kept_label_ids: list[int] = []
     excluded_small = 0
-    n_labels = int(label_map.max())
-
-    for label_id in range(1, n_labels + 1):
-        region = label_map == label_id
-        area = int(np.count_nonzero(region))
+    for region in measure.regionprops(label_map):
+        area = int(region.area)
         if area < min_feature_pixels:
             excluded_small += 1
             continue
 
-        angle, length_px = _feature_orientation_and_length(region)
+        angle, length_px = _feature_orientation_and_length_from_props(region)
 
         orientations.append(float(angle))
         sizes.append(area)
         lengths_px.append(float(length_px))
-        kept_label_ids.append(label_id)
+        kept_label_ids.append(int(region.label))
 
     fn_exceeding = [bool(v >= fn_angle_threshold_deg) for v in orientations]
 

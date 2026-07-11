@@ -12,10 +12,9 @@ Current status:
   - compatibility bridge (`hydride_segmentation/microseg_adapter.py`)
 - Phase 2 desktop workflow layer implemented:
   - `app/desktop_workflow.py` for single/batch execution, history, and export packages
-- Phase 3 correction and export loop implemented:
-  - `corrections/session.py` for mask editing session + undo/redo
-  - `corrections/classes.py` for class index/color map contracts
-  - `corrections/exporter.py` for schema-based corrected sample export and dataset packaging
+- Phase 3 correction/export loop retired from GUI and CLI workflows:
+  - `corrections/classes.py` remains as the class index/color map contract used by training/evaluation mask normalization
+  - current desktop workflows use prediction review, quantification, and result-package export
 - Phase 4 foundation scaffolding implemented:
   - `app/project_state.py` for project/session persistence
   - `app/orchestration.py` for infer/train/evaluate/package command construction
@@ -33,7 +32,6 @@ Current status:
   - `quality/phase_gate.py` phase closeout checks and stocktake report generation
 - Phase 9 model lifecycle + dataops foundation implemented:
   - `plugins/registry_validation.py` strict frozen checkpoint metadata validator
-  - `dataops/split_planner.py` leakage-aware correction split materialization
   - `dataops/quality.py` packaged dataset QA checks
 - Phase 10 training data contract implemented:
   - `dataops/training_dataset.py` split-layout detection + unsplit auto-prepare with ID suffix mapping

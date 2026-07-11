@@ -31,7 +31,6 @@ from src.microseg.app.hpc_ga import (
     parse_batch_sizes,
     parse_pretrained_model_map,
 )
-from src.microseg.corrections import CorrectionDatasetPackager
 from src.microseg.data_preparation.config import DatasetPrepConfig
 from src.microseg.data_preparation.augmentation import parse_augmentation_config
 from src.microseg.data_preparation.oh5 import (
@@ -41,10 +40,8 @@ from src.microseg.data_preparation.oh5 import (
 )
 from src.microseg.data_preparation.pipeline import DatasetPreparer
 from src.microseg.dataops import (
-    CorrectionSplitConfig,
     DatasetPrepareConfig,
     DatasetQualityConfig,
-    plan_and_materialize_correction_splits,
     prepare_training_dataset_layout,
     run_dataset_quality_checks,
 )
@@ -720,33 +717,6 @@ def _validate_pretrained(args: argparse.Namespace) -> int:
     return 0
 
 
-def _dataset_split(args: argparse.Namespace) -> int:
-    cfg = resolve_config(args.config, args.set)
-    input_dir = args.input_dir or cfg.get("input_dir")
-    if not input_dir:
-        raise ValueError("input directory is required (--input-dir or config:input_dir)")
-    output_dir = args.output_dir or cfg.get("output_dir") or "outputs/packaged_dataset_v2"
-    train_ratio = float(cfg.get("train_ratio", args.train_ratio))
-    val_ratio = float(cfg.get("val_ratio", args.val_ratio))
-    seed = int(cfg.get("seed", args.seed))
-    leakage_group = str(cfg.get("leakage_group", args.leakage_group))
-
-    result = plan_and_materialize_correction_splits(
-        CorrectionSplitConfig(
-            input_dir=str(input_dir),
-            output_dir=str(output_dir),
-            train_ratio=train_ratio,
-            val_ratio=val_ratio,
-            seed=seed,
-            leakage_group=leakage_group,
-        )
-    )
-    print(f"dataset split output: {result.output_dir}")
-    print(f"manifest: {result.manifest_path}")
-    print(f"split counts: {result.split_counts}")
-    return 0
-
-
 def _dataset_qa(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     dataset_dir = args.dataset_dir or cfg.get("dataset_dir")
@@ -961,29 +931,6 @@ def _hpc_ga_generate(args: argparse.Namespace) -> int:
     print(f"manifest: {result.manifest_path}")
     print(f"submit script: {result.submit_script}")
     print(f"candidates: {len(result.candidates)}")
-    return 0
-
-
-def _package(args: argparse.Namespace) -> int:
-    cfg = resolve_config(args.config, args.set)
-    input_dir = Path(args.input_dir or cfg.get("input_dir"))
-    output_dir = Path(args.output_dir or cfg.get("output_dir") or "outputs/packaged_dataset")
-    train_ratio = float(cfg.get("train_ratio", args.train_ratio))
-    val_ratio = float(cfg.get("val_ratio", args.val_ratio))
-    seed = int(cfg.get("seed", args.seed))
-
-    sample_dirs = [p for p in sorted(input_dir.iterdir()) if p.is_dir()]
-    if not sample_dirs:
-        raise ValueError(f"no sample directories found under {input_dir}")
-
-    out = CorrectionDatasetPackager(seed=seed).package(
-        sample_dirs,
-        output_dir,
-        train_ratio=train_ratio,
-        val_ratio=val_ratio,
-    )
-    (out / "resolved_config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    print(f"dataset package: {out}")
     return 0
 
 
@@ -1714,17 +1661,6 @@ def _build_parser() -> argparse.ArgumentParser:
     validate_pretrained.add_argument("--strict", action="store_true", help="Exit non-zero when validation fails")
     validate_pretrained.set_defaults(handler=_validate_pretrained)
 
-    split = sub.add_parser("dataset-split", help="Leakage-aware correction split planner and materializer")
-    split.add_argument("--config", type=str, help="YAML config path")
-    split.add_argument("--set", action="append", default=[], help="Override key=value")
-    split.add_argument("--input-dir", type=str, help="Correction exports root directory")
-    split.add_argument("--output-dir", type=str, help="Output packaged dataset directory")
-    split.add_argument("--train-ratio", type=float, default=0.8)
-    split.add_argument("--val-ratio", type=float, default=0.1)
-    split.add_argument("--seed", type=int, default=42)
-    split.add_argument("--leakage-group", choices=["source_stem", "sample_id"], default="source_stem")
-    split.set_defaults(handler=_dataset_split)
-
     qa = sub.add_parser("dataset-qa", help="Run packaged dataset QA checks")
     qa.add_argument("--config", type=str, help="YAML config path")
     qa.add_argument("--set", action="append", default=[], help="Override key=value")
@@ -2061,16 +1997,6 @@ def _build_parser() -> argparse.ArgumentParser:
     compat.add_argument("--set", action="append", default=[], help="Override key=value")
     compat.add_argument("--output-path", type=str, default="outputs/support_bundles/compatibility_matrix.json")
     compat.set_defaults(handler=_compatibility_matrix)
-
-    pack = sub.add_parser("package", help="Package correction exports into dataset splits")
-    pack.add_argument("--config", type=str, help="YAML config path")
-    pack.add_argument("--set", action="append", default=[], help="Override key=value (supports dotted keys)")
-    pack.add_argument("--input-dir", type=str, help="Directory containing corrected sample folders")
-    pack.add_argument("--output-dir", type=str, help="Dataset output directory")
-    pack.add_argument("--train-ratio", type=float, default=0.8)
-    pack.add_argument("--val-ratio", type=float, default=0.1)
-    pack.add_argument("--seed", type=int, default=42)
-    pack.set_defaults(handler=_package)
 
     gate = sub.add_parser("phase-gate", help="Run end-of-phase closeout checks and stocktake report")
     gate.add_argument("--config", type=str, help="YAML config path")

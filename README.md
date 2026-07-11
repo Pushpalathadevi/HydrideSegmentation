@@ -10,8 +10,7 @@ Hydride segmentation is the first validated workflow.
 Build a scientifically robust, CPU-first desktop + CLI platform for microstructural segmentation with:
 - pluggable model backends
 - quantitative analysis pipelines
-- human-in-the-loop correction
-- correction export for retraining loops
+- local prediction review and export
 - reproducible experiment and deployment artifacts
 
 See `docs/mission_statement.md`.
@@ -23,14 +22,12 @@ See `docs/mission_statement.md`.
   - file/edit/view/help desktop-style menus
   - bundled sample image onboarding (`Load Sample` / `File -> Open Sample`)
   - split dashboard layout with a fixed-width, scrollable control sidebar and a large central visual workspace
-  - collapsible sidebar groups for inference setup, correction tools, quantification, and export/session actions
+  - collapsible sidebar groups for inference setup, quantification, display, and export/session actions
   - in-view zoom, pan, fit-to-view, and 100% controls on each image canvas
-  - brush/polygon/lasso tools
-  - connected-feature delete/relabel
   - class index + color map editing
   - conventional-pipeline controls (CLAHE/adaptive/morphology/crop/area threshold)
   - optional spatial calibration (manual line-draw or TIFF metadata scan) for micron-based reporting
-  - split-view synchronized zoom/pan and layer transparency
+  - synchronized zoom/pan and layer transparency for review
   - Results Dashboard with adjustable orientation/size plotting controls
   - scalar statistics panel (fraction/count/density/orientation/size summaries) with number- and length-weighted Fn metrics
   - full results-package export (`results_summary.json`, `results_report.html`, `results_report.pdf`, `results_metrics.csv`, `artifacts_manifest.json`)
@@ -39,12 +36,10 @@ See `docs/mission_statement.md`.
   - YAML-driven desktop appearance settings (font sizes, contrast, spacing, startup geometry) with in-app settings dialog
   - gear menu for secondary panels and a real status bar so the workspace stays image-first
   - project/session save-load
-  - focused inference, correction, quantification, and results-review workspace
+  - focused inference, mask review, quantification, and results-review workspace
   - persistent desktop logs under `outputs/logs/desktop/`
-- Student notebook labs under `docs/student_notebooks.md`, `docs/tutorials/*.md`, and `docs/notebooks/*.ipynb` for preprocessing, training, correction, evaluation, and inference-loop walkthroughs
-- Correction export schema `microseg.correction.v1`
-- Deterministic correction dataset packaging
-- Unified CLI (`microseg-cli`) for infer/train/evaluate/package/models
+- Student notebook labs under `docs/student_notebooks.md`, `docs/tutorials/*.md`, and `docs/notebooks/*.ipynb` for preprocessing, training, evaluation, and inference-loop walkthroughs
+- Unified CLI (`microseg-cli`) for infer/train/evaluate/models/data preparation
 - Default trained hydride inference checkpoint is registered via `frozen_checkpoints/model_registry.json` and resolved from `frozen_checkpoints/candidates/U_net_binary_best_checkpoint.pt` when present locally; additional trained models can be added through `frozen_checkpoints/model_registry.local.json` and will appear in GUI/CLI discovery automatically
 - Committed model discovery metadata uses repository-relative `checkpoint_path_hint` values under `frozen_checkpoints/`; absolute paths are reserved for explicit direct `checkpoint_path` / `weights_path` overrides or machine-local overlays.
 - Deployment operations tooling (`preflight`, `deploy-package`, `deploy-validate`, `deploy-smoke`, `promote-model`, `support-bundle`)
@@ -59,7 +54,7 @@ See `docs/mission_statement.md`.
 
 The documentation and implementation policies are aligned with and adapted from the standards style used in
 [DeepImageDeconvolution](https://github.com/kvmani/DeepImageDeconvolution), then extended for segmentation-specific
-annotation, correction, and deployment needs.
+annotation, quantitative review, and deployment needs.
 
 The repository now ships a Sphinx-based documentation system that is treated as part of the product surface:
 
@@ -210,16 +205,6 @@ microseg-cli train \
 Evaluation:
 ```bash
 microseg-cli evaluate --config configs/evaluate.default.yml --set split=test
-```
-
-Dataset packaging:
-```bash
-microseg-cli package --config configs/package.default.yml --set train_ratio=0.75
-```
-
-Leakage-aware split planning (v2):
-```bash
-microseg-cli dataset-split --config configs/dataset_split.default.yml
 ```
 
 Unsplit `source/masks` auto-prepare (leakage-aware default + global IDs):
@@ -467,8 +452,8 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
   - Input, mask, overlay, and batch-inspector views now ship with local zoom/pan/display-contrast tools; active-run image views keep pan/zoom synchronized during review.
   - The main window opens maximized by default when the UI config keeps `start_maximized: true`, and the image canvas now re-fits on tab switches and resize events.
 - A live status banner shows the current stage, processed-image counts, elapsed time, percent complete, and ETA during batch jobs.
-3. Correct masks:
-- Use GUI correction tools when necessary, then export corrected samples as needed.
+3. Review masks and metrics:
+- Use GUI mask/overlay/results views, then export result packages as needed.
 4. Train and evaluate:
 - Use GUI `Training` + `Evaluation` tabs or CLI `train` + `evaluate`.
 5. Compare runs:

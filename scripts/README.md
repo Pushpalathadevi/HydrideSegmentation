@@ -11,14 +11,12 @@ Current scripts:
   - use `microseg-docs` after installing package entry points
   - use `python scripts/build_docs.py` for a direct local build
   - the docs build renders the notebook curriculum into searchable transcript pages under `tutorials/` and also copies the raw `.ipynb` files into the HTML output root
-- `package_corrections_dataset.py` packages exported correction samples into train/val/test layout.
-- `microseg_cli.py` unified CLI for inference, training, evaluation, model listing, and correction-dataset packaging with YAML + `--set` overrides.
+- `microseg_cli.py` unified CLI for inference, training, evaluation, model listing, dataset preparation, deployment, and reporting with YAML + `--set` overrides.
   - supports optional GPU runtime selection for inference/training/evaluation with CPU fallback.
   - training supports `unet_binary`, SMP backends (`smp_unet_resnet18`, `smp_deeplabv3plus_resnet101`, `smp_unetplusplus_resnet101`, `smp_pspnet_resnet101`, `smp_fpn_resnet101`), HF transformer backends (`hf_segformer_b0/b2/b5`, `hf_upernet_swin_large`), internal transformer variants, `torch_pixel`, and `sklearn_pixel`.
   - training/evaluation can emit HTML reports and tracked sample panels.
   - `models` command reads frozen checkpoint metadata for dynamic help text.
   - `validate-registry` validates frozen checkpoint metadata schema/constraints.
-  - `dataset-split` builds leakage-aware deterministic train/val/test splits from correction exports.
   - `dataset-prepare` converts unsplit source/masks datasets into train/val/test layout with global ID-suffixed names.
   - `dataset-prepare` uses leakage-aware auto-split by default and optionally supports RGB mask conversion via configurable colormap.
   - `dataset-qa` runs packaged dataset quality checks.

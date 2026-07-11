@@ -6,8 +6,7 @@
 2. Run segmentation.
 3. Inspect prediction in split view and Results Dashboard.
 4. Inspect the Results Dashboard and Fn metrics.
-5. Correct annotations when needed.
-6. Export corrected sample and/or full results package (`json` + `html` + `pdf` + `csv`).
+5. Export mask artifacts and/or full results package (`json` + `html` + `pdf` + `csv`).
 7. Save session and resume later.
 8. Review model-specific frozen-checkpoint tips before selecting ML models.
 
@@ -15,12 +14,12 @@ While inference is running, the top status banner shows the current stage, elaps
 During recursive batch jobs it also shows processed-image counts, percent complete, and rolling ETA updates as inference, quantitative analysis, and export steps finish.
 Single-image and batch inference now both run through the in-process background worker path, which keeps the GUI responsive while allowing warmed ML bundles to be reused across runs.
 The main model selector is intentionally ordered for deployment use: discovered trained models appear first, `Hydride ML (UNet)` remains the default trained checkpoint, and `Hydride Conventional` remains available as the fallback baseline.
-The desktop now uses a split layout: the left sidebar holds project/model/correction controls, while the right workspace keeps the image tabs large and readable.
+The desktop now uses a split layout: the left sidebar holds project/model/review controls, while the right workspace keeps the image tabs large and readable.
 The left control rail now defaults to a narrower progressive-disclosure layout:
 - `Quick Start` stays visible with load/select/run controls
 - `Run Setup / Status` carries model metadata, preprocessing summary, warm-load status, and segmentation progress
-- `Active Run` appears after inference with review/export shortcuts plus optional provenance notes
-- quantification settings are visible and grouped; correction tools, export/session, and logs remain expandable
+- `Active Run` appears after inference with review/export shortcuts plus optional notes
+- quantification settings are visible and grouped; advanced display tools, export/session, and logs remain expandable
 
 The desktop log now appears in a shared bottom strip under the main workspace instead of consuming sidebar width, and it is shown by default on startup.
 Input, mask, overlay, and batch-summary image views all expose local zoom, pan, fit, and display-contrast controls. The main active-run image views keep pan and zoom synchronized so inspection stays aligned across tabs.
@@ -28,28 +27,18 @@ Input, mask, overlay, and batch-summary image views all expose local zoom, pan, 
 The control rail keeps image loading, sample selection, and model selection on separate rows so the ML model list remains readable without forcing the image workspace to collapse.
 Advanced controls are grouped behind collapsible sections:
 - `Inference Setup` for config and calibration
-- `Correction Tools` for optional mask editing and layer controls
+- `Advanced Display Tools` for optional display/layer controls
 - `Export & Session` for exports, saves, and report options
 - `Quantification Settings` for Fn metrics, distributions, precision, and debug artifacts
 
 The desktop application intentionally keeps training and active-learning data capture out of the primary inference workflow. Use the dedicated command-line training/evaluation tools when those workflows are needed.
 
-## Correction Workflow
-
-Tools:
-- `brush`: paint/erase locally
-- `polygon`: click polygon vertices, right-click to commit
-- `lasso`: freehand region commit on mouse release
-- `feature_select`: click connected component to delete (erase mode) or relabel (add mode)
-
-Class controls:
-- `Edit Classes` allows `index,name,#RRGGBB[,description]` editing.
-- `Class` selector sets active class index for add-mode drawing and relabel operations.
+## Review Workflow
 
 Inspection controls:
 - zoom in/out/reset
-- synchronized split-view pan/zoom
-- transparency sliders for predicted, corrected, and diff layers
+- synchronized pan/zoom
+- transparency sliders for prediction layers
 
 Conventional controls (Hydride Conventional model):
 - CLAHE clip limit and tile grid
@@ -57,26 +46,19 @@ Conventional controls (Hydride Conventional model):
 - morphology kernel and iterations
 - area threshold and optional crop percentage
 
-## Exporting Corrections
-
-`Export Corrected Sample` supports selectable formats:
-- indexed PNG
-- color PNG
-- NumPy `.npy`
-
-Output includes correction metadata and provenance (`correction_record.json`).
+## Exporting Results
 
 `Export Results Package` writes deployment-facing outputs:
-- `results_summary.json` with predicted/corrected statistics and analysis config
+- `results_summary.json` with prediction statistics and analysis config
 - `results_report.html`
 - `results_report.pdf`
 - `results_metrics.csv`
 - `artifacts_manifest.json`
-- input/mask/overlay/orientation-map/distribution images for predicted and corrected masks
+- input/mask/overlay/orientation-map/distribution images for predicted masks
 
 Report customization controls:
 - report profile: `balanced`, `full`, `audit`
-- section toggles: metadata, calibration, key summary, scalar table, distributions, overlays, diff, artifact manifest
+- section toggles: metadata, calibration, key summary, scalar table, distributions, overlays, artifact manifest
 - metric checklist (advanced): select exact scalar metrics for export
 - key-metric cutoff (`Top-K`) and CSV output toggle
 

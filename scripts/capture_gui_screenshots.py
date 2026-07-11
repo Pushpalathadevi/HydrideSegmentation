@@ -93,7 +93,7 @@ def main() -> None:
     win.show()
     app.processEvents()
 
-    # Run one segmentation so correction/overlay views are populated.
+    # Run one segmentation so mask/overlay views are populated.
     try:
         model_name = _pick_default_model(win)
         record = win.workflow.run_single(
@@ -112,9 +112,9 @@ def main() -> None:
     win.tabs.setCurrentIndex(_tab_index(win.tabs, "Input"))
     _save(win, app, out_dir / "qt_gui_phase13_input_v0160.png")
 
-    # 2) Correction split view.
-    win.tabs.setCurrentIndex(_tab_index(win.tabs, "Correction Split View"))
-    _save(win, app, out_dir / "qt_gui_phase13_correction_split_v0160.png")
+    # 2) Mask review view.
+    win.tabs.setCurrentIndex(_tab_index(win.tabs, "Mask Review"))
+    _save(win, app, out_dir / "qt_gui_phase13_mask_review_v0160.png")
 
     # 3) Results dashboard tab.
     win.tabs.setCurrentIndex(_tab_index(win.tabs, "Results Dashboard"))
@@ -129,7 +129,7 @@ def main() -> None:
     print("Screenshots written to:")
     for name in [
         "qt_gui_phase13_input_v0160.png",
-        "qt_gui_phase13_correction_split_v0160.png",
+        "qt_gui_phase13_mask_review_v0160.png",
         "qt_gui_phase23_results_dashboard_v0230.png",
     ]:
         print(str(out_dir / name))
