@@ -1,0 +1,24 @@
+{
+  "schema_version": "microseg.phase_closeout.v1",
+  "phase": 33,
+  "title": "Interactive Conventional Segmentation GUI",
+  "status": "implemented",
+  "verification": {
+    "full_test_suite": "196 passed",
+    "focused_gui_suite": "12 passed",
+    "conventional_regression_suite": "15 passed"
+  },
+  "delivered": [
+    "side-by-side input and predicted-mask workspace",
+    "canonical pre-filled conventional parameters",
+    "hover tooltips for every conventional parameter",
+    "400 ms debounced live background reruns",
+    "not-ready and updating result states",
+    "stale result clearing when a new image is loaded"
+  ],
+  "remaining_gaps": [
+    "automated screenshot comparison is not yet a release gate",
+    "large-image live tuning currently uses full-resolution inference",
+    "pre-existing scikit-image deprecation warnings remain"
+  ]
+}

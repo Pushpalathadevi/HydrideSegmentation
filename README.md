@@ -19,6 +19,8 @@ See `docs/mission_statement.md`.
 
 - Registry-backed segmentation orchestration (`src/microseg`)
 - Qt desktop GUI (`hydride-gui`) with:
+  - a unified `Segmentation` workspace showing input on the left and predicted mask on the right, with a clear not-ready state before inference
+  - live, pre-filled conventional-segmentation controls beside the images; hover help explains every parameter and edits trigger a debounced background refresh
   - file/edit/view/help desktop-style menus
   - bundled sample image onboarding (`Load Sample` / `File -> Open Sample`)
   - split dashboard layout with a fixed-width, scrollable control sidebar and a large central visual workspace
@@ -440,7 +442,7 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Start with `docs/training_data_requirements.md`.
 - Use GUI `Dataset Prep + QA` tab or CLI `dataset-prepare` / `dataset-qa`.
 2. Run baseline inference:
-- GUI `Input` + `Run Segmentation` or CLI `microseg-cli infer`.
+- GUI `Segmentation` + `Run Segmentation` or CLI `microseg-cli infer`.
   - The desktop `Run Segmentation` action now uses the same in-process background worker path as batch inference, so the window stays responsive while warmed ML checkpoints and cached bundles are reused across runs.
   - The primary selector now exposes discovered trained models first, with `Hydride ML (UNet)` as the default trained checkpoint and `Hydride Conventional` as the deterministic fallback.
   - The Qt sidebar now defaults to a compact `Quick Start` + `Active Run` rail, with a separate `Run Setup / Status` card for model metadata, preprocessing summary, warm-load state, and progress.
@@ -449,7 +451,9 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
   - Batch export packages now place one complete per-image result bundle under `runs/` and link those per-run summaries from the root batch HTML/JSON package.
   - ML contrast adjustment now previews the actual processed-for-inference image in split view against the raw source, and desktop preprocessing logs explicitly report resize, contrast, channel duplication, and mask rescaling steps.
   - Desktop result tables and reports now round floating scientific metrics to two decimals for consistent operator-facing output.
-  - Input, mask, overlay, and batch-inspector views now ship with local zoom/pan/display-contrast tools; active-run image views keep pan/zoom synchronized during review.
+  - The `Segmentation` tab keeps input and predicted mask side by side; before inference the result pane says `Result not ready yet`.
+  - With `Hydride Conventional`, hover-documented parameters appear above the comparison and changes queue a 400 ms debounced rerun.
+  - Input, mask, overlay, and batch-inspector views ship with local zoom/pan/display-contrast tools; active-run image views keep pan/zoom synchronized during review.
   - The main window opens maximized by default when the UI config keeps `start_maximized: true`, and the image canvas now re-fits on tab switches and resize events.
 - A live status banner shows the current stage, processed-image counts, elapsed time, percent complete, and ETA during batch jobs.
 3. Review masks and metrics:

@@ -1,5 +1,15 @@
 # Phase-Wise Development Roadmap
 
+## Phase 33 - Interactive Conventional Segmentation Workspace (Implemented)
+
+- Merged separate input and predicted-mask tabs into a side-by-side `Segmentation` workspace.
+- Moved conventional parameters beside the image review area with canonical defaults and per-control tooltips.
+- Added a 400 ms debounced background rerun on parameter edits, including one pending refresh after an active run.
+- Added explicit `Result not ready yet` and `Updating result` states to prevent stale-mask interpretation.
+- Added Qt offscreen regression coverage and synchronized GUI, pipeline, test, roadmap, and gap documentation.
+
+Closeout: [`docs/phase33_interactive_conventional_gui.md`](phase33_interactive_conventional_gui.md).
+
 Global phase-close rule (mandatory for every phase):
 - run full tests and ensure pass
 - run phase-gate closeout checks

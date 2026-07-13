@@ -156,6 +156,10 @@ Why this matters:
 
 ## Parameter Reference
 
+### Interactive desktop tuning
+
+Select `Hydride Conventional` in the Qt desktop app. The `Segmentation` tab places the source image on the left, the predicted mask on the right, and all conventional parameters above them. Defaults come from `DEFAULT_CONVENTIONAL_PARAMS`; each editor has hover help. After the first run, changing an editor invalidates the displayed mask and launches a debounced background rerun. Loading another image clears the prior mask and displays `Result not ready yet` until the new image is segmented.
+
 The table below documents the canonical parameter names as they appear in the reusable library and the legacy workflow.
 
 | Parameter | Meaning | Why It Matters | Typical Starting Value | Typical Range | Notes |

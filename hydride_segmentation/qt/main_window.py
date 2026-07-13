@@ -662,6 +662,20 @@ class ZoomableImageViewport(QWidget):
         self.fit_to_view()
         QTimer.singleShot(0, self._apply_fit_zoom)
 
+    def set_placeholder(self, message: str) -> None:
+        """Clear the image and show an explanatory empty-state message."""
+        self._base_image = None
+        self._base_pixmap = None
+        self._display_pixmap = None
+        self._fit_mode = True
+        self._zoom = 1.0
+        self.image_label.clear()
+        self.image_label.setText(message)
+        self.image_label.setWordWrap(True)
+        self.image_label.setMinimumSize(320, 240)
+        self.image_label.adjustSize()
+        self.zoom_label.setText("100%")
+
     def current_zoom(self) -> float:
         return float(self._zoom)
 
@@ -1630,6 +1644,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._segmentation_detail_text: str = "Select an image and run inference to begin."
         self._segmentation_progress_value: int = 0
         self._splitter_geometry_applied = False
+        self._live_conventional_run_pending = False
 
         self.logger = logging.getLogger("MicroSegQtGUI")
         self.logger.setLevel(logging.INFO)
@@ -1657,6 +1672,10 @@ class QtSegmentationMainWindow(QMainWindow):
         self._segmentation_progress_timer = QTimer(self)
         self._segmentation_progress_timer.setSingleShot(False)
         self._segmentation_progress_timer.timeout.connect(self._refresh_segmentation_progress)
+        self._live_conventional_timer = QTimer(self)
+        self._live_conventional_timer.setSingleShot(True)
+        self._live_conventional_timer.setInterval(400)
+        self._live_conventional_timer.timeout.connect(self._run_live_conventional_segmentation)
 
         try:
             resolved_class_map, class_map_source = resolve_class_map()
@@ -2092,6 +2111,9 @@ class QtSegmentationMainWindow(QMainWindow):
         self._active_job_worker = None
         self._active_job_label = ""
         self._set_segmentation_busy(False)
+        if self._live_conventional_run_pending:
+            self._live_conventional_run_pending = False
+            self._live_conventional_timer.start()
 
     @Slot(str, str, str)
     def _on_background_job_failed(self, label: str, message: str, detail: str) -> None:
@@ -2461,7 +2483,7 @@ class QtSegmentationMainWindow(QMainWindow):
         active_actions.addWidget(self.btn_open_results, 0, 0)
 
         self.btn_open_correction = QPushButton("Open Mask")
-        self.btn_open_correction.clicked.connect(lambda: self.tabs.setCurrentWidget(self.mask_view))
+        self.btn_open_correction.clicked.connect(lambda: self.tabs.setCurrentWidget(self.comparison_widget))
         self.btn_open_correction.setMinimumHeight(34)
         active_actions.addWidget(self.btn_open_correction, 0, 1)
 
@@ -2497,73 +2519,94 @@ class QtSegmentationMainWindow(QMainWindow):
         inference_options_layout.addLayout(calibration_form)
         sidebar_layout.addWidget(self.inference_options_group)
 
-        self.conventional_row_widget = QWidget()
-        conventional_row = QHBoxLayout(self.conventional_row_widget)
-        conventional_row.setContentsMargins(0, 0, 0, 0)
-        conventional_row.setSpacing(6)
-        conventional_row.addWidget(QLabel("Conventional Controls"))
+        self.conventional_row_widget = QGroupBox("Conventional segmentation — live parameters")
+        conventional_row = QGridLayout(self.conventional_row_widget)
+        conventional_row.setContentsMargins(10, 10, 10, 10)
+        conventional_row.setHorizontalSpacing(8)
+        conventional_row.setVerticalSpacing(6)
 
-        conventional_row.addWidget(QLabel("CLAHE clip"))
+        conventional_row.addWidget(QLabel("CLAHE clip"), 0, 0)
         self.conv_clip_spin = QDoubleSpinBox()
         self.conv_clip_spin.setDecimals(2)
         self.conv_clip_spin.setRange(0.1, 20.0)
         self.conv_clip_spin.setSingleStep(0.1)
         self.conv_clip_spin.setValue(float(DEFAULT_CONVENTIONAL_PARAMS["clahe"]["clip_limit"]))
-        conventional_row.addWidget(self.conv_clip_spin)
+        conventional_row.addWidget(self.conv_clip_spin, 0, 1)
 
-        conventional_row.addWidget(QLabel("Tile"))
+        conventional_row.addWidget(QLabel("CLAHE tile (x/y)"), 0, 2)
         self.conv_tile_x = QSpinBox()
         self.conv_tile_x.setRange(1, 64)
         self.conv_tile_x.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["clahe"]["tile_grid_size"][0]))
-        conventional_row.addWidget(self.conv_tile_x)
+        conventional_row.addWidget(self.conv_tile_x, 0, 3)
         self.conv_tile_y = QSpinBox()
         self.conv_tile_y.setRange(1, 64)
         self.conv_tile_y.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["clahe"]["tile_grid_size"][1]))
-        conventional_row.addWidget(self.conv_tile_y)
+        conventional_row.addWidget(self.conv_tile_y, 0, 4)
 
-        conventional_row.addWidget(QLabel("Adaptive block"))
+        conventional_row.addWidget(QLabel("Adaptive block"), 0, 5)
         self.conv_block_spin = QSpinBox()
         self.conv_block_spin.setRange(3, 401)
         self.conv_block_spin.setSingleStep(2)
         self.conv_block_spin.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["adaptive"]["block_size"]))
-        conventional_row.addWidget(self.conv_block_spin)
+        conventional_row.addWidget(self.conv_block_spin, 0, 6)
 
-        conventional_row.addWidget(QLabel("Adaptive C"))
+        conventional_row.addWidget(QLabel("Adaptive C"), 0, 7)
         self.conv_c_spin = QSpinBox()
         self.conv_c_spin.setRange(-200, 200)
         self.conv_c_spin.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["adaptive"]["C"]))
-        conventional_row.addWidget(self.conv_c_spin)
+        conventional_row.addWidget(self.conv_c_spin, 0, 8)
 
-        conventional_row.addWidget(QLabel("Kernel"))
+        conventional_row.addWidget(QLabel("Morph kernel (x/y)"), 1, 0)
         self.conv_kernel_x = QSpinBox()
         self.conv_kernel_x.setRange(1, 64)
         self.conv_kernel_x.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["morph"]["kernel_size"][0]))
-        conventional_row.addWidget(self.conv_kernel_x)
+        conventional_row.addWidget(self.conv_kernel_x, 1, 1)
         self.conv_kernel_y = QSpinBox()
         self.conv_kernel_y.setRange(1, 64)
         self.conv_kernel_y.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["morph"]["kernel_size"][1]))
-        conventional_row.addWidget(self.conv_kernel_y)
+        conventional_row.addWidget(self.conv_kernel_y, 1, 2)
 
-        conventional_row.addWidget(QLabel("Morph iters"))
+        conventional_row.addWidget(QLabel("Morph iterations"), 1, 3)
         self.conv_iterations_spin = QSpinBox()
         self.conv_iterations_spin.setRange(0, 20)
         self.conv_iterations_spin.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["morph"]["iterations"]))
-        conventional_row.addWidget(self.conv_iterations_spin)
+        conventional_row.addWidget(self.conv_iterations_spin, 1, 4)
 
-        conventional_row.addWidget(QLabel("Area >="))
+        conventional_row.addWidget(QLabel("Minimum area (px)"), 1, 5)
         self.conv_area_spin = QSpinBox()
         self.conv_area_spin.setRange(0, 100000)
         self.conv_area_spin.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["area_threshold"]))
-        conventional_row.addWidget(self.conv_area_spin)
+        conventional_row.addWidget(self.conv_area_spin, 1, 6)
 
         self.conv_crop_check = QCheckBox("Crop")
         self.conv_crop_check.setChecked(bool(DEFAULT_CONVENTIONAL_PARAMS["crop"]))
-        conventional_row.addWidget(self.conv_crop_check)
+        conventional_row.addWidget(self.conv_crop_check, 1, 7)
         self.conv_crop_percent = QSpinBox()
         self.conv_crop_percent.setRange(0, 80)
         self.conv_crop_percent.setValue(int(DEFAULT_CONVENTIONAL_PARAMS["crop_percent"]))
-        conventional_row.addWidget(self.conv_crop_percent)
-        conventional_row.addStretch(1)
+        conventional_row.addWidget(self.conv_crop_percent, 1, 8)
+
+        parameter_help = {
+            self.conv_clip_spin: "CLAHE contrast limit. Increase to reveal weak local contrast; high values can amplify noise.",
+            self.conv_tile_x: "Number of horizontal CLAHE tiles. Smaller tiles emphasize finer local contrast.",
+            self.conv_tile_y: "Number of vertical CLAHE tiles. Smaller tiles emphasize finer local contrast.",
+            self.conv_block_spin: "Odd neighborhood size used for adaptive thresholding. Larger values follow broader illumination changes.",
+            self.conv_c_spin: "Constant subtracted during adaptive thresholding. Adjusts how permissive the foreground selection is.",
+            self.conv_kernel_x: "Horizontal size of the morphology kernel used to join and clean segmented regions.",
+            self.conv_kernel_y: "Vertical size of the morphology kernel used to join and clean segmented regions.",
+            self.conv_iterations_spin: "Number of morphology cleanup passes. More passes connect regions more aggressively.",
+            self.conv_area_spin: "Connected regions smaller than this pixel area are removed as noise.",
+            self.conv_crop_check: "Exclude image borders before segmentation when edge artifacts are present.",
+            self.conv_crop_percent: "Percentage cropped from the image boundary when Crop is enabled.",
+        }
+        for widget, tip in parameter_help.items():
+            widget.setToolTip(tip)
+            widget.setStatusTip(tip)
+        self.conv_crop_percent.setEnabled(self.conv_crop_check.isChecked())
+        self.conv_crop_check.toggled.connect(self.conv_crop_percent.setEnabled)
+        for widget in parameter_help:
+            signal = widget.toggled if isinstance(widget, QCheckBox) else widget.valueChanged
+            signal.connect(self._queue_live_conventional_segmentation)
 
         self.corrected_canvas = CorrectedMaskCanvas()
         self.corrected_canvas.zoom_changed.connect(self._on_zoom_changed)
@@ -2763,8 +2806,6 @@ class QtSegmentationMainWindow(QMainWindow):
         correction_tools_layout = QVBoxLayout(self.correction_tools_group)
         correction_tools_layout.setContentsMargins(10, 12, 10, 10)
         correction_tools_layout.setSpacing(10)
-        correction_tools_layout.addWidget(self.conventional_row_widget)
-
         interaction_box = QGroupBox("Interaction")
         interaction_layout = QGridLayout(interaction_box)
         interaction_layout.setContentsMargins(10, 10, 10, 10)
@@ -2840,12 +2881,24 @@ class QtSegmentationMainWindow(QMainWindow):
         self.tabs.tabBar().setElideMode(Qt.ElideRight)
         self.workspace_splitter.addWidget(self.tabs)
 
-        self.input_view = ZoomableImageViewport("Input")
+        self.input_view = ZoomableImageViewport("Input image")
         self.mask_view = ZoomableImageViewport("Predicted Mask")
         self.overlay_view = ZoomableImageViewport("Overlay")
+        self.mask_view.set_placeholder("Result not ready yet\n\nLoad an image, then run conventional segmentation.")
 
-        self.tabs.addTab(self.input_view, "Input")
-        self.tabs.addTab(self.mask_view, "Predicted Mask")
+        self.comparison_widget = QWidget()
+        comparison_layout = QVBoxLayout(self.comparison_widget)
+        comparison_layout.setContentsMargins(0, 0, 0, 0)
+        comparison_layout.setSpacing(8)
+        comparison_layout.addWidget(self.conventional_row_widget)
+        self.comparison_splitter = QSplitter(Qt.Horizontal)
+        self.comparison_splitter.setChildrenCollapsible(False)
+        self.comparison_splitter.addWidget(self.input_view)
+        self.comparison_splitter.addWidget(self.mask_view)
+        self.comparison_splitter.setSizes([700, 700])
+        comparison_layout.addWidget(self.comparison_splitter, stretch=1)
+
+        self.tabs.addTab(self.comparison_widget, "Segmentation")
         self.tabs.addTab(self.overlay_view, "Overlay")
 
         self.split_widget = QWidget()
@@ -4231,6 +4284,33 @@ class QtSegmentationMainWindow(QMainWindow):
         self.conventional_row_widget.setVisible(visible)
         self.conventional_row_widget.setEnabled(visible)
 
+    def _queue_live_conventional_segmentation(self, *_args) -> None:
+        """Debounce conventional parameter edits and refresh the active image."""
+        if not hasattr(self, "_live_conventional_timer"):
+            return
+        if self._selected_model_id(self.model_combo.currentText()) != "hydride_conventional":
+            return
+        path = self.path_edit.text().strip()
+        if not path or not Path(path).is_file():
+            return
+        self.mask_view.set_placeholder("Updating result…")
+        self._live_conventional_timer.start()
+
+    def _run_live_conventional_segmentation(self) -> None:
+        if self._selected_model_id(self.model_combo.currentText()) != "hydride_conventional":
+            return
+        if self._active_job_thread is not None and self._active_job_thread.isRunning():
+            self._live_conventional_run_pending = True
+            return
+        self.on_run_segmentation()
+
+    def _reset_segmentation_result_view(self) -> None:
+        self._live_conventional_timer.stop()
+        self._live_conventional_run_pending = False
+        self.state.current_run = None
+        self.state.correction_session = None
+        self.mask_view.set_placeholder("Result not ready yet\n\nRun segmentation to generate the output.")
+
     def _collect_conventional_params(self) -> dict[str, object]:
         block_size = int(self.conv_block_spin.value())
         if block_size % 2 == 0:
@@ -4524,6 +4604,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.path_edit.setText(str(sample_path))
         self.orch_infer_image_edit.setText(str(sample_path))
         self.state.image_path = str(sample_path)
+        self._reset_segmentation_result_view()
         self._preview_input_image(str(sample_path))
         self._try_auto_calibration_from_metadata(str(sample_path), user_initiated=False)
         self._update_inference_preprocess_summary()
@@ -5894,6 +5975,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self.path_edit.setText(path)
         self.orch_infer_image_edit.setText(path)
         self.state.image_path = path
+        self._reset_segmentation_result_view()
         self._preview_input_image(path)
         self._try_auto_calibration_from_metadata(path, user_initiated=False)
         self._update_inference_preprocess_summary()

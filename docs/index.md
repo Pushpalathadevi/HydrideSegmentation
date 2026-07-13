@@ -115,6 +115,7 @@ usage_commands
 data_preparation
 results_analysis
 gui_user_guide
+phase33_interactive_conventional_gui
 configuration_workflow
 scientific_validation
 model_architecture_manuscript_foundation

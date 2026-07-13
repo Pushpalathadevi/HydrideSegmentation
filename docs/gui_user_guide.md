@@ -14,7 +14,7 @@ While inference is running, the top status banner shows the current stage, elaps
 During recursive batch jobs it also shows processed-image counts, percent complete, and rolling ETA updates as inference, quantitative analysis, and export steps finish.
 Single-image and batch inference now both run through the in-process background worker path, which keeps the GUI responsive while allowing warmed ML bundles to be reused across runs.
 The main model selector is intentionally ordered for deployment use: discovered trained models appear first, `Hydride ML (UNet)` remains the default trained checkpoint, and `Hydride Conventional` remains available as the fallback baseline.
-The desktop now uses a split layout: the left sidebar holds project/model/review controls, while the right workspace keeps the image tabs large and readable.
+The desktop uses a split layout: the left sidebar holds project/model/review controls, while the right `Segmentation` workspace shows the input image and predicted mask together. A newly loaded image leaves the right pane empty with `Result not ready yet`, preventing an old mask from being mistaken for the current result.
 The left control rail now defaults to a narrower progressive-disclosure layout:
 - `Quick Start` stays visible with load/select/run controls
 - `Run Setup / Status` carries model metadata, preprocessing summary, warm-load status, and segmentation progress
@@ -40,7 +40,9 @@ Inspection controls:
 - synchronized pan/zoom
 - transparency sliders for prediction layers
 
-Conventional controls (Hydride Conventional model):
+Conventional controls (`Hydride Conventional` model):
+
+The controls appear directly above the side-by-side input/result panes with canonical defaults pre-filled. Hover over any control for its scientific purpose and tuning guidance. Run once with `Run Segmentation`; subsequent parameter edits automatically queue a new background result after a 400 ms debounce. Rapid edits are coalesced, and an edit made while inference is running is applied as soon as the current run finishes.
 - CLAHE clip limit and tile grid
 - adaptive threshold block size and `C`
 - morphology kernel and iterations

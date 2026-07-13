@@ -19,6 +19,7 @@ Start here:
 - [`results_analysis.md`](results_analysis.md) for output locations and report inspection
 - [`algorithms.md`](algorithms.md) for the mathematics behind the metrics and trainers
 - [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) for the classical algorithm flow sheet and parameter guide
+- [`phase33_interactive_conventional_gui.md`](phase33_interactive_conventional_gui.md) for the side-by-side live conventional-segmentation GUI closeout
 - [`model_selection_decision_tree.md`](model_selection_decision_tree.md) for a simple model choice guide
 - [`worked_example_conventional_vs_ml.md`](worked_example_conventional_vs_ml.md) for a side-by-side comparison workflow
 - [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for air-gapped registration of a trained `.pth` checkpoint into desktop inference
