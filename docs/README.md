@@ -19,11 +19,16 @@ Start here:
 - [`results_analysis.md`](results_analysis.md) for output locations and report inspection
 - [`algorithms.md`](algorithms.md) for the mathematics behind the metrics and trainers
 - [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) for the classical algorithm flow sheet and parameter guide
+- [`hydride_connectivity_index.md`](hydride_connectivity_index.md) for the deferred HCI candidate formulation, prototype audit, scientific decisions, and promotion gates
 - [`phase33_interactive_conventional_gui.md`](phase33_interactive_conventional_gui.md) for the side-by-side live conventional-segmentation GUI closeout
 - [`model_selection_decision_tree.md`](model_selection_decision_tree.md) for a simple model choice guide
 - [`worked_example_conventional_vs_ml.md`](worked_example_conventional_vs_ml.md) for a side-by-side comparison workflow
-- [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for air-gapped registration of a trained `.pth` checkpoint into desktop inference
-- [`frozen_checkpoint_registry.md`](frozen_checkpoint_registry.md) for the exact registry file to edit when adding a new trained model
+- [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for installing a trained checkpoint into desktop and CLI inference, including on air-gapped machines
+- [`phase34_model_installation.md`](phase34_model_installation.md) for the local model-installation closeout
+- [`intranet_web_app.md`](intranet_web_app.md) for serving the browser app to colleagues on an air-gapped intranet
+- [`phase35_intranet_web_app.md`](phase35_intranet_web_app.md) for the intranet web application closeout
+- [`phase36_memory_safe_interfaces_and_hci_spec.md`](phase36_memory_safe_interfaces_and_hci_spec.md) for memory-safe interfaces and the HCI candidate-spec closeout
+- [`frozen_checkpoint_registry.md`](frozen_checkpoint_registry.md) for the registry metadata the installer writes when adding a new trained model
 - [`developer_guide.md`](developer_guide.md) for extension and contribution guidance
 
 Core planning and governance docs:

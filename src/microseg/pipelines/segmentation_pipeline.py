@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
+from collections.abc import Callable
 
 
-from src.microseg.domain import PipelineResult, SegmentationRequest, utc_timestamp
+from src.microseg.domain import (
+    PipelineResult,
+    SegmentationArrayRequest,
+    SegmentationRequest,
+    utc_timestamp,
+)
 from src.microseg.evaluation import HydrideAnalyzer
 from src.microseg.inference import build_hydride_registry
 from src.microseg.plugins import ModelRegistry
@@ -65,6 +71,82 @@ class SegmentationPipeline:
         if isinstance(output.manifest, dict):
             manifest.update(output.manifest)
 
+        return PipelineResult(
+            ok=True,
+            model_id=request.model_id,
+            image=output.image,
+            mask=output.mask,
+            metrics=metrics,
+            images_b64=images_b64,
+            manifest=manifest,
+        )
+
+    def run_array(
+        self,
+        request: SegmentationArrayRequest,
+        *,
+        progress_hook: Callable[[str, int, str], None] | None = None,
+    ) -> PipelineResult:
+        """Run the segmentation pipeline from an in-memory image array."""
+
+        def emit(stage: str, percent: int, message: str) -> None:
+            if progress_hook is not None:
+                progress_hook(stage, int(percent), message)
+
+        predictor = self.registry.build(request.model_id)
+        predictor_started = time.perf_counter()
+        emit("inference", 12, f"Starting {request.model_id} inference.")
+        output = predictor.predict_array(
+            request.image,
+            request.params,
+            source_name=request.source_name,
+            progress_hook=progress_hook,
+        )
+        predictor_seconds = max(0.0, time.perf_counter() - predictor_started)
+
+        emit("rendering", 72, "Preparing the mask and overlay views.")
+        overlay_started = time.perf_counter()
+        overlay = mask_overlay(output.image, output.mask)
+        images_b64 = {
+            "input_png_b64": image_to_png_base64(output.image),
+            "mask_png_b64": image_to_png_base64(output.mask),
+            "overlay_png_b64": image_to_png_base64(overlay),
+        }
+        overlay_encode_seconds = max(0.0, time.perf_counter() - overlay_started)
+        metrics: dict[str, float | int] = {}
+
+        if request.include_analysis:
+            emit("analysis", 80, "Measuring hydride morphology and orientation.")
+            analysis_started = time.perf_counter()
+            analyzer = HydrideAnalyzer()
+            report = analyzer.analyze(output.image, output.mask)
+            analysis_seconds = max(0.0, time.perf_counter() - analysis_started)
+            metrics = report.metrics
+            images_b64.update(report.analysis_images_b64)
+        else:
+            analysis_seconds = 0.0
+
+        manifest = {
+            "pipeline": "microseg.segmentation",
+            "version": "phase36-in-memory",
+            "timestamp_utc": utc_timestamp(),
+            "model_id": request.model_id,
+            "source_name": request.source_name,
+            "input_transport": "memory",
+            "include_analysis": request.include_analysis,
+            "pipeline_timing": {
+                "predictor_seconds": float(predictor_seconds),
+                "analysis_seconds": float(analysis_seconds),
+                "overlay_encode_seconds": float(overlay_encode_seconds),
+                "total_seconds": float(
+                    predictor_seconds + analysis_seconds + overlay_encode_seconds
+                ),
+            },
+        }
+        if isinstance(output.manifest, dict):
+            manifest.update(output.manifest)
+
+        emit("complete", 100, "Segmentation and analysis are complete.")
         return PipelineResult(
             ok=True,
             model_id=request.model_id,

@@ -1,0 +1,45 @@
+{
+  "schema_version": "microseg.phase_closeout.v1",
+  "phase": 35,
+  "title": "Intranet Web Application",
+  "status": "implemented",
+  "verification": {
+    "full_test_suite": "263 passed",
+    "focused_web_suite": "49 passed",
+    "live_browser_check": "both routes executed against a running waitress server with zero external resource requests, Fn panel and classification views confirmed"
+  },
+  "delivered": [
+    "self-contained Flask application factory under hydride_segmentation/web/",
+    "browser workspace with upload, drag-and-drop, and bundled example images",
+    "conventional and trained-model routes sharing the desktop and CLI registry",
+    "radial hydride fraction (Fn) reported length-weighted and count-based for both routes",
+    "user-controlled Fn angle threshold and minimum feature size, recorded in the manifest",
+    "opt-in Fn classification and angle-threshold QA views",
+    "grouped measurements with Fn first, plus JSON export of all metrics and settings",
+    "per-parameter in-app help plus a dedicated help page with an Fn explainer",
+    "result tabs, measurements table, and PNG downloads",
+    "startup model preloading on a background thread",
+    "bounded job pool with an explicit busy response",
+    "upload size caps, extension checks, content checks, and downscaling",
+    "waitress launcher printing intranet URLs, with a development fallback",
+    "systemd unit and Windows batch launcher for run-as-a-service",
+    "YAML configuration with environment and command-line overrides",
+    "offline wheelhouse install instructions for air-gapped hosts"
+  ],
+  "performance": {
+    "orientation_map_colouring": "1.90s -> 0.03s, bitwise identical output",
+    "component_orientation_scan": "39x to 152x faster, sizes identical and angles within 2.6e-13 degrees",
+    "fn_classification_render": "MemoryError -> 0.64s on a 1386-feature mask; also fixes the desktop result-export path",
+    "conventional_request": "0.95s -> 0.73s",
+    "trained_model_request": "3.24s -> 1.32s"
+  },
+  "remaining_gaps": [
+    "no authentication; assumes a trusted intranet or a reverse proxy",
+    "browser lengths and areas are in pixels, not calibrated physical units; Fn itself is dimensionless",
+    "Fn inherits any segmentation error, so the overlay and Fn classification view remain the check",
+    "no batch upload in the browser",
+    "corrections and annotation editing remain desktop-only",
+    "analysis figures are always computed rather than requested on demand",
+    "pre-existing scikit-image deprecation warnings remain"
+  ]
+}

@@ -55,5 +55,8 @@ Current phase coverage includes:
 
 - `test_phase30_unified_inference_loader.py` unified architecture-aware inference discovery/loading across run folders, failed-run rejection, and GUI model option integration
 - `test_phase33_interactive_conventional_gui.py` unified input/result workspace, parameter hover help/default state, debounced live rerun wiring, and stale-result clearing
+- `test_phase34_model_install.py` checkpoint introspection, runtime verification, local install/rollback/uninstall, registry-overlay isolation from the tracked registry, catalog availability status, and GUI selector/install-form behavior
+- `test_phase35_web_app.py` intranet browser app configuration and env overrides, offline asset guarantees (no external URLs in pages, CSS, or JS), page rendering, JSON API contract, conventional and trained segmentation routes, upload validation and size limits, image downscaling, model catalog warm-loading, job-limiter concurrency, and Fn quantification (both routes, angle-threshold monotonicity, minimum-feature-size exclusion, manifest recording, opt-in classification views, dense-mask rendering, and metric grouping)
+- `test_phase36_in_memory_web_jobs.py` exact 5 MB default, content/extension matching, memory-only provenance, asynchronous progress events, successful terminal reports, and rejection before queueing
 - `test_phase31_oh5_workflow.py` raw `.oh5` extraction plus end-to-end phaseId workflow orchestration contract checks
 - `test_phase32_beginner_tutorial_workflow.py` beginner paired-folder tutorial dataset generation, leakage-aware prep, tiny UNet training smoke, and Sphinx build checks

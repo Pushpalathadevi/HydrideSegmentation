@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="layout">
+
+  <section class="panel controls" aria-label="Segmentation settings">
+    <h1 class="panel-title">Segment a micrograph</h1>
+    <p class="panel-intro">
+      Pick an image, choose a method, and run. Nothing is uploaded anywhere else &mdash;
+      the image is processed on this server and discarded when the result is returned.
+    </p>
+
+    <fieldset class="field-group">
+      <legend>1. Choose an image</legend>
+
+      <div id="dropzone" class="dropzone" tabindex="0" role="button"
+           aria-label="Choose an image file or drop one here">
+        <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.tif,.tiff,.bmp" hidden>
+        <span class="dropzone-icon" aria-hidden="true"></span>
+        <span class="dropzone-text">Drop an image here, or click to browse</span>
+        <span class="dropzone-hint">
+          {{ allowed_extensions|join(', ')|upper }} &middot; up to {{ config.max_upload_mb }} MB
+        </span>
+      </div>
+
+      <p id="file-name" class="file-name" aria-live="polite"></p>
+
+      {% if samples %}
+      <div class="samples">
+        <span class="samples-label">No image handy? Try an example:</span>
+        <div class="samples-buttons">
+          {% for sample in samples %}
+          <button type="button" class="btn btn-ghost sample-btn" data-sample-id="{{ sample.id }}">
+            {{ sample.label }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </fieldset>
+
+    <fieldset class="field-group">
+      <legend>2. Choose a method</legend>
+      <label class="sr-only" for="model-select">Segmentation model</label>
+      <select id="model-select" class="input"></select>
+      <p id="model-description" class="hint"></p>
+      <p id="model-warning" class="warning" hidden></p>
+    </fieldset>
+
+    <fieldset class="field-group" id="conventional-fieldset">
+      <legend>
+        3. Conventional settings
+        <button type="button" class="help-toggle" data-help-target="conventional-help"
+                aria-expanded="false" aria-controls="conventional-help">What are these?</button>
+      </legend>
+      <div id="conventional-help" class="help-box" hidden>
+        The conventional method has no trained model behind it. It boosts local contrast (CLAHE),
+        thresholds each pixel against its neighbourhood, then cleans up the result with morphology.
+        It is fast, fully deterministic, and easy to explain, but you usually have to tune it per
+        imaging condition. Start with the defaults and change one setting at a time.
+        <a href="{{ url_for('microseg_web.help_page') }}#conventional">Read the full guide</a>.
+      </div>
+
+      <div class="controls-grid">
+        {% for control in controls %}
+        <div class="control">
+          <div class="control-head">
+            <label for="ctl-{{ control.key }}">{{ control.label }}</label>
+            <button type="button" class="help-toggle help-toggle--icon"
+                    data-help-target="help-{{ control.key }}"
+                    aria-expanded="false" aria-controls="help-{{ control.key }}"
+                    aria-label="Help for {{ control.label }}">?</button>
+          </div>
+          <input class="input" type="number" id="ctl-{{ control.key }}" name="{{ control.key }}"
+                 value="{{ control.default }}"
+                 {% if control.minimum is not none %}min="{{ control.minimum }}"{% endif %}
+                 {% if control.maximum is not none %}max="{{ control.maximum }}"{% endif %}
+                 {% if control.step is not none %}step="{{ control.step }}"{% endif %}>
+          <p class="help-box" id="help-{{ control.key }}" hidden>{{ control.help_text }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="button" id="reset-params" class="btn btn-ghost">Reset to defaults</button>
+    </fieldset>
+
+    <fieldset class="field-group">
+      <legend>
+        4. Quantification
+        <button type="button" class="help-toggle" data-help-target="quantification-help"
+                aria-expanded="false" aria-controls="quantification-help">What is Fn?</button>
+      </legend>
+      <div id="quantification-help" class="help-box" hidden>
+        <strong>Fn is the radial hydride fraction</strong> &mdash; the share of hydrides oriented
+        radially rather than circumferentially. Each detected hydride is measured for its angle from
+        the horizontal; those at or above the threshold below are counted as radial. Fn is reported
+        two ways: by <em>count</em> (how many hydrides qualify) and <em>length-weighted</em> (what
+        fraction of total hydride length qualifies). The length-weighted value is usually the more
+        meaningful of the two, because one long radial hydride matters more than several short ones.
+        <a href="{{ url_for('microseg_web.help_page') }}#fn">Read the full explanation</a>.
+      </div>
+
+      <div class="controls-grid">
+        {% for control in quantification_controls %}
+        <div class="control">
+          <div class="control-head">
+            <label for="ctl-{{ control.key }}">{{ control.label }}</label>
+            <button type="button" class="help-toggle help-toggle--icon"
+                    data-help-target="help-{{ control.key }}"
+                    aria-expanded="false" aria-controls="help-{{ control.key }}"
+                    aria-label="Help for {{ control.label }}">?</button>
+          </div>
+          <input class="input" type="number" id="ctl-{{ control.key }}" name="{{ control.key }}"
+                 value="{{ control.default }}"
+                 {% if control.minimum is not none %}min="{{ control.minimum }}"{% endif %}
+                 {% if control.maximum is not none %}max="{{ control.maximum }}"{% endif %}
+                 {% if control.step is not none %}step="{{ control.step }}"{% endif %}>
+          <p class="help-box" id="help-{{ control.key }}" hidden>{{ control.help_text }}</p>
+        </div>
+        {% endfor %}
+      </div>
+
+      <label class="check-row">
+        <input type="checkbox" id="chk-fn-classification">
+        <span>
+          Show which hydrides were counted
+          <span class="check-note">Adds a view outlining counted features in green and the rest in
+          red, plus the angle histogram with the threshold marked. Slower.</span>
+        </span>
+      </label>
+    </fieldset>
+
+    <div class="actions">
+      <button type="button" id="run-btn" class="btn btn-primary">Run segmentation</button>
+      <span id="run-status" class="run-status" aria-live="polite"></span>
+    </div>
+
+    <p id="error-box" class="error-box" role="alert" hidden></p>
+
+    <section id="progress-panel" class="progress-panel" aria-label="Job progress" hidden>
+      <div class="progress-head">
+        <strong id="progress-stage">Preparing</strong>
+        <span id="progress-percent">0%</span>
+      </div>
+      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+           aria-valuenow="0" id="progress-bar">
+        <span id="progress-fill"></span>
+      </div>
+      <p id="progress-message" class="hint" aria-live="polite"></p>
+      <details class="job-log" open>
+        <summary>Live processing log</summary>
+        <ol id="job-log-output" aria-live="polite"></ol>
+      </details>
+    </section>
+  </section>
+
+  <section class="panel results" aria-label="Results">
+    <div class="results-head">
+      <h2 class="panel-title">Results</h2>
+      <div class="results-actions">
+        <button type="button" id="download-mask" class="btn btn-ghost" disabled>Download mask</button>
+        <button type="button" id="download-overlay" class="btn btn-ghost" disabled>Download overlay</button>
+      </div>
+    </div>
+
+    <div id="empty-state" class="empty-state">
+      <p><strong>No result yet.</strong></p>
+      <p>
+        Choose an image on the left and select <em>Run segmentation</em>.
+        If you have never used this tool before, load an example image and run it once with the
+        defaults to see what a good result looks like.
+      </p>
+    </div>
+
+    <div id="result-area" hidden>
+      <section id="fn-panel" class="fn-panel" aria-label="Radial hydride fraction" hidden>
+        <div class="fn-head">
+          <h3>Radial hydride fraction (Fn)</h3>
+          <button type="button" class="help-toggle" data-help-target="fn-result-help"
+                  aria-expanded="false" aria-controls="fn-result-help">How to read this</button>
+        </div>
+        <div class="fn-values">
+          <div class="fn-value">
+            <span class="fn-number" id="fn-length">-</span>
+            <span class="fn-label">Length-weighted</span>
+            <span class="fn-detail" id="fn-length-detail"></span>
+          </div>
+          <div class="fn-value">
+            <span class="fn-number" id="fn-count">-</span>
+            <span class="fn-label">Count-based</span>
+            <span class="fn-detail" id="fn-count-detail"></span>
+          </div>
+        </div>
+        <p class="fn-context" id="fn-context"></p>
+        <p class="help-box" id="fn-result-help" hidden>
+          Both numbers are fractions between 0 and 1. <strong>Length-weighted</strong> is the share of
+          total hydride length that is radial, and is usually the number to report. <strong>Count-based</strong>
+          is the share of individual hydrides that are radial, which is more sensitive to how many small
+          features the segmentation picked up &mdash; raise the minimum feature size if noise is inflating it.
+          Always state the angle threshold you used.
+        </p>
+      </section>
+
+      <div class="tabs" role="tablist" aria-label="Result views">
+        <button class="tab active" role="tab" data-view="overlay_png_b64" aria-selected="true">Overlay</button>
+        <button class="tab" role="tab" data-view="input_png_b64" aria-selected="false">Input</button>
+        <button class="tab" role="tab" data-view="mask_png_b64" aria-selected="false">Mask</button>
+        <button class="tab" role="tab" data-view="fn_classification_png_b64" aria-selected="false">Fn counted</button>
+        <button class="tab" role="tab" data-view="fn_angle_threshold_png_b64" aria-selected="false">Fn threshold</button>
+        <button class="tab" role="tab" data-view="orientation_map_png_b64" aria-selected="false">Orientation</button>
+        <button class="tab" role="tab" data-view="size_histogram_png_b64" aria-selected="false">Size</button>
+        <button class="tab" role="tab" data-view="angle_histogram_png_b64" aria-selected="false">Angle</button>
+      </div>
+
+      <figure class="viewer">
+        <img id="result-image" alt="Segmentation result">
+        <figcaption id="view-caption" class="hint"></figcaption>
+      </figure>
+
+      <div class="metrics">
+        <div class="metrics-head">
+          <h3>Measurements</h3>
+          <button type="button" id="download-metrics" class="btn btn-ghost">Download JSON</button>
+        </div>
+        <div id="metric-groups"></div>
+        <p id="run-meta" class="hint"></p>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="bootstrap-data" type="application/json">
+{{ {
+  "models": models,
+  "defaultModelId": default_model_id,
+  "controls": controls,
+  "quantificationControls": quantification_controls,
+  "samples": samples,
+  "allowedExtensions": allowed_extensions,
+  "maxUploadMb": config.max_upload_mb,
+  "maxLongSidePx": config.max_long_side_px
+}|tojson }}
+</script>
+<script>window.MicroSeg.initWorkspace();</script>
+{% endblock %}

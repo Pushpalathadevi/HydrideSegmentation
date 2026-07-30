@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import zipfile
+from collections.abc import Callable
 
 import cv2
 import matplotlib.pyplot as plt
@@ -237,4 +238,106 @@ def run_model(image_path, params):
     segmenter.filter_regions()
 
     return segmenter.image, segmenter.mask
+
+
+def run_model_array(
+    image: np.ndarray,
+    params: dict,
+    *,
+    progress_hook: Callable[[str, int, str], None] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Run conventional hydride segmentation entirely in memory.
+
+    Parameters
+    ----------
+    image:
+        Grayscale or RGB image array. RGB channel order is expected for
+        three-channel input.
+    params:
+        Conventional segmentation parameters using the same structure as
+        :func:`run_model`.
+    progress_hook:
+        Optional callback receiving ``stage``, integer ``percent``, and a
+        user-facing message.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The processed grayscale image and binary uint8 mask.
+    """
+
+    def emit(stage: str, percent: int, message: str) -> None:
+        if progress_hook is not None:
+            progress_hook(stage, int(percent), message)
+
+    arr = np.asarray(image)
+    if arr.ndim == 2:
+        grayscale = arr.astype(np.uint8, copy=True)
+    elif arr.ndim == 3 and arr.shape[2] == 1:
+        grayscale = arr[:, :, 0].astype(np.uint8, copy=True)
+    elif arr.ndim == 3 and arr.shape[2] >= 3:
+        grayscale = cv2.cvtColor(arr[:, :, :3].astype(np.uint8), cv2.COLOR_RGB2GRAY)
+    else:
+        raise ValueError(f"unsupported in-memory image shape: {arr.shape!r}")
+
+    emit("preprocessing", 18, "Converted the image to an 8-bit grayscale analysis array.")
+    if bool(params.get("crop", False)):
+        crop_percent = float(params.get("crop_percent", 0.0))
+        crop_rows = int(grayscale.shape[0] * crop_percent / 100.0)
+        if crop_rows > 0:
+            grayscale = grayscale[: grayscale.shape[0] - crop_rows, :]
+        emit("preprocessing", 24, f"Applied the configured {crop_percent:g}% bottom crop.")
+    else:
+        emit("preprocessing", 24, "No crop was requested.")
+
+    clahe_cfg = params["clahe"]
+    clahe = cv2.createCLAHE(
+        clipLimit=float(clahe_cfg["clip_limit"]),
+        tileGridSize=tuple(int(v) for v in clahe_cfg["tile_grid_size"]),
+    )
+    enhanced = clahe.apply(grayscale)
+    emit("segmentation", 35, "Enhanced local contrast with CLAHE.")
+
+    adaptive_cfg = params["adaptive"]
+    blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
+    threshold = cv2.adaptiveThreshold(
+        blurred,
+        255,
+        cv2.ADAPTIVE_THRESH_MEAN_C,
+        cv2.THRESH_BINARY_INV,
+        int(adaptive_cfg["block_size"]),
+        int(adaptive_cfg["C"]),
+    )
+    emit("segmentation", 48, "Applied adaptive local thresholding.")
+
+    morph_cfg = params["morph"]
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT,
+        tuple(int(v) for v in morph_cfg["kernel_size"]),
+    )
+    closed = cv2.morphologyEx(
+        threshold,
+        cv2.MORPH_CLOSE,
+        kernel,
+        iterations=int(morph_cfg["iterations"]),
+    )
+    emit("postprocessing", 58, "Closed short gaps using the configured morphology settings.")
+
+    area_threshold = int(params["area_threshold"])
+    n_labels, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        closed,
+        connectivity=8,
+    )
+    mask = np.zeros_like(closed, dtype=np.uint8)
+    kept = 0
+    for label_id in range(1, int(n_labels)):
+        if int(stats[label_id, cv2.CC_STAT_AREA]) >= area_threshold:
+            mask[labels == label_id] = 255
+            kept += 1
+    emit(
+        "postprocessing",
+        68,
+        f"Retained {kept} connected feature(s) at or above {area_threshold} pixels.",
+    )
+    return grayscale.astype(np.uint8, copy=False), mask
 

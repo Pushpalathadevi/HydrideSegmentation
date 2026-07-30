@@ -8,7 +8,7 @@ from typing import Any, Callable
 import matplotlib
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_fill_holes
+from scipy.ndimage import binary_fill_holes, find_objects
 from scipy.stats import ks_2samp, wasserstein_distance
 from skimage import measure, morphology
 
@@ -18,6 +18,44 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 ProgressHook = Callable[[str, dict[str, Any]], None]
+
+#: Border kept around each component crop so a ``disk(1)`` dilation cannot be
+#: clipped by the crop edge. Two pixels leaves one pixel of slack beyond the
+#: single-pixel expansion, which keeps cropped results identical to whole-image
+#: results while avoiding a full-image pass per component.
+_COMPONENT_CROP_PADDING = 2
+
+
+def _padded_component_slice(
+    component_slice: tuple[slice, slice],
+    shape: tuple[int, int],
+) -> tuple[slice, slice]:
+    """Grow a component bounding box by the morphology padding, clipped to the image.
+
+    Parameters
+    ----------
+    component_slice:
+        Row and column slices of one connected component.
+    shape:
+        Height and width of the full label image.
+
+    Returns
+    -------
+    tuple of slice
+        Padded row and column slices safe for fill, dilation, and skeletonization.
+    """
+
+    rows, cols = component_slice
+    return (
+        slice(
+            max(0, rows.start - _COMPONENT_CROP_PADDING),
+            min(shape[0], rows.stop + _COMPONENT_CROP_PADDING),
+        ),
+        slice(
+            max(0, cols.start - _COMPONENT_CROP_PADDING),
+            min(shape[1], cols.stop + _COMPONENT_CROP_PADDING),
+        ),
+    )
 
 
 def _emit_progress(progress_hook: ProgressHook | None, event: str, **payload: Any) -> None:
@@ -58,10 +96,22 @@ def _component_orientations_and_sizes(
         prefix=prefix,
         total_components=total_components,
     )
+    # Each component is measured inside its own padded bounding box. Operating on
+    # the whole image once per component is quadratic in component count, which
+    # dominates runtime on masks with many small features.
+    component_slices = find_objects(labels)
+    footprint = morphology.disk(1)
     for idx in range(1, total_components + 1):
-        region = labels == idx
+        component_slice = component_slices[idx - 1] if idx - 1 < len(component_slices) else None
+        if component_slice is None:
+            orientations.append(0.0)
+            sizes.append(0)
+            continue
+
+        window = _padded_component_slice(component_slice, labels.shape)
+        region = labels[window] == idx
         filled = binary_fill_holes(region)
-        dilated = morphology.dilation(filled, morphology.disk(1))
+        dilated = morphology.dilation(filled, footprint)
         skel = morphology.skeletonize(dilated)
         coords = np.column_stack(np.nonzero(skel))[:, ::-1]
         if len(coords) < 2:
@@ -97,9 +147,12 @@ def analyze_mask(mask: np.ndarray) -> dict[str, str]:
 
     orientations, sizes, labels = _component_orientations_and_sizes(mask)
     cmap = plt.get_cmap("coolwarm")
-    rgb = np.zeros((*labels.shape, 3))
+    # Colour every component in one pass through a label-indexed lookup table
+    # instead of one full-image comparison per component.
+    colour_table = np.zeros((len(orientations) + 1, 3), dtype=float)
     for idx, angle in enumerate(orientations, start=1):
-        rgb[labels == idx] = cmap(angle / 90.0)[:3]
+        colour_table[idx] = cmap(angle / 90.0)[:3]
+    rgb = colour_table[np.clip(labels, 0, len(orientations))]
 
     fig1, ax1 = plt.subplots()
     ax1.imshow(rgb)

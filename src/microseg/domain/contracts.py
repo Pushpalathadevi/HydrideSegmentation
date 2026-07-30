@@ -19,6 +19,17 @@ class SegmentationRequest:
     include_analysis: bool = True
 
 
+@dataclass(frozen=True)
+class SegmentationArrayRequest:
+    """In-memory input contract for trusted local and intranet workflows."""
+
+    image: np.ndarray
+    source_name: str
+    model_id: str
+    params: dict[str, Any] = field(default_factory=dict)
+    include_analysis: bool = True
+
+
 @dataclass
 class SegmentationOutput:
     """Raw predictor output arrays."""

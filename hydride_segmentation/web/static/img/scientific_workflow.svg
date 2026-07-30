@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">MicroSeg scientific workflow</title>
+  <desc id="desc">A five-stage workflow from validated in-memory image through segmentation, review, quantification, and reporting.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1"><stop stop-color="#f3f8ff"/><stop offset="1" stop-color="#f2fbf8"/></linearGradient>
+    <linearGradient id="accent" x1="0" x2="1"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#0f9f82"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="5" stdDeviation="8" flood-opacity=".12"/></filter>
+  </defs>
+  <rect width="1200" height="360" rx="24" fill="url(#bg)"/>
+  <text x="52" y="57" font-family="Arial,sans-serif" font-size="28" font-weight="700" fill="#15233b">From micrograph to traceable measurements</text>
+  <text x="52" y="86" font-family="Arial,sans-serif" font-size="15" fill="#52627a">Every step runs locally; the browser workflow keeps source pixels and results in memory.</text>
+  <path d="M142 193H1058" stroke="url(#accent)" stroke-width="8" stroke-linecap="round"/>
+  <g font-family="Arial,sans-serif" text-anchor="middle">
+    <g transform="translate(140 190)" filter="url(#shadow)">
+      <circle r="58" fill="#fff" stroke="#2563eb" stroke-width="4"/><text y="-7" font-size="24" font-weight="700" fill="#2563eb">1</text>
+      <text y="20" font-size="15" font-weight="700" fill="#15233b">Validate</text><text y="41" font-size="12" fill="#52627a">format · size</text>
+    </g>
+    <g transform="translate(370 190)" filter="url(#shadow)">
+      <circle r="58" fill="#fff" stroke="#3d72d8" stroke-width="4"/><text y="-7" font-size="24" font-weight="700" fill="#3d72d8">2</text>
+      <text y="20" font-size="15" font-weight="700" fill="#15233b">Segment</text><text y="41" font-size="12" fill="#52627a">model · mask</text>
+    </g>
+    <g transform="translate(600 190)" filter="url(#shadow)">
+      <circle r="58" fill="#fff" stroke="#3785bc" stroke-width="4"/><text y="-7" font-size="24" font-weight="700" fill="#3785bc">3</text>
+      <text y="20" font-size="15" font-weight="700" fill="#15233b">Review</text><text y="41" font-size="12" fill="#52627a">input · overlay</text>
+    </g>
+    <g transform="translate(830 190)" filter="url(#shadow)">
+      <circle r="58" fill="#fff" stroke="#24968e" stroke-width="4"/><text y="-7" font-size="24" font-weight="700" fill="#24968e">4</text>
+      <text y="20" font-size="15" font-weight="700" fill="#15233b">Measure</text><text y="41" font-size="12" fill="#52627a">Fn · morphology</text>
+    </g>
+    <g transform="translate(1060 190)" filter="url(#shadow)">
+      <circle r="58" fill="#fff" stroke="#0f9f82" stroke-width="4"/><text y="-7" font-size="24" font-weight="700" fill="#0f9f82">5</text>
+      <text y="20" font-size="15" font-weight="700" fill="#15233b">Report</text><text y="41" font-size="12" fill="#52627a">PNG · JSON · log</text>
+    </g>
+  </g>
+  <rect x="296" y="292" width="608" height="42" rx="21" fill="#15233b"/>
+  <text x="600" y="319" text-anchor="middle" font-family="Arial,sans-serif" font-size="16" fill="#fff">Fn<tspan baseline-shift="sub" font-size="11">length</tspan> = Σ radial skeleton length / Σ measured skeleton length</text>
+</svg>

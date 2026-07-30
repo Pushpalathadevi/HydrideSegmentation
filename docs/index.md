@@ -103,6 +103,7 @@ tutorials/index
 why_tradeoffs
 algorithms
 conventional_segmentation_pipeline
+hydride_connectivity_index
 model_selection_decision_tree
 worked_example_conventional_vs_ml
 ```
@@ -115,7 +116,11 @@ usage_commands
 data_preparation
 results_analysis
 gui_user_guide
+intranet_web_app
 phase33_interactive_conventional_gui
+phase34_model_installation
+   phase35_intranet_web_app
+   phase36_memory_safe_interfaces_and_hci_spec
 configuration_workflow
 scientific_validation
 model_architecture_manuscript_foundation

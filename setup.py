@@ -24,6 +24,16 @@ setup(
     description='Toolkit for zirconium hydride segmentation and analysis',
     packages=find_packages(),
     include_package_data=True,
+    package_data={
+        # Templates and static assets are served by the intranet web app and must
+        # ship with the installed package, not only from a source checkout.
+        'hydride_segmentation.web': [
+            'templates/*.html',
+            'static/css/*.css',
+            'static/js/*.js',
+            'static/img/*.svg',
+        ],
+    },
     install_requires=requirements,
     python_requires='>=3.10',
     entry_points={
@@ -33,6 +43,7 @@ setup(
             'hydride-orientation=hydride_segmentation.hydride_orientation_analyzer:main',
             'segmentation-eval=hydride_segmentation.segmentation_evaluator:main',
             'microseg-cli=scripts.microseg_cli:main',
+            'microseg-web=scripts.run_web_server:main',
             'microseg-phase-gate=scripts.run_phase_gate:main',
             'microseg-benchmark-suite=scripts.hydride_benchmark_suite:main',
             'prep-dataset=src.microseg.data_preparation.cli:main',

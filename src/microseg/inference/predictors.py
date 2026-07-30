@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from collections.abc import Callable
 import time
 
+import numpy as np
+
 from hydride_segmentation.legacy_api import DEFAULT_CONVENTIONAL_PARAMS
-from hydride_segmentation.segmentation_mask_creation import run_model as run_conv_model
+from hydride_segmentation.segmentation_mask_creation import (
+    run_model as run_conv_model,
+    run_model_array as run_conv_model_array,
+)
 
 from src.microseg.domain import ModelSpec, SegmentationOutput
 from src.microseg.inference.trained_model_loader import (
@@ -16,6 +22,7 @@ from src.microseg.inference.trained_model_loader import (
     load_reference_from_registry,
     load_reference_from_run_dir,
     run_reference_inference,
+    run_reference_inference_array,
 )
 from src.microseg.plugins import ModelRegistry
 
@@ -40,6 +47,30 @@ class HydrideConventionalPredictor:
             cfg.update(params)
         image, mask = run_conv_model(image_path, cfg)
         return SegmentationOutput(image=image, mask=mask, manifest={"inference_backend": "conventional"})
+
+    def predict_array(
+        self,
+        image: np.ndarray,
+        params: dict | None = None,
+        *,
+        source_name: str = "in-memory image",
+        progress_hook: Callable[[str, int, str], None] | None = None,
+    ) -> SegmentationOutput:
+        """Run the conventional pipeline without a temporary source file."""
+
+        cfg = deepcopy(DEFAULT_CONVENTIONAL_PARAMS)
+        if params:
+            cfg.update(params)
+        processed, mask = run_conv_model_array(image, cfg, progress_hook=progress_hook)
+        return SegmentationOutput(
+            image=processed,
+            mask=mask,
+            manifest={
+                "inference_backend": "conventional",
+                "input_transport": "memory",
+                "source_name": source_name,
+            },
+        )
 
 
 class HydrideMLPredictor:
@@ -83,6 +114,51 @@ class HydrideMLPredictor:
         manifest["timing"] = timings
         return SegmentationOutput(image=image, mask=mask, manifest=manifest)
 
+    def predict_array(
+        self,
+        image: np.ndarray,
+        params: dict | None = None,
+        *,
+        source_name: str = "in-memory image",
+        progress_hook: Callable[[str, int, str], None] | None = None,
+    ) -> SegmentationOutput:
+        """Run the legacy ML binding on an in-memory image."""
+
+        cfg = dict(params or {})
+        resolve_started = time.perf_counter()
+        run_dir = str(cfg.get("run_dir", "")).strip()
+        registry_model_id = str(cfg.get("registry_model_id", "")).strip()
+        checkpoint_path = str(cfg.get("checkpoint_path", cfg.get("weights_path", ""))).strip()
+        if run_dir:
+            ref = load_reference_from_run_dir(run_dir)
+        elif registry_model_id:
+            ref = load_reference_from_registry(registry_model_id)
+        elif checkpoint_path:
+            ref = InferenceModelReference(
+                reference_id=f"checkpoint::{checkpoint_path}",
+                display_name="Direct checkpoint",
+                source="checkpoint_path",
+                checkpoint_path=checkpoint_path,
+                architecture=str(cfg.get("model_architecture", "")).strip().lower() or "unknown",
+                backend_label=str(cfg.get("backend", "")).strip().lower() or "custom",
+            )
+        else:
+            ref = load_reference_from_registry("hydride_ml")
+
+        resolve_seconds = max(0.0, time.perf_counter() - resolve_started)
+        prepared, mask, manifest = run_reference_inference_array(
+            image,
+            ref,
+            enable_gpu=bool(cfg.get("enable_gpu", False)),
+            device_policy=str(cfg.get("device_policy", "cpu")),
+            source_name=source_name,
+            progress_hook=progress_hook,
+        )
+        timings = dict(manifest.get("timing", {}))
+        timings["model_resolution_seconds"] = float(resolve_seconds)
+        manifest["timing"] = timings
+        return SegmentationOutput(image=prepared, mask=mask, manifest=manifest)
+
 
 class ReferencePredictor:
     """Predictor bound to a resolved inference reference."""
@@ -103,6 +179,30 @@ class ReferencePredictor:
         timings.setdefault("model_resolution_seconds", 0.0)
         manifest["timing"] = timings
         return SegmentationOutput(image=image, mask=mask, manifest=manifest)
+
+    def predict_array(
+        self,
+        image: np.ndarray,
+        params: dict | None = None,
+        *,
+        source_name: str = "in-memory image",
+        progress_hook: Callable[[str, int, str], None] | None = None,
+    ) -> SegmentationOutput:
+        """Run the bound model reference directly from memory."""
+
+        cfg = dict(params or {})
+        prepared, mask, manifest = run_reference_inference_array(
+            image,
+            self.reference,
+            enable_gpu=bool(cfg.get("enable_gpu", False)),
+            device_policy=str(cfg.get("device_policy", "cpu")),
+            source_name=source_name,
+            progress_hook=progress_hook,
+        )
+        timings = dict(manifest.get("timing", {}))
+        timings.setdefault("model_resolution_seconds", 0.0)
+        manifest["timing"] = timings
+        return SegmentationOutput(image=prepared, mask=mask, manifest=manifest)
 
 
 def discover_dynamic_ml_model_bindings() -> tuple[list[_DynamicModelBinding], list[str]]:

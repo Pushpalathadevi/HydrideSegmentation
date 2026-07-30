@@ -1,0 +1,39 @@
+[Unit]
+# systemd unit for the intranet segmentation web app on Ubuntu or another
+# systemd Linux host.
+#
+# Install:
+#   sudo cp deploy/microseg-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now microseg-web
+#
+# Adjust User, WorkingDirectory, and the venv path to match your host before
+# enabling. Check status with: systemctl status microseg-web
+# Follow logs with:            journalctl -u microseg-web -f
+
+Description=MicroSeg hydride segmentation web app
+Documentation=file:///opt/microseg/HydrideSegmentation/docs/intranet_web_app.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=microseg
+Group=microseg
+WorkingDirectory=/opt/microseg/HydrideSegmentation
+Environment=PYTHONUNBUFFERED=1
+# Uncomment to override the packaged configuration.
+#Environment=MICROSEG_WEB_CONFIG=/etc/microseg/web_server.yml
+#Environment=MICROSEG_WEB_PORT=5005
+ExecStart=/opt/microseg/HydrideSegmentation/.venv/bin/python scripts/run_web_server.py --no-print-urls
+Restart=on-failure
+RestartSec=5
+
+# The app writes nothing outside its own tree during normal operation.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

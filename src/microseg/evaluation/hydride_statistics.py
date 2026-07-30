@@ -10,7 +10,7 @@ from typing import Any
 import matplotlib
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_fill_holes
+from scipy.ndimage import binary_fill_holes, center_of_mass as ndi_center_of_mass
 from skimage import measure, morphology
 
 matplotlib.use("Agg")
@@ -406,9 +406,17 @@ def render_hydride_visualizations(
 
     cmap = plt.get_cmap(config.orientation_cmap)
     label_map = np.asarray(stats.label_map)
-    orientation_map = np.zeros((*label_map.shape, 3), dtype=np.float32)
+    # Colour every labelled feature through a single label-indexed lookup rather
+    # than one full-image comparison per feature, which is quadratic in feature
+    # count and dominates runtime on masks with many small features. Labels with
+    # no recorded orientation keep the zero-filled background colour.
+    max_label = int(label_map.max()) if label_map.size else 0
+    colour_table = np.zeros((max_label + 1, 3), dtype=np.float32)
     for label_id, angle in zip(stats.feature_label_ids, stats.orientations_deg):
-        orientation_map[label_map == int(label_id)] = cmap(float(angle) / 90.0)[:3]
+        index = int(label_id)
+        if 0 <= index <= max_label:
+            colour_table[index] = cmap(float(angle) / 90.0)[:3]
+    orientation_map = colour_table[np.clip(label_map, 0, max_label)]
 
     fig_map, ax_map = plt.subplots(figsize=(5.5, 5.0))
     ax_map.imshow(orientation_map)
@@ -473,12 +481,36 @@ def render_hydride_visualizations(
     }
 
 
+#: Maximum number of per-feature annotations drawn on the Fn classification
+#: figure. Beyond this the labels overlap into an unreadable mass and cost more
+#: time than the rest of the figure combined, so the largest counted features
+#: are annotated and the title records how many were left unlabelled.
+DEFAULT_FN_LABEL_LIMIT = 150
+
+
 def render_fn_debug_visualizations(
     stats: HydrideStatisticsResult,
     *,
     base_image: np.ndarray | None = None,
+    label_limit: int = DEFAULT_FN_LABEL_LIMIT,
 ) -> dict[str, np.ndarray]:
-    """Render annotated Fn classification and angle-threshold QA images."""
+    """Render annotated Fn classification and angle-threshold QA images.
+
+    Parameters
+    ----------
+    stats:
+        Statistics result carrying the label map and Fn classification.
+    base_image:
+        Optional background image drawn under the classification contours.
+    label_limit:
+        Maximum number of counted features annotated with an ID, angle, and
+        length. The largest counted features are annotated first.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        RGB arrays keyed ``fn_classification_rgb`` and ``fn_angle_distribution_rgb``.
+    """
 
     label_map = np.asarray(stats.label_map)
     if base_image is None:
@@ -490,16 +522,44 @@ def render_fn_debug_visualizations(
         background = image[..., :3].astype(np.float32) / max(float(np.max(image)), 1.0)
     fig, ax = plt.subplots(figsize=(8.0, 6.5))
     ax.imshow(background)
-    for index, (label_id, angle, length, selected) in enumerate(
-        zip(stats.feature_label_ids, stats.orientations_deg, stats.lengths_px, stats.fn_exceeding_angle),
-        start=1,
-    ):
-        color = "#00d084" if selected else "#ff3b30"
-        component = label_map == int(label_id)
-        ax.contour(component, levels=[0.5], colors=[color], linewidths=1.8)
-        coords = np.column_stack(np.nonzero(component))
-        if len(coords) and selected:
-            y, x = np.mean(coords, axis=0)
+
+    # Contour the counted and not-counted sets once each. Contouring the union of
+    # disjoint components draws exactly the same boundaries as contouring them
+    # one by one, but allocates two full-image arrays instead of one per feature,
+    # which previously exhausted memory on masks with thousands of features.
+    max_label = int(label_map.max()) if label_map.size else 0
+    selection = np.zeros(max_label + 1, dtype=np.int8)
+    for label_id, selected in zip(stats.feature_label_ids, stats.fn_exceeding_angle):
+        index = int(label_id)
+        if 0 <= index <= max_label:
+            selection[index] = 1 if selected else 2
+    membership = selection[np.clip(label_map, 0, max_label)]
+    for value, color in ((1, "#00d084"), (2, "#ff3b30")):
+        group = membership == value
+        if group.any():
+            ax.contour(group.astype(np.float32), levels=[0.5], colors=[color], linewidths=1.8)
+
+    counted = [
+        (index, angle, length, int(label_id))
+        for index, (label_id, angle, length, selected) in enumerate(
+            zip(stats.feature_label_ids, stats.orientations_deg, stats.lengths_px, stats.fn_exceeding_angle),
+            start=1,
+        )
+        if selected
+    ]
+    limit = max(0, int(label_limit))
+    annotated = sorted(counted, key=lambda item: item[2], reverse=True)[:limit]
+    if annotated:
+        # One vectorized centroid pass over the whole label map beats one
+        # coordinate scan per feature.
+        centroids = ndi_center_of_mass(
+            np.ones_like(label_map, dtype=np.uint8),
+            labels=label_map,
+            index=[item[3] for item in annotated],
+        )
+        for (index, angle, length, _label_id), (y, x) in zip(annotated, centroids):
+            if not np.isfinite(x) or not np.isfinite(y):
+                continue
             ax.text(
                 x,
                 y,
@@ -510,11 +570,17 @@ def render_fn_debug_visualizations(
                 va="center",
                 bbox={"facecolor": "black", "alpha": 0.65, "pad": 1.5},
             )
-    ax.set_title(
+
+    counted_total = int(sum(stats.fn_exceeding_angle))
+    not_counted_total = len(stats.fn_exceeding_angle) - counted_total
+    title = (
         f"Fn classification (threshold >= {stats.fn_angle_threshold_deg:.1f} deg)\n"
-        f"green=counted ({sum(stats.fn_exceeding_angle)}), red=not counted "
-        f"({len(stats.fn_exceeding_angle) - sum(stats.fn_exceeding_angle)}); labels show counted IDs"
+        f"green=counted ({counted_total}), red=not counted "
+        f"({not_counted_total}); labels show counted IDs"
     )
+    if len(counted) > len(annotated):
+        title += f"\nlabelled: {len(annotated)} largest of {len(counted)} counted features"
+    ax.set_title(title)
     ax.axis("off")
     classification_rgb = _figure_to_rgb(fig)
 

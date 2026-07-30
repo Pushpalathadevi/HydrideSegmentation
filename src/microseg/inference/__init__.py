@@ -14,6 +14,7 @@ from .trained_model_loader import (
     load_reference_from_registry,
     load_reference_from_run_dir,
     run_reference_inference,
+    run_reference_inference_array,
     supported_trainable_architectures,
     warm_load_reference_bundle,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "load_reference_from_registry",
     "load_reference_from_run_dir",
     "run_reference_inference",
+    "run_reference_inference_array",
     "supported_trainable_architectures",
     "warm_load_reference_bundle",
 ]

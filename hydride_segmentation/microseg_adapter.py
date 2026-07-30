@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from src.microseg.domain import SegmentationRequest
+import numpy as np
+
+from src.microseg.domain import SegmentationArrayRequest, SegmentationRequest
 from src.microseg.inference import build_hydride_registry
 from src.microseg.inference.trained_model_loader import (
     InferenceModelReference,
@@ -10,7 +12,7 @@ from src.microseg.inference.trained_model_loader import (
     load_reference_from_registry,
     load_reference_from_run_dir,
 )
-from src.microseg.plugins import frozen_checkpoint_map
+from src.microseg.plugins import frozen_checkpoint_map, model_catalog_status
 from src.microseg.pipelines import SegmentationPipeline
 
 
@@ -51,6 +53,10 @@ def _build_gui_model_specs() -> list[dict[str, str]]:
         frozen = frozen_checkpoint_map()
     except Exception:
         frozen = {}
+    try:
+        availability = {item.model_id: item for item in model_catalog_status()}
+    except Exception:
+        availability = {}
 
     payload: list[dict[str, str]] = []
     for model_id in _ordered_gui_model_ids():
@@ -58,6 +64,7 @@ def _build_gui_model_specs() -> list[dict[str, str]]:
         if spec is None:
             continue
         frozen_record = frozen.get(model_id)
+        status = availability.get(model_id)
         display_name = "Hydride ML (UNet)" if model_id == "hydride_ml" else spec.display_name
         payload.append(
             {
@@ -80,9 +87,30 @@ def _build_gui_model_specs() -> list[dict[str, str]]:
                 "quality_report_path": frozen_record.quality_report_path if frozen_record is not None else "",
                 "file_sha256": frozen_record.file_sha256 if frozen_record is not None else "",
                 "file_size_bytes": str(frozen_record.file_size_bytes) if frozen_record is not None else "",
+                "availability": status.status if status is not None else "ready",
+                "availability_message": status.message if status is not None else "",
+                "locally_installed": "true" if (status is not None and status.locally_installed) else "false",
             }
         )
     return payload
+
+
+def model_is_runnable(spec: dict[str, str]) -> bool:
+    """Return whether a GUI model spec can currently be executed.
+
+    Parameters
+    ----------
+    spec:
+        One entry from :func:`get_gui_model_specs`.
+
+    Returns
+    -------
+    bool
+        ``False`` when the model needs a checkpoint that is missing or declares
+        an architecture the inference loader cannot build.
+    """
+
+    return str(spec.get("availability", "ready")) in {"ready", "no_checkpoint_required"}
 
 
 def get_gui_model_options() -> list[str]:
@@ -183,6 +211,28 @@ def run_pipeline(
         include_analysis=include_analysis,
     )
     return pipeline.run(request)
+
+
+def run_pipeline_array(
+    image: np.ndarray,
+    *,
+    source_name: str = "in-memory image",
+    model_id: str = "hydride_conventional",
+    params: dict | None = None,
+    include_analysis: bool = True,
+    progress_hook=None,
+):
+    """Run segmentation from an in-memory array through shared orchestration."""
+
+    pipeline = SegmentationPipeline.with_hydride_defaults()
+    request = SegmentationArrayRequest(
+        image=np.asarray(image),
+        source_name=str(source_name),
+        model_id=model_id,
+        params=params or {},
+        include_analysis=include_analysis,
+    )
+    return pipeline.run_array(request, progress_hook=progress_hook)
 
 
 def run_pipeline_from_gui(

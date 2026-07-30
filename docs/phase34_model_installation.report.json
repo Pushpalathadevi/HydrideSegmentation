@@ -1,0 +1,30 @@
+{
+  "schema_version": "microseg.phase_closeout.v1",
+  "phase": 34,
+  "title": "Local Model Installation",
+  "status": "implemented",
+  "verification": {
+    "full_test_suite": "214 passed",
+    "focused_install_suite": "18 passed"
+  },
+  "delivered": [
+    "checkpoint introspection recovering architecture and provenance from the file",
+    "install that copies into the stage folder and verifies with a real load and forward pass",
+    "local registry overlay writes that never touch the tracked canonical registry",
+    "complete rollback of file and registry when any install step fails",
+    "Settings > Installed Models... manager dialog in the Qt desktop app",
+    "install form pre-filled from checkpoint metadata",
+    "live model catalog reload without restarting the application",
+    "CLI parity through inspect-checkpoint, install-model, and uninstall-model",
+    "machine-readable install reports under outputs/model_install/",
+    "availability reporting that disables and explains unusable models",
+    "conventional fallback fix so a machine with no checkpoint starts on a usable model"
+  ],
+  "remaining_gaps": [
+    "packaged Windows build still needs a writable user-data models root",
+    "install runs synchronously behind a wait cursor rather than on the background worker",
+    "class maps for non-binary models still require user confirmation",
+    "hydride_ml_Unet alias still produces a duplicate selector entry",
+    "pre-existing scikit-image deprecation warnings remain"
+  ]
+}

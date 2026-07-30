@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}Help &mdash; {{ config.site_name }}{% endblock %}
+
+{% block content %}
+<div class="doc">
+  <h1>How to use this tool</h1>
+  <p class="lede">
+    This page explains what the tool does, which method to pick, and how to read the result.
+    Everything runs on this server inside your intranet. Images you submit are held in memory
+    for the duration of one request and are never written to disk or sent anywhere.
+  </p>
+
+  <nav class="toc" aria-label="On this page">
+    <a href="#quick">Quick start</a>
+    <a href="#methods">Choosing a method</a>
+    <a href="#fn">Radial hydride fraction (Fn)</a>
+    <a href="#conventional">Conventional settings</a>
+    <a href="#reading">Reading the results</a>
+    <a href="#images">Image requirements</a>
+    <a href="#trouble">Troubleshooting</a>
+  </nav>
+
+  <section id="quick">
+    <h2>Quick start</h2>
+    <img src="{{ url_for('microseg_web.static', filename='img/scientific_workflow.svg') }}"
+         class="doc-workflow" alt="Five stages: validate, segment, review, measure, and report.">
+    <ol>
+      <li>Open the <a href="{{ url_for('microseg_web.index') }}">Workspace</a>.</li>
+      <li>Load an example image, or drop your own micrograph onto the upload area.</li>
+      <li>Leave the method on its default and select <em>Run segmentation</em>.</li>
+      <li>Look at the <em>Overlay</em> tab first: detected hydrides are tinted over your original image.</li>
+      <li>If the overlay looks wrong, switch method or adjust the conventional settings one at a time.</li>
+      <li>Read the <a href="#fn">Fn panel</a> at the top of the results for the radial hydride fraction.</li>
+    </ol>
+    <p class="callout">
+      New here? Run an example image once before using your own data. It shows you what a
+      correct result looks like on this deployment, which makes it much easier to judge your own.
+    </p>
+  </section>
+
+  <section id="methods">
+    <h2>Choosing a method</h2>
+    <h3>Trained model</h3>
+    <p>
+      A neural network trained on labelled hydride micrographs. It generally handles varying
+      contrast and illumination far better than thresholding, and needs no tuning. Use it first
+      whenever it is offered. If the selector shows a trained model as unavailable, the server
+      has no checkpoint file installed for it; ask whoever maintains this deployment to install one.
+    </p>
+    <h3>Conventional</h3>
+    <p>
+      A classical image-processing pipeline: contrast equalisation, adaptive thresholding, and
+      morphological clean-up. It is fast, completely deterministic, and every step is inspectable,
+      which makes it useful as a sanity check and for images unlike the training data. The cost is
+      that you normally have to tune it for each new imaging condition.
+    </p>
+    <p>
+      A practical habit is to run both on the same image. Where they agree, you can be confident.
+      Where they disagree, look closely at the original.
+    </p>
+  </section>
+
+  <section id="fn">
+    <h2>Radial hydride fraction (Fn)</h2>
+    <p>
+      Fn is the share of hydrides oriented radially rather than circumferentially. It is the number
+      most often wanted from a hydride micrograph, because radial hydrides are the ones that matter
+      for through-wall crack paths.
+    </p>
+
+    <h3>How it is measured here</h3>
+    <ol>
+      <li>Each connected feature in the segmentation mask is isolated and skeletonised.</li>
+      <li>Its dominant direction is measured as an angle from the horizontal, folded into 0&ndash;90&deg;.</li>
+      <li>Features at or above the angle threshold count as radial.</li>
+      <li>Two fractions are reported.</li>
+    </ol>
+
+    <h3>The two Fn numbers</h3>
+    <p class="formula"><strong>Fn<sub>length</sub></strong> =
+      &Sigma; radial skeleton length &divide; &Sigma; measured skeleton length;
+      <strong>Fn<sub>count</sub></strong> = radial feature count &divide; measured feature count.
+    </p>
+    <dl class="param-list">
+      <dt>Length-weighted Fn</dt>
+      <dd>
+        Total length of radial hydrides divided by total length of all measured hydrides.
+        <strong>This is usually the one to report.</strong> It reflects that one long radial hydride is
+        more significant than several short ones, and it is far less sensitive to how many tiny
+        features the segmentation happened to detect.
+      </dd>
+      <dt>Count-based Fn</dt>
+      <dd>
+        Number of radial hydrides divided by the number of measured hydrides. Simple to explain, but
+        easily distorted: if the segmentation picks up hundreds of single-pixel specks, they all count
+        equally against one large hydride. Raise the minimum feature size if this number looks wrong.
+      </dd>
+    </dl>
+
+    <h3>Settings that change Fn</h3>
+    <dl class="param-list">
+      {% for control in quantification_controls %}
+      <dt>{{ control.label }} <span class="param-default">default {{ control.default }}</span></dt>
+      <dd>{{ control.help_text }}</dd>
+      {% endfor %}
+    </dl>
+
+    <h3>Checking the number is trustworthy</h3>
+    <p>
+      Tick <em>Show which hydrides were counted</em> before running. Two extra views appear:
+    </p>
+    <ul>
+      <li>
+        <strong>Fn counted</strong> outlines each counted feature in green and each uncounted one in
+        red, labelling the largest counted features with their angle and length. Use it to confirm the
+        classification matches what you see by eye.
+      </li>
+      <li>
+        <strong>Fn threshold</strong> plots the orientation histogram with the threshold drawn on it.
+        If a large peak sits right at the threshold line, Fn is sensitive to exactly where you set it,
+        and you should say so when reporting the value.
+      </li>
+    </ul>
+    <p class="callout callout--warn">
+      Always report the angle threshold and the minimum feature size alongside Fn. The same image can
+      legitimately give different Fn values under different conventions, so the number is only
+      comparable when those settings are stated. Both are recorded in the downloadable JSON.
+    </p>
+    <p class="callout">
+      Fn depends on the segmentation being right in the first place. Check the Overlay tab before
+      trusting any number, and prefer the trained model where it is available.
+    </p>
+  </section>
+
+  <section id="conventional">
+    <h2>Conventional settings</h2>
+    <p>Each setting below appears in the workspace with the same explanation behind its <strong>?</strong> button.</p>
+    <dl class="param-list">
+      {% for control in controls %}
+      <dt>{{ control.label }} <span class="param-default">default {{ control.default }}</span></dt>
+      <dd>{{ control.help_text }}</dd>
+      {% endfor %}
+    </dl>
+    <p class="callout">
+      Change one setting at a time and re-run. Changing several at once makes it impossible to tell
+      which one helped.
+    </p>
+  </section>
+
+  <section id="reading">
+    <h2>Reading the results</h2>
+    <ul>
+      <li><strong>Overlay</strong> &mdash; detected regions drawn over your original image. The fastest way to judge quality.</li>
+      <li><strong>Input</strong> &mdash; the image exactly as the server processed it, after any downscaling.</li>
+      <li><strong>Mask</strong> &mdash; the binary segmentation on its own. This is what you download for further analysis.</li>
+      <li><strong>Orientation</strong> &mdash; detected features coloured by their measured angle.</li>
+      <li><strong>Size</strong> and <strong>Angle</strong> &mdash; distributions across all detected features.</li>
+      <li><strong>Fn counted</strong> and <strong>Fn threshold</strong> &mdash; shown when you tick the Fn option; see <a href="#fn">the Fn section</a>.</li>
+    </ul>
+    <p>
+      The <a href="#fn">Fn panel</a> sits above everything else because it is normally the headline
+      result. Below it, measurements are grouped into Fn, coverage, orientation, and feature size;
+      open a group to see its numbers, and use <em>Download JSON</em> to save all of them together with
+      the settings that produced them.
+    </p>
+    <p>
+      Area fraction is the proportion of image pixels classified as hydride, so it depends on the field
+      of view you imaged. Compare it only across images taken at comparable magnification and framing.
+    </p>
+    <p class="callout callout--warn">
+      Measurements are reported in pixels. This browser tool does not know your image scale, so it
+      cannot convert to microns. Use the desktop application when you need calibrated measurements.
+    </p>
+  </section>
+
+  <section id="images">
+    <h2>Image requirements</h2>
+    <ul>
+      <li>Accepted formats: {{ allowed_extensions|join(', ')|upper }}.</li>
+      <li>Maximum upload size: {{ config.max_upload_mb }} MB.</li>
+      <li>The filename extension must match the decoded image format; renamed non-images are rejected.</li>
+      <li>Animated and multi-frame files are rejected, and decoded images may contain at most
+        {{ "{:,}".format(config.max_image_pixels) }} pixels.</li>
+      {% if config.max_long_side_px %}
+      <li>
+        Images longer than {{ config.max_long_side_px }} px on their long side are downscaled before
+        processing so results come back quickly. The result page tells you when this happened.
+      </li>
+      {% endif %}
+      <li>Greyscale and colour images are both accepted; colour is converted internally.</li>
+      <li>Source pixels, masks, figures, and job reports are held in process memory only and expire
+        automatically; download the mask and JSON before leaving the page.</li>
+    </ul>
+  </section>
+
+  <section id="trouble">
+    <h2>Troubleshooting</h2>
+    <dl class="param-list">
+      <dt>The trained model is greyed out</dt>
+      <dd>
+        No checkpoint file is installed on this server for it. The conventional method still works.
+        Whoever maintains the deployment can install a checkpoint and it will appear here.
+      </dd>
+      <dt>The result is empty or nearly empty</dt>
+      <dd>
+        With the conventional method, lower the adaptive threshold offset or the minimum feature
+        area. If a trained model returns nothing, the image is probably very different from what it
+        was trained on; try the conventional method instead.
+      </dd>
+      <dt>Everything is detected, including the background</dt>
+      <dd>
+        Raise the adaptive threshold offset, or lower the CLAHE clip limit so noise is not amplified.
+      </dd>
+      <dt>Count-based Fn looks far too high or too low</dt>
+      <dd>
+        Usually noise. Raise <em>Minimum feature size for statistics</em> so single-pixel specks stop
+        counting as hydrides, and compare against the length-weighted value, which is much less
+        affected. Tick <em>Show which hydrides were counted</em> to see exactly what was included.
+      </dd>
+      <dt>Fn changes a lot when I nudge the threshold</dt>
+      <dd>
+        That means many hydrides sit close to the threshold angle. Open the <em>Fn threshold</em> view
+        to see the histogram with the threshold marked, and report the threshold you used alongside
+        the value.
+      </dd>
+      <dt>The server says it is busy</dt>
+      <dd>
+        Several colleagues are running jobs at once. The request was not lost; wait a moment and run again.
+      </dd>
+      <dt>The first run of the day is slow</dt>
+      <dd>
+        The server loads models into memory at startup, so this should be rare. If it happens, the
+        server was probably restarted moments earlier. The status indicator in the header turns green
+        once models are loaded.
+      </dd>
+    </dl>
+  </section>
+</div>
+{% endblock %}

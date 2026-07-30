@@ -23,6 +23,12 @@ The loader also reads an optional local overlay file:
 
 Use the overlay for machine-specific additions when you do not want to commit the model entry yet. The overlay is merged on top of the canonical registry at runtime, so the GUI and CLI see the same model list without changing source control history.
 
+## Prefer The Installer Over Hand-Editing
+
+You normally do not write overlay entries by hand. `Settings > Installed Models...` in the desktop app and `microseg-cli install-model` both generate a complete, validated overlay entry from the checkpoint itself, including `model_type`, `input_size`, `file_sha256`, `file_size_bytes`, and the destination path for the chosen `artifact_stage`. They also verify the checkpoint loads and runs before registering it, and roll everything back if it does not.
+
+Hand-editing the overlay remains supported for unusual cases, and the field reference below still applies. See [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for the installer walkthrough.
+
 ## Required Metadata Fields
 
 Each model entry must include:

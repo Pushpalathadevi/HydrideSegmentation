@@ -65,23 +65,38 @@ class DesktopWorkflowManager:
         return get_gui_model_specs()
 
     def preferred_default_model_name(self) -> str:
-        """Return the first usable ML model, otherwise the conventional fallback."""
+        """Return the first usable ML model, otherwise the conventional fallback.
+
+        Returns
+        -------
+        str
+            Display name of a model that can actually run. Falls back to the
+            conventional pipeline when no trained checkpoint is installed, so a
+            fresh clone never starts on a model whose checkpoint is missing.
+        """
 
         specs = self.model_specs()
-        conventional_name = specs[0]["display_name"] if specs else ""
+        conventional_name = ""
+        for spec in specs:
+            if str(spec.get("model_id", "")).strip() == "hydride_conventional":
+                conventional_name = str(spec.get("display_name", "")).strip()
+                break
+
         for spec in specs:
             model_id = str(spec.get("model_id", "")).strip()
             name = str(spec.get("display_name", "")).strip()
             if not name or model_id in {"", "hydride_conventional"}:
-                if model_id == "hydride_conventional" and not conventional_name:
-                    conventional_name = name
+                continue
+            if str(spec.get("availability", "ready")) not in {"ready", "no_checkpoint_required"}:
                 continue
             try:
                 if resolve_gui_model_reference(name, {}) is not None:
                     return name
             except Exception:
                 continue
-        return conventional_name
+        if conventional_name:
+            return conventional_name
+        return str(specs[0]["display_name"]) if specs else ""
 
     def warm_model(self, model_name: str, *, params: dict | None = None) -> ModelWarmLoadStatus | None:
         """Warm-load an ML model bundle for GUI responsiveness."""

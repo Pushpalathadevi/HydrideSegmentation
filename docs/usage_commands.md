@@ -33,6 +33,34 @@ Train the tiny CPU-safe UNet tutorial run:
 python scripts/microseg_cli.py train --config configs/tutorials/train.tiny_unet_from_prepared.yml
 ```
 
+## Model Installation
+
+Inspect a trained checkpoint before installing it:
+
+```bash
+microseg-cli inspect-checkpoint --checkpoint path/to/best_checkpoint.pth
+```
+
+Install it for GUI and CLI inference:
+
+```bash
+microseg-cli install-model --checkpoint path/to/best_checkpoint.pth --model-id my_unet_v1 --nickname my_unet_v1_optical
+```
+
+List models with availability:
+
+```bash
+microseg-cli models --details
+```
+
+Remove a locally installed model:
+
+```bash
+microseg-cli uninstall-model --model-id my_unet_v1 --delete-checkpoint
+```
+
+Walkthrough: [`gui_model_integration_guide.md`](gui_model_integration_guide.md)
+
 ## Inference
 
 Single image:

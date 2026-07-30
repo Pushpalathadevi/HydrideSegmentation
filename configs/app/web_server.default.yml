@@ -1,0 +1,62 @@
+# Intranet web server configuration for the browser-based segmentation app.
+#
+# Every value can be overridden with an environment variable named
+# MICROSEG_WEB_<UPPERCASE_KEY>, for example MICROSEG_WEB_PORT=8080.
+# Nested keys use a double underscore, for example MICROSEG_WEB_LIMITS__MAX_UPLOAD_MB=40.
+
+site:
+  # Shown in the browser title bar and page header.
+  name: "MicroSeg Hydride Segmentation"
+  description: "Upload a micrograph and segment hydrides in your browser. Runs entirely on this server."
+  # Displayed in the footer so users know who maintains the deployment.
+  maintainer: ""
+
+server:
+  # 0.0.0.0 publishes the app to the intranet. Use 127.0.0.1 for a private local-only run.
+  host: "0.0.0.0"
+  port: 5005
+  # Waitress worker threads. Segmentation is CPU bound, so keep this near the core count.
+  threads: 4
+  # Seconds a queued request may wait before the client is told the server is busy.
+  request_timeout_seconds: 300
+
+limits:
+  # Rejects larger uploads before they are read into memory.
+  max_upload_mb: 5
+  # Images longer than this on their long side are downscaled before inference.
+  # Set to 0 to disable downscaling and always run at full resolution.
+  max_long_side_px: 2048
+  # Reject decompression-bomb-like files even when compressed bytes are small.
+  max_image_pixels: 40000000
+  # Number of concurrent segmentation jobs. Additional requests queue.
+  max_concurrent_jobs: 2
+  # Completed reports remain only in process memory and expire automatically.
+  max_retained_jobs: 32
+  job_retention_seconds: 1800
+
+models:
+  # Warm the trained checkpoints into memory at startup so the first user request
+  # is not slowed down by model loading.
+  preload_on_startup: true
+  # Preload in a background thread so the server answers /health immediately.
+  preload_in_background: true
+  # Restrict preloading to these registry model ids. Empty means every ready model.
+  preload_model_ids: []
+  # Model selected in the browser when the page first loads.
+  # Use "auto" to pick the first ready trained model, otherwise a registry model id.
+  default_model_id: "auto"
+  enable_gpu: false
+  device_policy: "cpu"
+
+analysis:
+  # Include orientation map and size/angle histograms in the response.
+  include_analysis: true
+
+demo:
+  # Repository-relative example images offered in the browser for testing without
+  # uploading a private micrograph.
+  sample_images:
+    - path: "data/sample_images/hydride_optical_sample.png"
+      label: "Optical micrograph (hydrides)"
+    - path: "data/sample_images/hydride_synthetic_sample.png"
+      label: "Synthetic test pattern"

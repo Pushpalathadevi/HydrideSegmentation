@@ -31,6 +31,11 @@ Advanced controls are grouped behind collapsible sections:
 - `Export & Session` for exports, saves, and report options
 - `Quantification Settings` for Fn metrics, distributions, precision, and debug artifacts
 
+Open **Help → Methods & Measurements** for the in-app scientific reference. It explains the
+conventional and trained workflows, the length- and count-weighted Fn formulations, reporting
+requirements, calibration limits, and why the candidate Hydride Connectivity Index remains held
+pending scientific approval.
+
 The desktop application intentionally keeps training and active-learning data capture out of the primary inference workflow. Use the dedicated command-line training/evaluation tools when those workflows are needed.
 
 ## Review Workflow
@@ -106,6 +111,16 @@ GUI-native batch summary inspector:
 
 - `Save Session` writes a restartable project folder with images, masks, class map, notes, and UI state.
 - `Load Session` restores run state and correction workspace.
+
+## Installed Models
+
+- Checkpoint binaries are not shipped with the repository, so a fresh installation starts with no trained model and the ML entries in the selector appear disabled. The conventional pipeline works without any checkpoint.
+- Use `Settings -> Installed Models...` to see every registered model with its availability: `ready`, `no_checkpoint_required`, `checkpoint_missing`, or `unsupported_architecture`.
+- `Install Model...` asks for a checkpoint file, reads its architecture, input size, checksum, and training provenance, copies it into the matching lifecycle folder, verifies it with one forward pass, and registers it locally. The model becomes selectable straight away without restarting.
+- `Re-verify` reloads a checkpoint and reruns the forward-pass check.
+- `Remove` deletes the local registry entry, and optionally the checkpoint file. Models from the shipped registry cannot be removed here.
+- The `...` button beside the model selector opens the same dialog.
+- Full walkthrough: [`gui_model_integration_guide.md`](gui_model_integration_guide.md)
 
 ## Appearance And UI Config
 

@@ -8,6 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -503,5 +504,141 @@ def run_reference_inference(
             "bundle_lookup_or_load_seconds": float(bundle_load_seconds),
             "forward_pass_seconds": float(forward_seconds),
             "postprocess_seconds": float(postprocess_seconds),
+        },
+    }
+
+
+def run_reference_inference_array(
+    image: np.ndarray,
+    reference: InferenceModelReference,
+    *,
+    enable_gpu: bool = False,
+    device_policy: str = "cpu",
+    source_name: str = "in-memory image",
+    progress_hook: Callable[[str, int, str], None] | None = None,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    """Run a trained reference directly from an in-memory image array.
+
+    This path is used by the intranet application so decoded uploads and all
+    preprocessing remain in process memory. It intentionally accepts an already
+    resized display array; the web preparation manifest records any resize.
+    """
+
+    def emit(stage: str, percent: int, message: str) -> None:
+        if progress_hook is not None:
+            progress_hook(stage, int(percent), message)
+
+    image_load_started = time.perf_counter()
+    arr = np.asarray(image)
+    if arr.ndim == 2:
+        display_image = np.repeat(arr[:, :, None], 3, axis=2).astype(np.uint8)
+        original_channels = 1
+        duplicated = True
+    elif arr.ndim == 3 and arr.shape[2] == 1:
+        display_image = np.repeat(arr, 3, axis=2).astype(np.uint8)
+        original_channels = 1
+        duplicated = True
+    elif arr.ndim == 3 and arr.shape[2] >= 3:
+        display_image = arr[:, :, :3].astype(np.uint8, copy=True)
+        original_channels = int(arr.shape[2])
+        duplicated = False
+    else:
+        raise ValueError(f"unsupported in-memory inference image shape: {arr.shape!r}")
+    image_load_seconds = max(0.0, time.perf_counter() - image_load_started)
+    emit("preprocessing", 26, "Prepared the in-memory RGB model input.")
+
+    preprocessing_manifest: dict[str, Any] = {
+        "applied": False,
+        "transport": "memory",
+        "original_size": {
+            "width": int(display_image.shape[1]),
+            "height": int(display_image.shape[0]),
+        },
+        "preprocessed_size": {
+            "width": int(display_image.shape[1]),
+            "height": int(display_image.shape[0]),
+        },
+        "original_channel_count": int(original_channels),
+        "preprocessed_channel_count": 3,
+        "model_input_channel_count": 3,
+        "channel_duplicated": bool(duplicated),
+        "resize": {"policy": "prepared_by_caller", "target_long_side": None, "scale": 1.0},
+        "contrast": {"enabled": False, "mode": "disabled", "parameters": {}},
+        "rescaled_to_original": False,
+        "preprocessing_steps": [
+            {
+                "step": "decode",
+                "status": "applied",
+                "message": "Received a validated image from in-memory web preparation.",
+                "output_size": {
+                    "width": int(display_image.shape[1]),
+                    "height": int(display_image.shape[0]),
+                },
+            },
+            {
+                "step": "channel_normalization",
+                "status": "applied" if duplicated else "skipped",
+                "message": (
+                    "Duplicated the grayscale channel for the model."
+                    if duplicated
+                    else "The prepared image already has three RGB channels."
+                ),
+                "input_channels": int(original_channels),
+                "output_channels": 3,
+            },
+        ],
+    }
+
+    emit("model", 36, "Resolving the trained model bundle.")
+    bundle, cache_hit, bundle_load_seconds = get_or_load_reference_bundle(
+        reference,
+        enable_gpu=enable_gpu,
+        device_policy=device_policy,
+    )
+    device = str(bundle.get("device", "cpu"))
+    emit(
+        "model",
+        46,
+        f"Model ready on {device}{' from cache' if cache_hit else ''}.",
+    )
+
+    forward_started = time.perf_counter()
+    emit("inference", 52, "Running the neural-network forward pass.")
+    pred = predict_unet_binary_mask(display_image, bundle).astype(np.uint8) * 255
+    forward_seconds = max(0.0, time.perf_counter() - forward_started)
+    emit("postprocessing", 68, "Converted model probabilities into a binary mask.")
+
+    _LOGGER.info(
+        "MEMORY_INFERENCE_TIMING | source=%s bundle_cache_hit=%s image_prepare=%0.2fs "
+        "bundle_lookup=%0.2fs forward=%0.2fs",
+        source_name,
+        bool(cache_hit),
+        float(image_load_seconds),
+        float(bundle_load_seconds),
+        float(forward_seconds),
+    )
+    return display_image, pred, {
+        "reference_id": reference.reference_id,
+        "architecture": reference.architecture,
+        "backend": reference.backend_label,
+        "source": reference.source,
+        "checkpoint_path": reference.checkpoint_path,
+        "device": device,
+        "input_transport": "memory",
+        "preprocessing": preprocessing_manifest,
+        "cache": {
+            "bundle_cache_hit": bool(cache_hit),
+            "cache_key": {
+                "checkpoint_path": reference.checkpoint_path,
+                "enable_gpu": bool(enable_gpu),
+                "device_policy": str(device_policy),
+            },
+        },
+        "timing": {
+            "image_load_seconds": float(image_load_seconds),
+            "preprocess_seconds": 0.0,
+            "bundle_lookup_or_load_seconds": float(bundle_load_seconds),
+            "forward_pass_seconds": float(forward_seconds),
+            "postprocess_seconds": 0.0,
         },
     }

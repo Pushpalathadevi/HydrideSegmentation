@@ -1,0 +1,45 @@
+{
+  "schema_version": "microseg.phase_closeout.v1",
+  "phase": 36,
+  "title": "Memory-Safe Interfaces and HCI Candidate Specification",
+  "status": "complete",
+  "hci_status": "development_hold",
+  "delivered": {
+    "hci_specification": "docs/hydride_connectivity_index.md",
+    "hci_workflow_svg": "docs/diagrams/hydride_connectivity_index_candidate_workflow.svg",
+    "web_memory_only_inference": true,
+    "web_default_upload_limit_mb": 5,
+    "web_async_progress_events": true,
+    "web_live_processing_log": true,
+    "web_scientific_help_svg": "hydride_segmentation/web/static/img/scientific_workflow.svg",
+    "desktop_scientific_guide": true,
+    "desktop_auxiliary_thread_shutdown": true
+  },
+  "verification": {
+    "full_repository_tests": {
+      "passed": 268,
+      "warnings": 15,
+      "failed": 0,
+      "duration_seconds": 235.36
+    },
+    "web_targeted_tests": {
+      "passed": 54,
+      "failed": 0
+    },
+    "qt_settings_smoke": {
+      "passed": 8,
+      "failed": 0,
+      "process_exit": "success"
+    },
+    "browser_visual_check": "passed",
+    "browser_console_errors": 0,
+    "windows_qt_visual_check": "passed",
+    "svg_visual_check": "passed"
+  },
+  "remaining_gaps": [
+    "HCI formulation and scientific validation decisions require owner approval.",
+    "Web job state is intentionally process-local and ephemeral.",
+    "Authentication and cross-process scheduling are not part of the trusted-intranet scope.",
+    "Existing binary_dilation deprecation warnings remain."
+  ]
+}

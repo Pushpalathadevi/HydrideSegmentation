@@ -62,9 +62,17 @@ from src.microseg.deployment import (
 )
 from src.microseg.io import resolve_config
 from src.microseg.plugins import (
+    DEFAULT_CLASSES,
+    STAGE_DIRECTORIES,
+    ModelInstallRequest,
+    inspect_checkpoint,
+    install_model,
     load_frozen_checkpoint_records,
+    model_catalog_status,
+    uninstall_model,
     validate_pretrained_registry,
     validate_frozen_registry,
+    write_install_report,
     write_pretrained_validation_report,
     write_registry_validation_report,
 )
@@ -624,17 +632,22 @@ def _models(args: argparse.Namespace) -> int:
     mgr = DesktopWorkflowManager()
     specs = mgr.model_specs()
     frozen = {rec.model_id: rec for rec in load_frozen_checkpoint_records()}
+    status_map = {item.model_id: item for item in model_catalog_status()}
 
     payload: list[dict[str, object]] = []
     for spec in specs:
         model_id = str(spec.get("model_id", ""))
         rec = frozen.get(model_id)
+        status = status_map.get(model_id)
         item = {
             "model_id": model_id,
             "display_name": spec.get("display_name", ""),
             "feature_family": spec.get("feature_family", ""),
             "description": spec.get("description", ""),
             "details": spec.get("details", ""),
+            "availability": status.status if status is not None else "unknown",
+            "availability_message": status.message if status is not None else "",
+            "locally_installed": bool(status.locally_installed) if status is not None else False,
         }
         if rec:
             item["frozen_checkpoint"] = {
@@ -658,6 +671,9 @@ def _models(args: argparse.Namespace) -> int:
     for item in payload:
         print(f"- {item['display_name']} ({item['model_id']})")
         print(f"  Family: {item['feature_family']}")
+        print(f"  Availability: {item['availability']}")
+        if item["availability"] not in {"ready", "no_checkpoint_required"}:
+            print(f"  Note: {item['availability_message']}")
         print(f"  Summary: {item['description']}")
         if args.details:
             print(f"  Details: {item['details']}")
@@ -674,6 +690,116 @@ def _models(args: argparse.Namespace) -> int:
                 print(f"  User tip: {frozen_meta['short_description']}")
         print("")
     return 0
+
+
+def _parse_classes_argument(raw: str) -> tuple[dict[str, object], ...]:
+    """Parse a class-map argument given as inline JSON or a JSON file path."""
+
+    text = str(raw or "").strip()
+    if not text:
+        return DEFAULT_CLASSES
+    candidate = Path(text)
+    payload = json.loads(candidate.read_text(encoding="utf-8")) if candidate.exists() else json.loads(text)
+    if isinstance(payload, dict):
+        payload = payload.get("classes", [])
+    if not isinstance(payload, list):
+        raise ValueError("class map must be a JSON list of objects, or an object with a 'classes' list")
+    return tuple(dict(item) for item in payload)
+
+
+def _inspect_checkpoint(args: argparse.Namespace) -> int:
+    introspection = inspect_checkpoint(args.checkpoint)
+    if args.as_json:
+        print(json.dumps(asdict(introspection), indent=2))
+        return 0
+
+    print(f"checkpoint: {introspection.checkpoint_path}")
+    print(f"architecture: {introspection.architecture or '<unknown>'}")
+    print(f"architecture supported: {introspection.architecture_supported}")
+    print(f"schema version: {introspection.schema_version or '<none>'}")
+    print(f"suggested model_id: {introspection.suggested_model_id()}")
+    print(f"training input size: {introspection.input_size}")
+    print(f"parameters: {introspection.parameter_count}")
+    print(f"size bytes: {introspection.file_size_bytes}")
+    print(f"sha256: {introspection.file_sha256}")
+    if introspection.created_utc:
+        print(f"trained at: {introspection.created_utc}")
+    if introspection.epoch is not None:
+        print(f"epoch: {introspection.epoch}")
+    if introspection.best_val_loss is not None:
+        print(f"best validation loss: {introspection.best_val_loss}")
+    for warning in introspection.warnings:
+        print(f"warning: {warning}")
+    return 0 if introspection.architecture_supported else 1
+
+
+def _install_model(args: argparse.Namespace) -> int:
+    introspection = inspect_checkpoint(args.checkpoint)
+    model_id = str(args.model_id or "").strip() or introspection.suggested_model_id()
+    nickname = str(args.nickname or "").strip() or f"{model_id}_local"
+
+    request = ModelInstallRequest(
+        checkpoint_path=str(args.checkpoint),
+        model_id=model_id,
+        model_nickname=nickname,
+        artifact_stage=str(args.stage),
+        architecture=str(args.architecture or "").strip(),
+        input_size=str(args.input_size or "").strip(),
+        input_dimensions=str(args.input_dimensions or "").strip(),
+        application_remarks=str(args.remarks or "").strip(),
+        short_description=str(args.short_description or "").strip(),
+        detailed_description=str(args.detailed_description or "").strip(),
+        source_run_manifest=str(args.source_run_manifest or "").strip(),
+        quality_report_path=str(args.quality_report_path or "").strip(),
+        classes=_parse_classes_argument(args.classes),
+        verify_forward_pass=bool(args.verify_forward_pass),
+        overwrite=bool(args.overwrite),
+    )
+    result = install_model(request)
+
+    report_path = str(args.report_path or "").strip() or f"outputs/model_install/{model_id}/install_report.json"
+    write_install_report(result, report_path)
+
+    if args.as_json:
+        print(json.dumps(asdict(result), indent=2))
+    else:
+        print(f"install ok: {result.ok}")
+        print(f"model_id: {result.model_id}")
+        print(f"architecture: {result.architecture}")
+        print(f"checkpoint hint: {result.checkpoint_path_hint}")
+        print(f"registry overlay: {result.registry_path}")
+        print(f"report: {report_path}")
+        for warning in result.warnings:
+            print(f"warning: {warning}")
+        for error in result.errors:
+            print(f"error: {error}")
+        if result.ok:
+            print("Restart is not required for the CLI; the GUI picks it up via Settings > Installed Models.")
+    return 0 if result.ok else 1
+
+
+def _uninstall_model(args: argparse.Namespace) -> int:
+    result = uninstall_model(
+        str(args.model_id),
+        delete_checkpoint=bool(args.delete_checkpoint),
+    )
+    report_path = str(args.report_path or "").strip()
+    if report_path:
+        write_install_report(result, report_path)
+
+    if args.as_json:
+        print(json.dumps(asdict(result), indent=2))
+    else:
+        print(f"uninstall ok: {result.ok}")
+        print(f"model_id: {result.model_id}")
+        print(f"registry entry removed: {result.removed_registry_entry}")
+        if result.removed_checkpoint_path:
+            print(f"deleted checkpoint: {result.removed_checkpoint_path}")
+        for warning in result.warnings:
+            print(f"warning: {warning}")
+        for error in result.errors:
+            print(f"error: {error}")
+    return 0 if result.ok else 1
 
 
 def _validate_registry(args: argparse.Namespace) -> int:
@@ -1640,6 +1766,71 @@ def _build_parser() -> argparse.ArgumentParser:
     models.add_argument("--details", action="store_true", help="Show long descriptions and application notes")
     models.add_argument("--as-json", action="store_true", help="Print machine-readable JSON payload")
     models.set_defaults(handler=_models)
+
+    inspect_ckpt = sub.add_parser(
+        "inspect-checkpoint",
+        help="Read architecture and provenance metadata from a trained checkpoint file",
+    )
+    inspect_ckpt.add_argument("--checkpoint", type=str, required=True, help="Checkpoint file path")
+    inspect_ckpt.add_argument("--as-json", action="store_true", help="Print machine-readable JSON payload")
+    inspect_ckpt.set_defaults(handler=_inspect_checkpoint)
+
+    install = sub.add_parser(
+        "install-model",
+        help="Install a trained checkpoint into the local registry for GUI and CLI inference",
+    )
+    install.add_argument("--checkpoint", type=str, required=True, help="Trained checkpoint file to install")
+    install.add_argument("--model-id", type=str, default="", help="Registry identifier (default: derived from filename)")
+    install.add_argument("--nickname", type=str, default="", help="Friendly name shown to users")
+    install.add_argument(
+        "--stage",
+        choices=sorted(STAGE_DIRECTORIES),
+        default="candidate",
+        help="Lifecycle stage; decides the destination folder",
+    )
+    install.add_argument(
+        "--architecture",
+        type=str,
+        default="",
+        help="Override the architecture token (default: read from the checkpoint)",
+    )
+    install.add_argument("--input-size", type=str, default="", help="Override training input size text")
+    install.add_argument("--input-dimensions", type=str, default="", help="Override input dimension text")
+    install.add_argument("--remarks", type=str, default="", help="Application suitability remarks")
+    install.add_argument("--short-description", type=str, default="", help="One-line user guidance")
+    install.add_argument("--detailed-description", type=str, default="", help="Long-form user guidance")
+    install.add_argument("--source-run-manifest", type=str, default="", help="Repo-relative training manifest path")
+    install.add_argument("--quality-report-path", type=str, default="", help="Repo-relative quality report path")
+    install.add_argument(
+        "--classes",
+        type=str,
+        default="",
+        help="Class map as inline JSON or a JSON file path (default: background + hydride)",
+    )
+    install.add_argument(
+        "--verify-forward-pass",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run one synthetic forward pass to prove the checkpoint is usable",
+    )
+    install.add_argument("--overwrite", action="store_true", help="Replace an existing local entry with the same id")
+    install.add_argument("--report-path", type=str, default="", help="Install report JSON path")
+    install.add_argument("--as-json", action="store_true", help="Print machine-readable JSON payload")
+    install.set_defaults(handler=_install_model)
+
+    uninstall = sub.add_parser(
+        "uninstall-model",
+        help="Remove a locally installed model from the local registry overlay",
+    )
+    uninstall.add_argument("--model-id", type=str, required=True, help="Locally installed model identifier")
+    uninstall.add_argument(
+        "--delete-checkpoint",
+        action="store_true",
+        help="Also delete the installed checkpoint binary",
+    )
+    uninstall.add_argument("--report-path", type=str, default="", help="Uninstall report JSON path")
+    uninstall.add_argument("--as-json", action="store_true", help="Print machine-readable JSON payload")
+    uninstall.set_defaults(handler=_uninstall_model)
 
     validate_registry = sub.add_parser("validate-registry", help="Validate frozen model registry metadata")
     validate_registry.add_argument("--config", type=str, help="YAML config path")

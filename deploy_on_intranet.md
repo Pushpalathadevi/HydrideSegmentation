@@ -1,56 +1,57 @@
 # Deploying HydrideSegmentation on an Intranet
 
-This guide covers installing the CPU‑only version of HydrideSegmentation and integrating it with the `ml_server` service.
+There are two ways to make segmentation available to colleagues on an internal network. Both are CPU-only and need no CUDA and no internet access at run time.
 
-## Installation
+## 1. Browser App (recommended)
 
-1. Create a virtual environment and activate it.
-2. Install the package in editable mode:
+One host runs a small web server; everyone else opens a URL. Nobody except the host operator installs anything.
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-web.txt
 pip install -e .
+python scripts/run_web_server.py
 ```
 
-All dependencies are CPU compatible and require no CUDA libraries.
+The launcher prints the intranet links to share. Open the host firewall for the port and you are done.
 
-## Model Weights
+Users can upload a micrograph or run a bundled example image, choose between the conventional pipeline and any installed trained model, tune conventional parameters with in-app help, view the overlay, mask, orientation map and distributions, and download results. Uploaded images are processed in memory and never stored.
 
-Model weights are loaded from the directory specified by the environment variable `HYDRIDE_MODEL_PATH`. If not set, it defaults to `/opt/models/hydride_segmentation/`.
+**Complete guide, including the air-gapped wheelhouse install, configuration, systemd and Windows service setup, performance tuning, and the JSON API: [`docs/intranet_web_app.md`](docs/intranet_web_app.md).**
 
-Place `model.pt` inside this folder or adjust the path when starting the service:
+## 2. Library Integration
 
-```bash
-export HYDRIDE_MODEL_PATH=/path/to/weights
-```
-
-## Integrating with `ml_server`
-
-The `ml_server` repository provides a REST endpoint that invokes `hydride_segmentation.inference.run_model`.
-For direct integration without HTTP you can import `hydride_segmentation.ml_api.run_inference_from_image`.
-To enable it:
-
-1. Install HydrideSegmentation inside the same environment used by `ml_server`:
+To call segmentation from another internal service rather than serving a UI, install this package into that service's environment and import it directly:
 
 ```bash
 pip install -e /path/to/HydrideSegmentation
 ```
 
-2. Ensure the model weights are accessible as described above.
-3. Start `ml_server` and send a `POST` request to `/hydride_segmentation` with an image file.
+```python
+from hydride_segmentation.microseg_adapter import run_pipeline
 
-A sample image is available in the `ml_server` repository under `sample_data/sample_hydride_image.png`.
-
-## Testing the Endpoint
-
-After starting `ml_server`, you can verify the new endpoint using `curl`:
-
-```bash
-curl -F "image=@sample_hydride_image.png" http://localhost:8000/hydride_segmentation
+result = run_pipeline("micrograph.png", model_id="hydride_conventional", include_analysis=True)
 ```
 
-A JSON response with the segmentation mask will be returned if everything is configured correctly.
+`run_pipeline` is the same entry point the desktop app, the CLI, and the web app use, so every surface produces identical results for identical inputs.
+
+## Model Weights
+
+Checkpoint binaries are never tracked in git, so a fresh copy of the repository has no `.pt` file. The conventional pipeline works immediately; trained models are reported as unavailable until a checkpoint is installed.
+
+Install one on the host with:
+
+```bash
+microseg-cli install-model --checkpoint path/to/best_checkpoint.pth --model-id site_unet_v1 --nickname site_unet_v1_optical
+```
+
+The installer reads the architecture and provenance from the checkpoint, copies it into the repository's lifecycle folder, verifies it loads and runs, and registers it locally. See [`docs/gui_model_integration_guide.md`](docs/gui_model_integration_guide.md).
+
+Check what a host currently has:
+
+```bash
+microseg-cli models --details
+```
 
 ## Repository Hygiene
 
-No binary model files are tracked in this repository. Ensure that any weight files remain outside the repository, typically under `/opt/models/hydride_segmentation/`.
+No binary model files are tracked in this repository. Installed checkpoints live under `frozen_checkpoints/`, which is excluded from git, together with the untracked `frozen_checkpoints/model_registry.local.json` overlay that records them.

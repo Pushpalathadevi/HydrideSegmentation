@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 from skimage.draw import disk, line
 
-from hydride_segmentation.microseg_adapter import resolve_gui_model_reference
+from hydride_segmentation.microseg_adapter import model_is_runnable, resolve_gui_model_reference
 from hydride_segmentation.qt.viewer_support import (
     DisplayAssetCacheEntry,
     LinkedViewerController,
@@ -129,6 +129,17 @@ from src.microseg.inference.gui_preprocessing import (
 )
 from src.microseg.inference.trained_model_loader import ModelWarmLoadStatus
 from src.microseg.io import resolve_config
+from src.microseg.plugins import (
+    DEFAULT_CLASSES,
+    STAGE_DIRECTORIES,
+    ModelInstallRequest,
+    inspect_checkpoint,
+    install_model,
+    model_catalog_status,
+    uninstall_model,
+    verify_checkpoint_runtime,
+    write_install_report,
+)
 from src.microseg.quality import PreflightConfig, run_preflight
 from src.microseg.ui import AnnotationLayerSettings, compose_annotation_view
 from src.microseg.utils import (
@@ -1586,6 +1597,495 @@ class AppearanceExportSettingsDialog(QDialog):
         self.status_label.setText("Restored built-in defaults.")
 
 
+def _classes_to_text(classes) -> str:
+    """Render class definitions as editable ``index,name,#RRGGBB[,description]`` lines."""
+
+    lines = []
+    for item in classes:
+        color = str(item.get("color_hex", "#FFFFFF"))
+        line = f"{int(item.get('index', 0))},{item.get('name', '')},{color}"
+        description = str(item.get("description", "")).strip()
+        if description:
+            line += f",{description}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _classes_from_text(text: str) -> tuple[dict, ...]:
+    """Parse ``index,name,#RRGGBB[,description]`` lines into registry class entries."""
+
+    classes: list[dict] = []
+    for raw in str(text).splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split(",", 3)]
+        if len(parts) < 3:
+            raise ValueError(f"expected 'index,name,#RRGGBB[,description]': {line}")
+        color = parts[2] if parts[2].startswith("#") else f"#{parts[2]}"
+        if len(color) != 7:
+            raise ValueError(f"invalid color hex '{parts[2]}' in line: {line}")
+        entry = {"index": int(parts[0]), "name": parts[1], "color_hex": color.upper()}
+        if len(parts) > 3 and parts[3]:
+            entry["description"] = parts[3]
+        classes.append(entry)
+    if not classes:
+        raise ValueError("at least one class definition is required")
+    return tuple(classes)
+
+
+class InstallModelDialog(QDialog):
+    """Form that installs a trained checkpoint using metadata read from the file."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Install Model")
+        self.resize(720, 640)
+        self._introspection = None
+
+        root = QVBoxLayout(self)
+
+        intro = QLabel(
+            "Select a trained checkpoint. Architecture, input size, checksum, and provenance "
+            "are read from the file; you only need to confirm a name."
+        )
+        intro.setWordWrap(True)
+        root.addWidget(intro)
+
+        file_row = QHBoxLayout()
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("Path to a .pt, .pth, or .ckpt checkpoint")
+        file_row.addWidget(self.path_edit, stretch=1)
+        self.btn_browse = QPushButton("Browse...")
+        self.btn_browse.clicked.connect(self.on_browse)
+        file_row.addWidget(self.btn_browse)
+        root.addLayout(file_row)
+
+        self.detected_label = QLabel("No checkpoint inspected yet.")
+        self.detected_label.setWordWrap(True)
+        self.detected_label.setFrameShape(QFrame.StyledPanel)
+        self.detected_label.setMinimumHeight(96)
+        root.addWidget(self.detected_label)
+
+        form = QFormLayout()
+        self.model_id_edit = QLineEdit()
+        self.model_id_edit.setPlaceholderText("lowercase identifier, e.g. my_unet_v1")
+        form.addRow("Model id", self.model_id_edit)
+
+        self.nickname_edit = QLineEdit()
+        self.nickname_edit.setPlaceholderText("friendly name shown in the selector")
+        form.addRow("Nickname", self.nickname_edit)
+
+        self.stage_combo = QComboBox()
+        self.stage_combo.addItems(sorted(STAGE_DIRECTORIES))
+        self.stage_combo.setCurrentText("candidate")
+        form.addRow("Stage", self.stage_combo)
+
+        self.remarks_edit = QLineEdit()
+        self.remarks_edit.setPlaceholderText("what this model is suitable for")
+        form.addRow("Application", self.remarks_edit)
+
+        self.short_desc_edit = QLineEdit()
+        self.short_desc_edit.setPlaceholderText("one-line tip shown beside the selector")
+        form.addRow("User tip", self.short_desc_edit)
+
+        self.detailed_desc_edit = QPlainTextEdit()
+        self.detailed_desc_edit.setPlaceholderText("optional long-form notes; left blank a summary is generated")
+        self.detailed_desc_edit.setMaximumHeight(72)
+        form.addRow("Details", self.detailed_desc_edit)
+
+        self.manifest_edit = QLineEdit()
+        self.manifest_edit.setPlaceholderText("optional repo-relative training manifest path")
+        form.addRow("Run manifest", self.manifest_edit)
+
+        self.quality_edit = QLineEdit()
+        self.quality_edit.setPlaceholderText("optional repo-relative quality report path")
+        form.addRow("Quality report", self.quality_edit)
+
+        self.classes_edit = QPlainTextEdit(_classes_to_text(DEFAULT_CLASSES))
+        self.classes_edit.setMaximumHeight(96)
+        form.addRow("Classes", self.classes_edit)
+        root.addLayout(form)
+
+        self.chk_verify = QCheckBox("Verify with one forward pass before registering (recommended)")
+        self.chk_verify.setChecked(True)
+        root.addWidget(self.chk_verify)
+
+        self.chk_overwrite = QCheckBox("Replace an existing local entry with the same model id")
+        root.addWidget(self.chk_overwrite)
+
+        hint = QLabel(
+            "The checkpoint is copied into the folder matching its stage and recorded in "
+            "frozen_checkpoints/model_registry.local.json, which is never committed to git."
+        )
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Ok).setText("Install")
+        self.buttons.accepted.connect(self.on_accept)
+        self.buttons.rejected.connect(self.reject)
+        root.addWidget(self.buttons)
+
+    def on_browse(self) -> None:
+        """Pick a checkpoint file and inspect it immediately."""
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select trained checkpoint",
+            "",
+            "Checkpoints (*.pt *.pth *.ckpt);;All files (*)",
+        )
+        if not path:
+            return
+        self.path_edit.setText(path)
+        self.inspect_selected_checkpoint()
+
+    def inspect_selected_checkpoint(self) -> None:
+        """Read metadata from the selected checkpoint and prefill the form."""
+
+        path = self.path_edit.text().strip()
+        if not path:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            introspection = inspect_checkpoint(path)
+        except Exception as exc:
+            self._introspection = None
+            self.detected_label.setText(f"Could not read this checkpoint:\n{exc}")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        self._introspection = introspection
+        details = [
+            f"Architecture: {introspection.architecture or 'unknown'}"
+            f"{'' if introspection.architecture_supported else '  (NOT SUPPORTED by the inference loader)'}",
+            f"Training input size: {introspection.input_size}",
+            f"Parameters: {introspection.parameter_count}",
+            f"Size: {introspection.file_size_bytes} bytes",
+            f"SHA-256: {introspection.file_sha256}",
+        ]
+        if introspection.created_utc:
+            details.append(f"Trained: {introspection.created_utc}")
+        if introspection.epoch is not None:
+            details.append(f"Epoch: {introspection.epoch}")
+        if introspection.best_val_loss is not None:
+            details.append(f"Best validation loss: {introspection.best_val_loss:.6f}")
+        details.extend(f"Warning: {item}" for item in introspection.warnings)
+        self.detected_label.setText("\n".join(details))
+
+        if not self.model_id_edit.text().strip():
+            self.model_id_edit.setText(introspection.suggested_model_id())
+        if not self.nickname_edit.text().strip():
+            self.nickname_edit.setText(f"{self.model_id_edit.text().strip()}_local")
+
+    def on_accept(self) -> None:
+        """Validate the form before closing the dialog."""
+
+        if not self.path_edit.text().strip():
+            QMessageBox.warning(self, "Install Model", "Select a checkpoint file first.")
+            return
+        if self._introspection is None:
+            self.inspect_selected_checkpoint()
+            if self._introspection is None:
+                return
+        if not self.model_id_edit.text().strip():
+            QMessageBox.warning(self, "Install Model", "Enter a model id.")
+            return
+        if not self.nickname_edit.text().strip():
+            QMessageBox.warning(self, "Install Model", "Enter a nickname.")
+            return
+        try:
+            _classes_from_text(self.classes_edit.toPlainText())
+        except Exception as exc:
+            QMessageBox.warning(self, "Install Model", f"Class map is invalid:\n{exc}")
+            return
+        self.accept()
+
+    def selected_request(self) -> ModelInstallRequest:
+        """Return the install request described by the current form values."""
+
+        return ModelInstallRequest(
+            checkpoint_path=self.path_edit.text().strip(),
+            model_id=self.model_id_edit.text().strip(),
+            model_nickname=self.nickname_edit.text().strip(),
+            artifact_stage=self.stage_combo.currentText().strip(),
+            application_remarks=self.remarks_edit.text().strip(),
+            short_description=self.short_desc_edit.text().strip(),
+            detailed_description=self.detailed_desc_edit.toPlainText().strip(),
+            source_run_manifest=self.manifest_edit.text().strip(),
+            quality_report_path=self.quality_edit.text().strip(),
+            classes=_classes_from_text(self.classes_edit.toPlainText()),
+            verify_forward_pass=self.chk_verify.isChecked(),
+            overwrite=self.chk_overwrite.isChecked(),
+        )
+
+
+class InstalledModelsDialog(QDialog):
+    """Manage locally installed checkpoints and show availability for every model."""
+
+    _COLUMNS = ("Model id", "Nickname", "Architecture", "Stage", "Status", "Checkpoint")
+
+    def __init__(self, parent: QWidget | None = None, *, repo_root: Path | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Installed Models")
+        self.resize(980, 520)
+        self._repo_root = Path(repo_root) if repo_root else None
+        self._catalog: list = []
+        self.catalog_changed = False
+        self.last_installed_model_id = ""
+
+        root = QVBoxLayout(self)
+        intro = QLabel(
+            "Trained checkpoints are not shipped with the application. Install one here and it "
+            "becomes selectable in the model list without restarting."
+        )
+        intro.setWordWrap(True)
+        root.addWidget(intro)
+
+        self.table = QTableWidget(0, len(self._COLUMNS))
+        self.table.setHorizontalHeaderLabels(list(self._COLUMNS))
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        root.addWidget(self.table, stretch=1)
+
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        root.addWidget(self.status_label)
+
+        button_row = QHBoxLayout()
+        self.btn_install = QPushButton("Install Model...")
+        self.btn_install.clicked.connect(self.on_install)
+        button_row.addWidget(self.btn_install)
+
+        self.btn_verify = QPushButton("Re-verify")
+        self.btn_verify.clicked.connect(self.on_verify)
+        button_row.addWidget(self.btn_verify)
+
+        self.btn_remove = QPushButton("Remove")
+        self.btn_remove.clicked.connect(self.on_remove)
+        button_row.addWidget(self.btn_remove)
+
+        self.btn_open_folder = QPushButton("Open Folder")
+        self.btn_open_folder.clicked.connect(self.on_open_folder)
+        button_row.addWidget(self.btn_open_folder)
+
+        button_row.addStretch(1)
+        self.btn_close = QPushButton("Close")
+        self.btn_close.clicked.connect(self.accept)
+        button_row.addWidget(self.btn_close)
+        root.addLayout(button_row)
+
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Reload the catalog table from the merged registry."""
+
+        try:
+            self._catalog = model_catalog_status(repo_root=self._repo_root)
+        except Exception as exc:
+            self._catalog = []
+            self.status_label.setText(f"Could not read the model registry: {exc}")
+
+        self.table.setRowCount(len(self._catalog))
+        for row, item in enumerate(self._catalog):
+            values = (
+                item.model_id,
+                item.model_nickname,
+                item.model_type,
+                item.artifact_stage,
+                item.status,
+                item.checkpoint_path_hint,
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(str(value))
+                cell.setToolTip(item.message)
+                if item.status not in {"ready", "no_checkpoint_required"}:
+                    cell.setForeground(QColor("#B00020"))
+                self.table.setItem(row, column, cell)
+        installed = sum(1 for item in self._catalog if item.locally_installed)
+        self.status_label.setText(
+            f"{len(self._catalog)} registered model(s); {installed} installed locally. "
+            "Only locally installed models can be removed."
+        )
+
+    def _selected_entry(self):
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self._catalog):
+            return None
+        return self._catalog[row]
+
+    def on_install(self) -> None:
+        """Run the install form and register the chosen checkpoint."""
+
+        dialog = InstallModelDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        try:
+            request = dialog.selected_request()
+        except Exception as exc:
+            QMessageBox.warning(self, "Install Model", f"Could not build the install request:\n{exc}")
+            return
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            result = install_model(request, repo_root=self._repo_root)
+        except Exception as exc:
+            QMessageBox.critical(self, "Install Model", f"Installation failed:\n{exc}")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        report_path = ""
+        try:
+            report_path = str(
+                write_install_report(
+                    result,
+                    Path("outputs") / "model_install" / result.model_id / "install_report.json",
+                )
+            )
+        except Exception:
+            report_path = ""
+
+        if not result.ok:
+            QMessageBox.critical(
+                self,
+                "Install Model",
+                "The model was not installed.\n\n" + "\n".join(result.errors),
+            )
+            return
+
+        self.catalog_changed = True
+        self.last_installed_model_id = result.model_id
+        self.refresh()
+        message = [
+            f"Installed {result.model_nickname} ({result.model_id}).",
+            f"Architecture: {result.architecture}",
+            f"Checkpoint: {result.checkpoint_path_hint}",
+        ]
+        if report_path:
+            message.append(f"Report: {report_path}")
+        if result.warnings:
+            message.append("")
+            message.extend(f"Warning: {item}" for item in result.warnings)
+        QMessageBox.information(self, "Install Model", "\n".join(message))
+
+    def on_verify(self) -> None:
+        """Re-run load and forward-pass verification for the selected model."""
+
+        entry = self._selected_entry()
+        if entry is None:
+            QMessageBox.information(self, "Installed Models", "Select a model row first.")
+            return
+        if not entry.resolved_checkpoint_path:
+            QMessageBox.information(
+                self,
+                "Installed Models",
+                f"{entry.model_id} is a built-in pipeline and needs no checkpoint verification.",
+            )
+            return
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            outcome = verify_checkpoint_runtime(entry.resolved_checkpoint_path)
+        except Exception as exc:
+            outcome = {"ok": False, "error": str(exc)}
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if outcome.get("ok"):
+            QMessageBox.information(
+                self,
+                "Installed Models",
+                f"{entry.model_id} verified.\n"
+                f"Architecture: {outcome.get('architecture', '')}\n"
+                f"Device: {outcome.get('device', '')}\n"
+                "Load and forward pass both succeeded.",
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Installed Models",
+                f"{entry.model_id} failed verification.\n\n{outcome.get('error', 'unknown error')}",
+            )
+
+    def on_remove(self) -> None:
+        """Remove the selected locally installed model from the registry overlay."""
+
+        entry = self._selected_entry()
+        if entry is None:
+            QMessageBox.information(self, "Installed Models", "Select a model row first.")
+            return
+        if not entry.locally_installed:
+            QMessageBox.information(
+                self,
+                "Installed Models",
+                f"{entry.model_id} comes from the shipped registry and cannot be removed here. "
+                "Only locally installed models can be removed.",
+            )
+            return
+
+        confirm = QMessageBox(self)
+        confirm.setWindowTitle("Remove Model")
+        confirm.setIcon(QMessageBox.Question)
+        confirm.setText(f"Remove {entry.model_nickname} ({entry.model_id}) from the local registry?")
+        confirm.setInformativeText(
+            f"Checkpoint file: {entry.checkpoint_path_hint}\n\n"
+            "Choose whether the checkpoint file should also be deleted from disk."
+        )
+        keep_button = confirm.addButton("Remove entry only", QMessageBox.AcceptRole)
+        delete_button = confirm.addButton("Remove entry and delete file", QMessageBox.DestructiveRole)
+        confirm.addButton(QMessageBox.Cancel)
+        confirm.exec()
+
+        clicked = confirm.clickedButton()
+        if clicked not in (keep_button, delete_button):
+            return
+
+        try:
+            result = uninstall_model(
+                entry.model_id,
+                delete_checkpoint=clicked is delete_button,
+                repo_root=self._repo_root,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Remove Model", f"Removal failed:\n{exc}")
+            return
+
+        if not result.ok:
+            QMessageBox.warning(self, "Remove Model", "\n".join(result.errors) or "Removal failed.")
+            return
+
+        self.catalog_changed = True
+        self.refresh()
+        QMessageBox.information(self, "Remove Model", f"Removed {entry.model_id}.")
+
+    def on_open_folder(self) -> None:
+        """Open the folder holding the selected model's checkpoint."""
+
+        entry = self._selected_entry()
+        if entry is None or not entry.resolved_checkpoint_path:
+            QMessageBox.information(self, "Installed Models", "Select a model that has a checkpoint file.")
+            return
+        folder = Path(entry.resolved_checkpoint_path).parent
+        opened = False
+        try:
+            if sys.platform.startswith("darwin"):
+                opened = bool(QProcess.startDetached("open", [str(folder)]))
+            elif os.name == "nt":
+                opened = bool(QProcess.startDetached("explorer", [str(folder)]))
+            else:
+                opened = bool(QProcess.startDetached("xdg-open", [str(folder)]))
+        except Exception:
+            opened = False
+        if not opened:
+            QMessageBox.information(self, "Installed Models", f"Checkpoint folder:\n{folder}")
+
+
 class QtSegmentationMainWindow(QMainWindow):
     """Qt main window for local segmentation and quantification workflows."""
 
@@ -1625,6 +2125,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._warm_load_target_model: str = ""
         self._last_warm_load_status: ModelWarmLoadStatus | None = None
         self._warm_load_state = ModelWarmLoadState()
+        self._closing = False
         self._results_thread: QThread | None = None
         self._results_worker: _ResultsDashboardWorker | None = None
         self._results_generation: int = 0
@@ -1706,7 +2207,7 @@ class QtSegmentationMainWindow(QMainWindow):
         self._update_calibration_status_label()
         self._refresh_segmentation_progress()
         self.logger.info("Scheduling startup warm-load for %s", self.model_combo.currentText().strip())
-        QTimer.singleShot(0, lambda: self._start_model_warm_load(self.model_combo.currentText()))
+        QTimer.singleShot(0, self._start_startup_model_warm_load)
 
     def _load_ui_config(self, ui_config_path: str | None) -> None:
         cfg, warnings, source_path = load_desktop_ui_config(ui_config_path)
@@ -2138,10 +2639,34 @@ class QtSegmentationMainWindow(QMainWindow):
             )
             event.ignore()
             return
+        # Startup model warming and dashboard rendering are auxiliary workers.
+        # A window may be closed before Qt has delivered their completion
+        # signals (especially in offscreen tests), so join them before child
+        # QThread objects are destroyed with the window.
+        for attr_name, label in (
+            ("_warm_load_thread", "model warm-load"),
+            ("_results_thread", "results analysis"),
+        ):
+            thread = getattr(self, attr_name, None)
+            if thread is None or not thread.isRunning():
+                continue
+            self.logger.info("Waiting for %s worker before closing", label)
+            thread.requestInterruption()
+            thread.quit()
+            if not thread.wait(30_000):
+                self.logger.error("%s worker did not stop before close timeout", label)
+                QMessageBox.information(
+                    self,
+                    "Background Work Running",
+                    f"Wait for the {label} task to finish before closing the app.",
+                )
+                event.ignore()
+                return
         if window_cfg.remember_geometry:
             settings = QSettings()
             settings.setValue("desktop/window_geometry", self.saveGeometry())
             settings.setValue("desktop/window_state", self.saveState())
+        self._closing = True
         super().closeEvent(event)
 
     def _configure_menu(self) -> None:
@@ -2212,11 +2737,13 @@ class QtSegmentationMainWindow(QMainWindow):
         view_menu.addAction("Results Dashboard", self.on_open_results_dashboard)
 
         settings_menu = menu.addMenu("Settings")
+        settings_menu.addAction("Installed Models...", self.on_open_installed_models)
         settings_menu.addAction("Appearance & Export Settings", self.on_open_appearance_settings)
 
         help_menu = menu.addMenu("Help")
         help_menu.addAction("Shortcuts", self.on_show_shortcuts)
         help_menu.addAction("Guide", self.on_show_guide)
+        help_menu.addAction("Methods & Measurements", self.on_show_scientific_guide)
         help_menu.addAction("Model Details", self.on_show_model_details)
         help_menu.addAction("About", self.on_show_about)
 
@@ -2305,9 +2832,15 @@ class QtSegmentationMainWindow(QMainWindow):
         self.model_combo.setMinimumWidth(360)
         self.model_combo.setMinimumHeight(34)
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.model_combo.addItems(self.workflow.model_options())
+        self._populate_model_combo()
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
         model_row.addWidget(self.model_combo, stretch=1)
+        self.btn_manage_models = QToolButton()
+        self.btn_manage_models.setText("...")
+        self.btn_manage_models.setToolTip("Install, verify, or remove trained model checkpoints")
+        self.btn_manage_models.setMinimumSize(34, 34)
+        self.btn_manage_models.clicked.connect(self.on_open_installed_models)
+        model_row.addWidget(self.btn_manage_models)
         controls.addLayout(model_row)
 
         preprocess_row = QVBoxLayout()
@@ -4623,6 +5156,67 @@ class QtSegmentationMainWindow(QMainWindow):
         sample_path = Path(str(sample_raw))
         self._load_sample_path(sample_path)
 
+    def _populate_model_combo(self) -> None:
+        """Rebuild the model selector from the registry, disabling unusable entries."""
+
+        specs = self.workflow.model_specs()
+        self._model_specs = {spec["display_name"]: spec for spec in specs}
+        previous = self.model_combo.currentText().strip()
+
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        first_runnable = -1
+        for row, spec in enumerate(specs):
+            self.model_combo.addItem(str(spec.get("display_name", "")))
+            message = str(spec.get("availability_message", "")).strip()
+            if model_is_runnable(spec):
+                if first_runnable < 0:
+                    first_runnable = row
+                self.model_combo.setItemData(row, message or "Ready to run.", Qt.ToolTipRole)
+                continue
+            self.model_combo.setItemData(
+                row,
+                f"{message}\nUse Settings > Installed Models... to install a checkpoint.",
+                Qt.ToolTipRole,
+            )
+            item = self.model_combo.model().item(row)
+            if item is not None:
+                item.setEnabled(False)
+
+        target = previous if previous and self.model_combo.findText(previous) >= 0 else ""
+        if target and model_is_runnable(self._model_specs.get(target, {})):
+            self.model_combo.setCurrentText(target)
+        elif first_runnable >= 0:
+            self.model_combo.setCurrentIndex(first_runnable)
+        self.model_combo.blockSignals(False)
+
+    def _reload_model_catalog(self, preferred_model_id: str = "") -> None:
+        """Refresh the model selector after models are installed or removed.
+
+        Parameters
+        ----------
+        preferred_model_id:
+            Optional model identifier to select, used to focus a model that was
+            just installed.
+        """
+
+        self._populate_model_combo()
+        target = str(preferred_model_id).strip()
+        if target:
+            for name, spec in self._model_specs.items():
+                if str(spec.get("model_id", "")).strip() == target and model_is_runnable(spec):
+                    self.model_combo.blockSignals(True)
+                    self.model_combo.setCurrentText(name)
+                    self.model_combo.blockSignals(False)
+                    break
+        current = self.model_combo.currentText()
+        self._on_model_changed(current)
+        self.logger.info("Model catalog reloaded; %d model(s) available", self.model_combo.count())
+
+    def _selected_model_is_runnable(self, model_name: str | None = None) -> bool:
+        selected = model_name or self.model_combo.currentText()
+        return model_is_runnable(self._model_specs.get(selected, {}))
+
     def _on_model_changed(self, model_name: str) -> None:
         spec = self._model_specs.get(model_name)
         self._toggle_conventional_controls(model_name)
@@ -4637,6 +5231,13 @@ class QtSegmentationMainWindow(QMainWindow):
             f"<b>{spec['display_name']}</b> | {spec.get('description', '')}",
             spec.get("details", ""),
         ]
+        if not model_is_runnable(spec):
+            lines.insert(
+                0,
+                "<b>Unavailable:</b> "
+                f"{spec.get('availability_message', 'This model cannot run in the current installation.')} "
+                "Open <b>Settings &gt; Installed Models...</b> to install a checkpoint.",
+            )
         if spec.get("model_nickname"):
             lines.append(
                 f"<b>Frozen model:</b> {spec.get('model_nickname')} | {spec.get('framework', '')} | "
@@ -4833,6 +5434,13 @@ class QtSegmentationMainWindow(QMainWindow):
             ),
         }
 
+    def _start_startup_model_warm_load(self) -> None:
+        """Start deferred warm-loading unless the window already closed."""
+
+        if self._closing:
+            return
+        self._start_model_warm_load(self.model_combo.currentText())
+
     def _start_model_warm_load(self, model_name: str) -> None:
         if not hasattr(self, "model_warm_load_status_label"):
             return
@@ -4893,6 +5501,7 @@ class QtSegmentationMainWindow(QMainWindow):
         worker.failed.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_model_warm_load_thread_finished)
         self._warm_load_thread = thread
         self._warm_load_worker = worker
         thread.start()
@@ -4901,8 +5510,6 @@ class QtSegmentationMainWindow(QMainWindow):
     def _on_model_warm_load_finished(self, generation: int, payload: object) -> None:
         if generation != self._warm_load_generation:
             return
-        self._warm_load_thread = None
-        self._warm_load_worker = None
         if isinstance(payload, ModelWarmLoadStatus):
             self._last_warm_load_status = payload
             self._warm_load_state = ModelWarmLoadState(
@@ -4929,8 +5536,6 @@ class QtSegmentationMainWindow(QMainWindow):
     def _on_model_warm_load_failed(self, generation: int, message: str) -> None:
         if generation != self._warm_load_generation:
             return
-        self._warm_load_thread = None
-        self._warm_load_worker = None
         self._last_warm_load_status = None
         self._warm_load_state = ModelWarmLoadState(
             status="failed",
@@ -4942,6 +5547,14 @@ class QtSegmentationMainWindow(QMainWindow):
         )
         self.model_warm_load_status_label.setText(f"Model warm-load: failed ({message}).")
         self.logger.warning("Model warm-load failed for %s: %s", self._warm_load_target_model, message)
+
+    @Slot()
+    def _on_model_warm_load_thread_finished(self) -> None:
+        """Release warm-load objects only after the QThread has actually stopped."""
+
+        if self.sender() is self._warm_load_thread:
+            self._warm_load_thread = None
+            self._warm_load_worker = None
 
     @Slot(int, str, object)
     def _on_results_dashboard_worker_finished(self, generation: int, cache_key: str, payload: object) -> None:
@@ -5766,6 +6379,56 @@ class QtSegmentationMainWindow(QMainWindow):
             "7. Use the CLI guide for training, evaluation, and dataset preparation commands.",
         )
 
+    def on_show_scientific_guide(self) -> None:
+        """Show an in-app reference for algorithms and reported quantities."""
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Methods & Measurements")
+        dialog.resize(820, 620)
+        layout = QVBoxLayout(dialog)
+        body = QTextEdit()
+        body.setReadOnly(True)
+        body.setHtml(
+            """
+            <h1>MicroSeg scientific workflow</h1>
+            <p><b>Load &amp; validate → segment → review → quantify → export.</b>
+            Always inspect the overlay and mask before interpreting measurements.</p>
+            <h2>Conventional segmentation</h2>
+            <ol>
+              <li>Convert the source image to grayscale and optionally crop it.</li>
+              <li>Apply CLAHE local contrast equalisation.</li>
+              <li>Use adaptive Gaussian thresholding.</li>
+              <li>Clean the binary mask with configured morphology.</li>
+              <li>Remove connected features below the configured area threshold.</li>
+            </ol>
+            <p>This path is deterministic for a fixed image and parameter set. Change one
+            control at a time and preserve the exported run manifest.</p>
+            <h2>Trained segmentation</h2>
+            <p>The selected registry entry controls preprocessing, model family, checkpoint,
+            class mapping, and device policy. CPU is the safe default; GPU use is explicit and
+            falls back visibly when unavailable.</p>
+            <h2>Hydride orientation and Fn</h2>
+            <p>Connected mask features are skeletonised and assigned a dominant orientation
+            folded into 0–90°. A feature is radial when its angle is at or above the selected
+            threshold.</p>
+            <p><b>Fn<sub>length</sub> = Σ radial skeleton length / Σ measured skeleton length</b><br>
+            <b>Fn<sub>count</sub> = radial feature count / measured feature count</b></p>
+            <p>Report the angle threshold, minimum feature size, model ID, calibration, and
+            source-run manifest with the result. Pixel measurements become physical units only
+            after a valid calibration is supplied.</p>
+            <h2>Hydride Connectivity Index (candidate)</h2>
+            <p>HCI is documented as an optional advanced feature but is intentionally not yet a
+            production metric. Its topology rules, length definition, unit handling, and
+            validation acceptance criteria require scientific approval before implementation.</p>
+            """
+        )
+        layout.addWidget(body)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+        dialog.exec()
+
     def on_show_about(self) -> None:
         QMessageBox.information(
             self,
@@ -5817,6 +6480,14 @@ class QtSegmentationMainWindow(QMainWindow):
         buttons.accepted.connect(dlg.accept)
         root.addWidget(buttons)
         dlg.exec()
+
+    def on_open_installed_models(self) -> None:
+        """Open the installed-models manager and refresh the selector on change."""
+
+        dialog = InstalledModelsDialog(self, repo_root=self.orchestrator.repo_root)
+        dialog.exec()
+        if dialog.catalog_changed:
+            self._reload_model_catalog(dialog.last_installed_model_id)
 
     def on_open_results_dashboard(self) -> None:
         idx = self.tabs.indexOf(self.results_widget)
@@ -5994,6 +6665,16 @@ class QtSegmentationMainWindow(QMainWindow):
         try:
             cfg = self._resolve_run_config()
             model_name = str(cfg.get("model_name") or self.model_combo.currentText())
+            if not self._selected_model_is_runnable(model_name):
+                spec = self._model_specs.get(model_name, {})
+                QMessageBox.warning(
+                    self,
+                    "Model unavailable",
+                    f"{model_name} cannot run.\n\n"
+                    f"{spec.get('availability_message', 'The model checkpoint is not installed.')}\n\n"
+                    "Open Settings > Installed Models... to install a checkpoint.",
+                )
+                return
             self.model_combo.setCurrentText(model_name)
             include_analysis = bool(cfg.get("include_analysis", True))
             params = dict(cfg.get("params", {}))
@@ -6052,6 +6733,16 @@ class QtSegmentationMainWindow(QMainWindow):
         try:
             cfg = self._resolve_run_config()
             model_name = str(cfg.get("model_name") or self.model_combo.currentText())
+            if not self._selected_model_is_runnable(model_name):
+                spec = self._model_specs.get(model_name, {})
+                QMessageBox.warning(
+                    self,
+                    "Model unavailable",
+                    f"{model_name} cannot run.\n\n"
+                    f"{spec.get('availability_message', 'The model checkpoint is not installed.')}\n\n"
+                    "Open Settings > Installed Models... to install a checkpoint.",
+                )
+                return
             self.model_combo.setCurrentText(model_name)
             include_analysis = bool(cfg.get("include_analysis", False))
             params = dict(cfg.get("params", {}))

@@ -1,0 +1,109 @@
+"""Browser-based intranet application for microstructural segmentation.
+
+The application factory builds a self-contained Flask app: templates and static
+assets are served from this package, model metadata comes from the same registry
+the desktop GUI and CLI use, and no request depends on an external network.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from flask import Flask
+
+from .config import WebServerConfig, load_web_config
+from .models import ModelCatalog
+from .routes import create_web_blueprint
+from .jobs import WebJobManager
+from .segmentation import JobLimiter
+
+__all__ = [
+    "JobLimiter",
+    "ModelCatalog",
+    "WebServerConfig",
+    "create_app",
+    "load_web_config",
+]
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def create_app(
+    config_path: str | Path | None = None,
+    *,
+    config: WebServerConfig | None = None,
+    preload: bool | None = None,
+) -> Flask:
+    """Create the intranet segmentation web application.
+
+    Parameters
+    ----------
+    config_path:
+        Optional YAML configuration path. Defaults to the packaged configuration.
+    config:
+        Optional pre-resolved configuration, primarily for tests.
+    preload:
+        Overrides the configured startup warm-load behaviour. Tests pass
+        ``False`` to keep application creation instant.
+
+    Returns
+    -------
+    flask.Flask
+        Configured application, ready for a WSGI server.
+    """
+
+    resolved = config if config is not None else load_web_config(config_path)
+
+    app = Flask(__name__)
+    # Allow modest multipart framing overhead; the route enforces the exact
+    # image-byte ceiling before decoding.
+    app.config["MAX_CONTENT_LENGTH"] = resolved.max_upload_bytes + (1024 * 1024)
+    app.config["JSON_SORT_KEYS"] = False
+    app.config["MICROSEG_WEB_CONFIG"] = resolved
+
+    for warning in resolved.warnings:
+        _LOGGER.warning("Web configuration: %s", warning)
+
+    catalog = ModelCatalog(
+        enable_gpu=resolved.enable_gpu,
+        device_policy=resolved.device_policy,
+        preload_model_ids=resolved.preload_model_ids,
+    )
+    limiter = JobLimiter(
+        max_concurrent_jobs=resolved.max_concurrent_jobs,
+        timeout_seconds=float(resolved.request_timeout_seconds),
+    )
+    jobs = WebJobManager(
+        max_concurrent_jobs=resolved.max_concurrent_jobs,
+        max_retained_jobs=resolved.max_retained_jobs,
+        retention_seconds=resolved.job_retention_seconds,
+    )
+
+    app.extensions["microseg_web"] = {
+        "config": resolved,
+        "catalog": catalog,
+        "limiter": limiter,
+        "jobs": jobs,
+    }
+
+    app.register_blueprint(create_web_blueprint())
+
+    should_preload = resolved.preload_on_startup if preload is None else bool(preload)
+    if should_preload:
+        if resolved.preload_in_background:
+            _LOGGER.info("Warming trained models in the background")
+            catalog.preload_async()
+        else:
+            _LOGGER.info("Warming trained models before accepting requests")
+            catalog.preload()
+    else:
+        _LOGGER.info("Model preloading is disabled; the first request will load its model")
+
+    _LOGGER.info(
+        "Web application ready | config=%s | upload_limit=%dMB | jobs=%d",
+        resolved.source_path,
+        resolved.max_upload_mb,
+        resolved.max_concurrent_jobs,
+    )
+    return app

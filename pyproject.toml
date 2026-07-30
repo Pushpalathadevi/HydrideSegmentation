@@ -36,9 +36,22 @@ core = [
 gui = [
     "PySide6",
 ]
+web = [
+    "waitress",
+]
 transformers = [
     "transformers",
     "huggingface_hub",
+]
+
+[tool.setuptools.package-data]
+# Templates and static assets are served by the intranet web app and must ship
+# with the installed package, not only from a source checkout.
+"hydride_segmentation.web" = [
+    "templates/*.html",
+    "static/css/*.css",
+    "static/js/*.js",
+    "static/img/*.svg",
 ]
 
 [project.scripts]
@@ -47,6 +60,7 @@ hydride-orientation = "hydride_segmentation.hydride_orientation_analyzer:main"
 segmentation-eval = "hydride_segmentation.segmentation_evaluator:main"
 hydride-service = "hydride_segmentation.service:main"
 hydride-gui-qt = "hydride_segmentation.qt_gui:main"
+microseg-web = "scripts.run_web_server:main"
 microseg-docs = "scripts.build_docs:main"
 microseg-cli = "scripts.microseg_cli:main"
 microseg-phase-gate = "scripts.run_phase_gate:main"

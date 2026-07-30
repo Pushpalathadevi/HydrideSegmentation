@@ -18,6 +18,15 @@ See `docs/mission_statement.md`.
 ## Core Capabilities
 
 - Registry-backed segmentation orchestration (`src/microseg`)
+- Browser-based intranet app (`microseg-web`) for colleagues who should not have to install anything:
+  - one air-gapped host serves the whole team; clients need only a browser
+  - drag-and-drop upload plus bundled example images for testing without private data
+  - strict 5 MB image validation, memory-only processing, and asynchronous progress with a live log
+  - both the conventional pipeline and any installed trained model, from the same registry the desktop app uses
+  - radial hydride fraction (Fn) as the headline result, length-weighted and count-based, with a user-controlled angle threshold and opt-in views showing which hydrides were counted
+  - per-parameter in-app help and a dedicated help page
+  - trained models preloaded at startup so the first request is not slowed by model loading
+  - see `docs/intranet_web_app.md`
 - Qt desktop GUI (`hydride-gui`) with:
   - a unified `Segmentation` workspace showing input on the left and predicted mask on the right, with a clear not-ready state before inference
   - live, pre-filled conventional-segmentation controls beside the images; hover help explains every parameter and edits trigger a debounced background refresh
@@ -80,6 +89,9 @@ npm install
 # Desktop GUI profile
 pip install -r requirements-gui.txt
 
+# Intranet web server profile
+pip install -r requirements-web.txt
+
 # Fully pinned CPU-first reproducible baseline
 pip install -r envs/microseg-core.lock.txt
 ```
@@ -96,6 +108,13 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows_installer.ps1
 See `docs/windows_offline_installer.md`.
 
 ## Primary Usage
+
+Intranet web app (serves the whole team from one host):
+```bash
+python scripts/run_web_server.py
+```
+
+The command prints the `http://<host>:5005/` links to share with colleagues. Open the host firewall for the port, and the team needs nothing installed. Deployment, configuration, service setup, and the offline wheelhouse install are covered in `docs/intranet_web_app.md`.
 
 Qt GUI:
 ```bash
@@ -472,6 +491,22 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Metadata registry: `frozen_checkpoints/model_registry.json`
 - Guidance: `docs/frozen_checkpoint_registry.md`
 - Binary weights are intentionally excluded from git tracking.
+
+### Installing A Trained Model
+
+Because checkpoint binaries are not tracked in git, a fresh clone has no `.pt` file and the ML models are shown as unavailable until one is installed. The conventional pipeline works without any checkpoint.
+
+From the GUI: `Settings > Installed Models...` then `Install Model...`, pick the checkpoint, confirm the name, and click `Install`. The model appears in the selector immediately, with no restart.
+
+From the CLI:
+
+```bash
+microseg-cli install-model --checkpoint path/to/best_checkpoint.pth --model-id my_unet_v1 --nickname my_unet_v1_optical
+```
+
+The installer reads the architecture, input size, checksum, and training provenance from the checkpoint itself, copies the file into the lifecycle folder matching its stage, verifies it with a real load and one forward pass, and records it in the untracked `frozen_checkpoints/model_registry.local.json` overlay. Failed installs roll back completely. Related commands: `microseg-cli inspect-checkpoint`, `microseg-cli uninstall-model`, `microseg-cli models`.
+
+Full walkthrough: `docs/gui_model_integration_guide.md`.
 - Tiny smoke-checkpoint generator: `python scripts/generate_smoke_checkpoint.py --force`
 - Lifecycle folders: `frozen_checkpoints/smoke`, `frozen_checkpoints/candidates`, `frozen_checkpoints/promoted`
 
@@ -487,6 +522,8 @@ python scripts/hydride_benchmark_suite.py --config configs/hydride/benchmark_sui
 - Repository health audit: `docs/repo_health_audit.md`
 - Training data requirements: `docs/training_data_requirements.md`
 - GUI user guide: `docs/gui_user_guide.md`
+- Intranet web app deployment: `docs/intranet_web_app.md`
+- Deferred Hydride Connectivity Index specification and audit: `docs/hydride_connectivity_index.md`
 - Windows offline installer workflow: `docs/windows_offline_installer.md`
 - HPC GA user guide: `docs/hpc_ga_user_guide.md`
 - HPC GA developer guide: `docs/hpc_ga_developer_guide.md`

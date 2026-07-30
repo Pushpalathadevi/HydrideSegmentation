@@ -85,6 +85,24 @@ def _registry_overlay_path(reg_path: Path) -> Path:
     return reg_path.with_name(f"{reg_path.stem}{LOCAL_REGISTRY_SUFFIX}{reg_path.suffix}")
 
 
+def local_registry_path(start: Path | None = None) -> Path:
+    """Return the local-overrides registry path merged over the canonical registry.
+
+    Parameters
+    ----------
+    start:
+        Optional path used to locate the repository root.
+
+    Returns
+    -------
+    Path
+        Path of ``model_registry.local.json`` beside the canonical registry. The
+        file is not required to exist; it is created on first local install.
+    """
+
+    return _registry_overlay_path(registry_path(start))
+
+
 def _load_registry_records_from_file(reg_path: Path) -> list[FrozenCheckpointRecord]:
     """Load checkpoint records from one registry file."""
 

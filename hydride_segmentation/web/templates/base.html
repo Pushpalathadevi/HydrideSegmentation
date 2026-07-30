@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ config.site_name }}{% endblock %}</title>
+<link rel="icon" href="{{ url_for('microseg_web.static', filename='img/favicon.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ url_for('microseg_web.static', filename='css/app.css') }}">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+<header class="site-header">
+  <div class="wrap header-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <span class="brand-name">{{ config.site_name }}</span>
+        <span class="brand-sub">{{ config.site_description }}</span>
+      </div>
+    </div>
+    <nav class="site-nav" aria-label="Main">
+      <a href="{{ url_for('microseg_web.index') }}" class="{{ 'active' if active_page == 'workspace' else '' }}">Workspace</a>
+      <a href="{{ url_for('microseg_web.help_page') }}" class="{{ 'active' if active_page == 'help' else '' }}">Help</a>
+      <span id="server-status" class="status-chip status-chip--pending" role="status" aria-live="polite">Checking server...</span>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+{% block content %}{% endblock %}
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <span>Runs entirely on this server. Uploaded images are processed in memory and are not stored.</span>
+    {% if config.maintainer %}<span>Maintained by {{ config.maintainer }}</span>{% endif %}
+  </div>
+</footer>
+
+<script src="{{ url_for('microseg_web.static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

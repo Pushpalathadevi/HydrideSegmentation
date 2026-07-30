@@ -19,6 +19,11 @@ The registry is used by:
 Recommended pattern:
 1. Generate a tiny smoke checkpoint for pipeline tests:
    - `python scripts/generate_smoke_checkpoint.py --force`
-2. Place candidate/approved checkpoints locally under `frozen_checkpoints/candidates/` or `frozen_checkpoints/promoted/`.
-3. Update `model_registry.json` with dimensions, class mapping, lifecycle stage, and usage notes.
+2. Install real checkpoints with the installer rather than by hand:
+   - GUI: `Settings > Installed Models...` then `Install Model...`
+   - CLI: `microseg-cli install-model --checkpoint path/to/best_checkpoint.pth --model-id my_unet_v1 --nickname my_unet_v1_optical`
+   - The installer copies the file into the lifecycle folder for the chosen stage, verifies it loads and runs, and writes a complete entry into the untracked `model_registry.local.json` overlay.
+3. Edit `model_registry.json` directly only for entries that ship with the repository; keep dimensions, class mapping, lifecycle stage, and usage notes accurate.
 4. Keep `short_description` and `detailed_description` focused on user decision support.
+
+See `docs/gui_model_integration_guide.md` for the full walkthrough.
