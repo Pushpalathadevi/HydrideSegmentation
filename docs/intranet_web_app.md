@@ -7,6 +7,8 @@ One host runs the server. Everyone else just opens a URL. No one else needs Pyth
 ## What Users Get
 
 - Upload a micrograph, or run a bundled example image without needing their own data.
+- Preview a selected upload in the drop area before running; bundled examples are presented as
+  clickable thumbnail cards and also populate the same preview.
 - Choose between the trained model and the conventional pipeline.
 - **Radial hydride fraction (Fn)** reported as the headline result, both length-weighted and count-based, with a user-controlled angle threshold.
 - Tune conventional and quantification parameters, each with in-app help behind a `?` button.

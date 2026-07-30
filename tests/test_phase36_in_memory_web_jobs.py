@@ -25,6 +25,21 @@ def test_packaged_upload_limit_is_five_mb() -> None:
     assert load_web_config().max_upload_mb == 5
 
 
+def test_workspace_exposes_upload_preview_and_sample_thumbnails() -> None:
+    app = create_app(preload=False)
+    app.config.update(TESTING=True)
+    with app.test_client() as client:
+        body = client.get("/").get_data(as_text=True)
+        script = client.get("/static/js/app.js").get_data(as_text=True)
+
+    assert 'id="selection-preview"' in body
+    assert 'class="sample-btn"' in body
+    assert 'data-sample-url="/api/samples/' in body
+    assert '<img src="/api/samples/' in body
+    assert "URL.createObjectURL(file)" in script
+    assert "showPreview(sampleUrl" in script
+
+
 def test_prepare_image_rejects_extension_content_mismatch() -> None:
     try:
         prepare_image(_image_bytes(), expected_extension="jpg")

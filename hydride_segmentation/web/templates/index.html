@@ -16,11 +16,15 @@
       <div id="dropzone" class="dropzone" tabindex="0" role="button"
            aria-label="Choose an image file or drop one here">
         <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.tif,.tiff,.bmp" hidden>
-        <span class="dropzone-icon" aria-hidden="true"></span>
-        <span class="dropzone-text">Drop an image here, or click to browse</span>
-        <span class="dropzone-hint">
-          {{ allowed_extensions|join(', ')|upper }} &middot; up to {{ config.max_upload_mb }} MB
+        <img id="selection-preview" class="selection-preview" alt="" hidden>
+        <span id="dropzone-placeholder" class="dropzone-placeholder">
+          <span class="dropzone-icon" aria-hidden="true"></span>
+          <span class="dropzone-text">Drop an image here, or click to browse</span>
+          <span class="dropzone-hint">
+            {{ allowed_extensions|join(', ')|upper }} &middot; up to {{ config.max_upload_mb }} MB
+          </span>
         </span>
+        <span id="preview-replace-hint" class="preview-replace-hint" hidden>Click or drop to replace</span>
       </div>
 
       <p id="file-name" class="file-name" aria-live="polite"></p>
@@ -30,8 +34,12 @@
         <span class="samples-label">No image handy? Try an example:</span>
         <div class="samples-buttons">
           {% for sample in samples %}
-          <button type="button" class="btn btn-ghost sample-btn" data-sample-id="{{ sample.id }}">
-            {{ sample.label }}
+          <button type="button" class="sample-btn" data-sample-id="{{ sample.id }}"
+                  data-sample-label="{{ sample.label }}"
+                  data-sample-url="{{ url_for('microseg_web.sample_image', sample_id=sample.id) }}">
+            <img src="{{ url_for('microseg_web.sample_image', sample_id=sample.id) }}"
+                 alt="" loading="lazy">
+            <span>{{ sample.label }}</span>
           </button>
           {% endfor %}
         </div>

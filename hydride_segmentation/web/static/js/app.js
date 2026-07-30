@@ -142,12 +142,15 @@
 
     var state = {
       file: null, sampleId: "", result: null, view: "overlay_png_b64",
-      running: false, lastEventSequence: 0, jobEvents: []
+      running: false, lastEventSequence: 0, jobEvents: [], previewObjectUrl: ""
     };
 
     var dropzone = $("dropzone");
     var fileInput = $("file-input");
     var fileName = $("file-name");
+    var selectionPreview = $("selection-preview");
+    var dropzonePlaceholder = $("dropzone-placeholder");
+    var previewReplaceHint = $("preview-replace-hint");
     var modelSelect = $("model-select");
     var modelDescription = $("model-description");
     var modelWarning = $("model-warning");
@@ -224,38 +227,74 @@
 
     /* -- image selection -- */
 
+    function clearPreview() {
+      if (state.previewObjectUrl) {
+        URL.revokeObjectURL(state.previewObjectUrl);
+        state.previewObjectUrl = "";
+      }
+      selectionPreview.removeAttribute("src");
+      selectionPreview.alt = "";
+      selectionPreview.setAttribute("hidden", "");
+      previewReplaceHint.setAttribute("hidden", "");
+      dropzonePlaceholder.removeAttribute("hidden");
+      dropzone.classList.remove("has-preview");
+    }
+
+    function showPreview(url, alt, objectUrl) {
+      clearPreview();
+      state.previewObjectUrl = objectUrl ? url : "";
+      selectionPreview.src = url;
+      selectionPreview.alt = alt;
+      selectionPreview.removeAttribute("hidden");
+      previewReplaceHint.removeAttribute("hidden");
+      dropzonePlaceholder.setAttribute("hidden", "");
+      dropzone.classList.add("has-preview");
+    }
+
+    selectionPreview.addEventListener("error", function () {
+      clearPreview();
+      fileName.textContent += " Preview is unavailable in this browser, but the image remains selected.";
+    });
+
     function setFile(file) {
       var extension = file && file.name.indexOf(".") >= 0
         ? file.name.split(".").pop().toLowerCase() : "";
       var allowed = data.allowedExtensions || [];
       if (!file || allowed.indexOf(extension) < 0) {
         state.file = null;
+        state.sampleId = "";
         fileInput.value = "";
         fileName.textContent = "";
+        clearPreview();
         showError("Choose a supported image: " + allowed.join(", ").toUpperCase() + ".");
         updateRunButton();
         return;
       }
       if (file.size > data.maxUploadMb * 1024 * 1024) {
         state.file = null;
+        state.sampleId = "";
         fileInput.value = "";
         fileName.textContent = "";
+        clearPreview();
         showError("That image is larger than the " + data.maxUploadMb + " MB limit.");
         updateRunButton();
         return;
       }
       state.file = file;
       state.sampleId = "";
+      var objectUrl = URL.createObjectURL(file);
+      showPreview(objectUrl, "Preview of " + file.name, true);
       fileName.textContent = "Validated filename and size: " + file.name + " (" +
         (file.size / (1024 * 1024)).toFixed(2) + " MB). Contents are checked before queuing.";
       clearError();
       updateRunButton();
     }
 
-    function setSample(sampleId, label) {
+    function setSample(sampleId, label, sampleUrl) {
       state.file = null;
       state.sampleId = sampleId;
       fileInput.value = "";
+      showPreview(sampleUrl, "Preview of example image: " + label, false);
       fileName.textContent = "Example image: " + label;
       clearError();
       updateRunButton();
@@ -300,7 +339,11 @@
     for (var s = 0; s < sampleButtons.length; s++) {
       (function (button) {
         button.addEventListener("click", function () {
-          setSample(button.getAttribute("data-sample-id"), button.textContent.trim());
+          setSample(
+            button.getAttribute("data-sample-id"),
+            button.getAttribute("data-sample-label") || button.textContent.trim(),
+            button.getAttribute("data-sample-url")
+          );
         });
       })(sampleButtons[s]);
     }

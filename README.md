@@ -21,6 +21,7 @@ See `docs/mission_statement.md`.
 - Browser-based intranet app (`microseg-web`) for colleagues who should not have to install anything:
   - one air-gapped host serves the whole team; clients need only a browser
   - drag-and-drop upload plus bundled example images for testing without private data
+  - immediate upload preview and clickable thumbnail previews for bundled examples
   - strict 5 MB image validation, memory-only processing, and asynchronous progress with a live log
   - both the conventional pipeline and any installed trained model, from the same registry the desktop app uses
   - radial hydride fraction (Fn) as the headline result, length-weighted and count-based, with a user-controlled angle threshold and opt-in views showing which hydrides were counted
