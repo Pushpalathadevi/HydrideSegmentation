@@ -197,6 +197,42 @@ def test_vendored_katex_makes_no_remote_requests() -> None:
         assert not fetched, f"{name} would reach outside this host for: {fetched}"
 
 
+def test_vendored_fonts_survived_checkout_intact() -> None:
+    """Every vendored font must still be a parseable woff2 file.
+
+    Contributors run with ``core.autocrlf=true``. Without the ``binary`` rules in
+    ``.gitattributes`` git decides per file, by heuristic, whether to rewrite
+    line endings on checkout, and a font rewritten as text stops parsing. The
+    browser then substitutes a face and reports nothing, so the help page renders
+    its mathematics in the wrong font with no error to notice. Checking the
+    format signature catches that on whatever machine ran the checkout.
+    """
+
+    fonts = sorted((WEB_PACKAGE_ROOT / "static" / "vendor" / "katex" / "fonts").glob("*.woff2"))
+    assert len(fonts) >= 20, f"expected the full KaTeX font set, found {len(fonts)}"
+
+    for font in fonts:
+        payload = font.read_bytes()
+        # woff2 files begin with the signature 'wOF2'.
+        assert payload[:4] == b"wOF2", (
+            f"{font.name} is not a valid woff2 file; a checkout probably rewrote its bytes"
+        )
+        assert len(payload) > 1024, f"{font.name} is implausibly small at {len(payload)} bytes"
+
+
+def test_repository_declares_binary_formats_for_checkout() -> None:
+    """The rules that keep the fonts intact must themselves be committed."""
+
+    attributes = WEB_PACKAGE_ROOT.parents[1] / ".gitattributes"
+    assert attributes.exists(), ".gitattributes is required so fonts are not line-ending converted"
+
+    text = attributes.read_text(encoding="utf-8")
+    for pattern in ("*.woff2", "*.png", "*.pt"):
+        assert re.search(rf"{re.escape(pattern)}\s+binary", text), (
+            f".gitattributes does not mark {pattern} as binary"
+        )
+
+
 def test_vendored_katex_ships_its_licence() -> None:
     licence = WEB_PACKAGE_ROOT / "static" / "vendor" / "katex" / "LICENSE"
     assert licence.exists(), "vendored third-party code must ship its licence"

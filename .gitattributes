@@ -1,0 +1,49 @@
+# Line-ending and binary handling.
+#
+# Contributors run with core.autocrlf=true on Windows, so without these rules
+# git decides per file, by heuristic, whether to rewrite line endings on
+# checkout. That guess is right almost always, and silently destructive when it
+# is not: a font rewritten as text stops parsing, and the browser falls back to
+# a substitute face with no error anywhere. Declare the binary formats instead
+# of relying on the guess.
+
+* text=auto
+
+# Fonts. These ship with the vendored KaTeX and must survive a checkout intact,
+# including on an air-gapped host where nothing can be re-downloaded.
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.otf   binary
+
+# Images and other binary assets.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.bmp   binary
+*.tif   binary
+*.tiff  binary
+*.ico   binary
+
+# Model checkpoints and archives.
+*.pt    binary
+*.pth   binary
+*.ckpt  binary
+*.onnx  binary
+*.h5    binary
+*.hdf5  binary
+*.pkl   binary
+*.npy   binary
+*.npz   binary
+*.zip   binary
+
+# Office documents.
+*.docx  binary
+*.pptx  binary
+*.xlsx  binary
+*.pdf   binary
+
+# SVG is text and benefits from normal diffing.
+*.svg   text
