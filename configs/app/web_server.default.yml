@@ -53,8 +53,21 @@ analysis:
   include_analysis: true
 
 demo:
+  # Folder of micrographs users can browse from the server when they have no image
+  # of their own. Repository-relative unless an absolute path is given. The images
+  # are supplied per deployment and are not tracked in git; see test_library/README.md.
+  # Scanned on every request, so images added on a running server appear immediately.
+  # When this folder is missing, empty, or unreadable, the sample_images below are
+  # offered instead.
+  library_dir: "test_library"
+  # Upper bound on how many library images are listed in one response, so an
+  # accidentally huge folder cannot stall the browser. The picker is designed for
+  # a curated set of roughly twenty images; this leaves headroom above that.
+  library_max_images: 50
+
   # Repository-relative example images offered in the browser for testing without
-  # uploading a private micrograph.
+  # uploading a private micrograph. These are the fallback when library_dir is
+  # unavailable, so they must remain part of the repository.
   sample_images:
     - path: "data/sample_images/hydride_optical_sample.png"
       label: "Optical micrograph (hydrides)"

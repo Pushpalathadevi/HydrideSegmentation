@@ -13,7 +13,9 @@
   <nav class="toc" aria-label="On this page">
     <a href="#quick">Quick start</a>
     <a href="#methods">Choosing a method</a>
+    <a href="#pipeline">How the processing works</a>
     <a href="#fn">Radial hydride fraction (Fn)</a>
+    <a href="#formulae">Formulae</a>
     <a href="#conventional">Conventional settings</a>
     <a href="#reading">Reading the results</a>
     <a href="#images">Image requirements</a>
@@ -26,15 +28,20 @@
          class="doc-workflow" alt="Five stages: validate, segment, review, measure, and report.">
     <ol>
       <li>Open the <a href="{{ url_for('microseg_web.index') }}">Workspace</a>.</li>
-      <li>Load an example image, or drop your own micrograph onto the upload area.</li>
+      <li>
+        Drop your own micrograph onto the upload area, or select
+        <em>Browse the server library</em> to pick one of the micrographs stored on this
+        server. If this deployment has no library, two built-in examples are offered instead.
+      </li>
       <li>Leave the method on its default and select <em>Run segmentation</em>.</li>
       <li>Look at the <em>Overlay</em> tab first: detected hydrides are tinted over your original image.</li>
       <li>If the overlay looks wrong, switch method or adjust the conventional settings one at a time.</li>
       <li>Read the <a href="#fn">Fn panel</a> at the top of the results for the radial hydride fraction.</li>
     </ol>
     <p class="callout">
-      New here? Run an example image once before using your own data. It shows you what a
-      correct result looks like on this deployment, which makes it much easier to judge your own.
+      New here? Run one of the server's images once before using your own data. It shows you
+      what a correct result looks like on this deployment, which makes it much easier to judge
+      your own.
     </p>
   </section>
 
@@ -57,6 +64,175 @@
     <p>
       A practical habit is to run both on the same image. Where they agree, you can be confident.
       Where they disagree, look closely at the original.
+    </p>
+  </section>
+
+  <section id="pipeline">
+    <h2>How the processing works</h2>
+    <p>
+      Both methods answer the same question &mdash; which pixels are hydride &mdash; and both hand
+      back a binary mask. Everything after that point is identical, so the choice of method affects
+      only the mask, never how the numbers are derived from it.
+    </p>
+
+    <h3>Every request follows these stages</h3>
+    <ol class="flow">
+      <li class="flow-step">
+        <h4>Validate</h4>
+        <p class="flow-op">extension &rarr; decoded format &rarr; frame count &rarr; pixel count</p>
+        <p class="flow-note">
+          The declared extension must match the format the decoder actually finds, so a renamed
+          non-image is rejected. Multi-frame files are refused, and the decoded image may hold at
+          most {{ "{:,}".format(config.max_image_pixels) }} pixels.
+        </p>
+      </li>
+      <li class="flow-step">
+        <h4>Prepare</h4>
+        <p class="flow-op">decode &rarr; greyscale array{% if config.max_long_side_px %} &rarr; downscale if long side &gt; {{ config.max_long_side_px }} px{% endif %}</p>
+        <p class="flow-note">
+          Colour images are converted internally.{% if config.max_long_side_px %} Downscaling is
+          reported with the result, and every pixel measurement then refers to the downscaled
+          image.{% endif %} The array stays in memory and is never written to disk.
+        </p>
+      </li>
+      <li class="flow-step">
+        <h4>Segment</h4>
+        <p class="flow-op">image &rarr; binary mask M</p>
+        <p class="flow-note">
+          Either the conventional pipeline or a trained network, detailed below. This is the only
+          stage where the two methods differ.
+        </p>
+      </li>
+      <li class="flow-step">
+        <h4>Quantify</h4>
+        <p class="flow-op">label &rarr; per-feature orientation and length &rarr; Fn and distributions</p>
+        <p class="flow-note">
+          Connected components are measured individually; see <a href="#formulae">Formulae</a> for
+          each definition.
+        </p>
+      </li>
+      <li class="flow-step">
+        <h4>Report</h4>
+        <p class="flow-op">PNG views + metrics + settings &rarr; JSON</p>
+        <p class="flow-note">
+          The downloaded JSON records the settings that produced the numbers, so a result can be
+          reproduced later.
+        </p>
+      </li>
+    </ol>
+
+    <div class="flow-branch">
+      <section>
+        <h3>Conventional pipeline</h3>
+        <p>
+          Classical image processing. Deterministic and fully inspectable: the same image and
+          settings always give the same mask.
+        </p>
+        <ol class="flow">
+          <li class="flow-step">
+            <h4>Normalise</h4>
+            <p class="flow-op">I&prime; = I / 255</p>
+            <p class="flow-note">Intensities are mapped to the range 0 to 1.</p>
+          </li>
+          <li class="flow-step">
+            <h4>Local contrast equalisation (CLAHE)</h4>
+            <p class="flow-op">C = CLAHE(I&prime;; clip, tiles) &rarr; 8-bit</p>
+            <p class="flow-note">
+              The image is divided into a grid of tiles and each is histogram-equalised
+              independently, so faint hydrides in a dark corner become visible. The clip limit caps
+              how far contrast is stretched inside a tile, which is what stops noise being amplified
+              into false detections.
+            </p>
+          </li>
+          <li class="flow-step">
+            <h4>Adaptive threshold</h4>
+            <p class="flow-op">T(x,y) = mean<sub>block</sub>(C) &minus; offset<br>M = [ C &lt; T ]</p>
+            <p class="flow-note">
+              The threshold is computed per pixel from its own neighbourhood rather than once for
+              the whole image, so uneven illumination does not bias the result. Hydrides are taken
+              to be <em>darker</em> than their surroundings, which is why the comparison is
+              &ldquo;less than&rdquo;. A larger offset makes detection stricter.
+            </p>
+          </li>
+          <li class="flow-step">
+            <h4>Morphological closing</h4>
+            <p class="flow-op">M &larr; (M &oplus; S) &#8854; S, repeated n times</p>
+            <p class="flow-note">
+              Dilation followed by erosion with a square structuring element S of side <var>k</var>.
+              This bridges small breaks along a hydride trace without growing its overall width.
+              Setting the iterations to zero disables it.
+            </p>
+          </li>
+          <li class="flow-step">
+            <h4>Overlay for review</h4>
+            <p class="flow-op">edges = dilate(M) &oplus; M</p>
+            <p class="flow-note">
+              The boundary ring is drawn in red over the original image. This is the Overlay tab.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <section>
+        <h3>Trained model pipeline</h3>
+        <p>
+          A U-Net convolutional network that has learned hydride appearance from labelled
+          micrographs. There is nothing to tune at run time.
+        </p>
+        <ol class="flow">
+          <li class="flow-step">
+            <h4>Prepare the tensor</h4>
+            <p class="flow-op">x = I<sub>RGB</sub> / 255, shape (1, 3, H, W)</p>
+            <p class="flow-note">
+              The image is presented as three channels of floating-point values between 0 and 1.
+            </p>
+          </li>
+          <li class="flow-step">
+            <h4>Encoder (contracting path)</h4>
+            <p class="flow-op">DC(3&rarr;C) &rarr; pool &rarr; DC(C&rarr;2C) &rarr; pool &rarr; DC(2C&rarr;4C)</p>
+            <p class="flow-note">
+              Each <strong>DC</strong> block is two 3&times;3 convolutions, each followed by batch
+              normalisation and a ReLU. Each 2&times;2 max-pool halves the resolution and doubles the
+              channel count, trading spatial detail for context: deeper layers see a wider area and
+              so can tell a hydride from a scratch.
+            </p>
+          </li>
+          <li class="flow-step">
+            <h4>Decoder (expanding path)</h4>
+            <p class="flow-op">up(4C&rarr;2C) &#8853; skip &rarr; DC &rarr; up(2C&rarr;C) &#8853; skip &rarr; DC</p>
+            <p class="flow-note">
+              Transposed convolutions restore full resolution. At each level the matching encoder
+              feature map is concatenated back in (the skip connection), which is what lets the
+              network place a boundary precisely rather than approximately.
+            </p>
+          </li>
+          <li class="flow-step">
+            <h4>Output head</h4>
+            <p class="flow-op">z = Conv<sub>1&times;1</sub>(&middot;) &rarr; one logit per pixel</p>
+            <p class="flow-note">
+              A single 1&times;1 convolution collapses the feature channels to one unbounded score
+              per pixel.
+            </p>
+          </li>
+          <li class="flow-step">
+            <h4>Probability and decision</h4>
+            <p class="flow-op">p = &sigma;(z) = 1 / (1 + e<sup>&minus;z</sup>)<br>M = [ p &gt; 0.5 ]</p>
+            <p class="flow-note">
+              The logistic function turns each score into a hydride probability, and the mask keeps
+              the pixels above one half. The forward pass runs with gradients disabled, on CPU
+              unless this deployment enables a GPU.
+            </p>
+          </li>
+        </ol>
+      </section>
+    </div>
+
+    <p class="callout">
+      The two pipelines fail in different ways, which is what makes running both worthwhile. The
+      conventional method mistakes any dark elongated feature &mdash; a scratch, a polishing
+      artefact &mdash; for a hydride. The trained model rejects those, but can miss hydrides that
+      look unlike anything in its training set. Agreement between them is real evidence; a
+      disagreement tells you which image to look at closely.
     </p>
   </section>
 
@@ -129,6 +305,239 @@
     <p class="callout">
       Fn depends on the segmentation being right in the first place. Check the Overlay tab before
       trusting any number, and prefer the trained model where it is available.
+    </p>
+  </section>
+
+  <section id="formulae">
+    <h2>Formulae</h2>
+    <p>
+      Every number in the measurements table and the downloaded JSON is defined below. The
+      monospaced name after each definition is the key it appears under in the JSON, so a value in
+      a report can always be traced back to its definition.
+    </p>
+
+    <h3>1. Extracting features from the mask</h3>
+    <p>
+      All measurements begin from the same decomposition of the mask into individual hydrides.
+    </p>
+    <ol class="flow">
+      <li class="flow-step">
+        <h4>Label connected components</h4>
+        <p class="flow-op">M &rarr; { R<sub>1</sub>, R<sub>2</sub>, &hellip;, R<sub>N</sub> }</p>
+        <p class="flow-note">
+          Pixels are grouped using 8-connectivity, so features touching only at a corner are treated
+          as one. Components smaller than the minimum feature size are dropped before any statistic
+          is computed <span class="metric-key">excluded_small_features</span>.
+        </p>
+      </li>
+      <li class="flow-step">
+        <h4>Reduce each feature to a centreline</h4>
+        <p class="flow-op">R<sub>i</sub> &rarr; fill holes &rarr; dilate(disk 1) &rarr; skeletonise</p>
+        <p class="flow-note">
+          The skeleton is a one-pixel-wide centreline. Filling and a single dilation first keep a
+          ragged edge from breaking the skeleton into disconnected stubs.
+        </p>
+      </li>
+      <li class="flow-step">
+        <h4>Find the dominant direction</h4>
+        <p class="flow-op">
+          &Sigma; = cov(skeleton coordinates);
+          <strong>v</strong><sub>i</sub> = eigenvector of &Sigma; with the largest eigenvalue
+        </p>
+        <p class="flow-note">
+          This is principal component analysis on the centreline points: the leading eigenvector is
+          the direction along which the feature is most extended.
+        </p>
+      </li>
+    </ol>
+
+    <div class="eq">
+      <span class="eq-name">Feature orientation</span>
+      &theta;<sub>i</sub><sup>raw</sup> = atan2(v<sub>y</sub>, v<sub>x</sub>) mod 180&deg;,
+      &nbsp;&nbsp;
+      &theta;<sub>i</sub> =
+      &theta;<sub>i</sub><sup>raw</sup> if &theta;<sub>i</sub><sup>raw</sup> &le; 90&deg;,
+      otherwise 180&deg; &minus; &theta;<sub>i</sub><sup>raw</sup>
+      <dl class="eq-where">
+        <dt>&theta;<sub>i</sub></dt>
+        <dd>
+          angle of feature <var>i</var> from the horizontal, folded into 0&ndash;90&deg;. A line has
+          no head or tail, so a direction and its reverse are the same orientation; folding removes
+          that ambiguity. 0&deg; is horizontal (circumferential), 90&deg; vertical (radial).
+        </dd>
+      </dl>
+    </div>
+
+    <div class="eq">
+      <span class="eq-name">Feature length</span>
+      L<sub>i</sub> = max<sub>p &isin; R<sub>i</sub></sub>(p &middot; <strong>v</strong><sub>i</sub>)
+      &minus; min<sub>p &isin; R<sub>i</sub></sub>(p &middot; <strong>v</strong><sub>i</sub>) + 1
+      <dl class="eq-where">
+        <dt>L<sub>i</sub></dt>
+        <dd>
+          extent of the feature along its own dominant direction, in pixels. Every pixel of the
+          feature is projected onto the direction vector and the span of those projections is taken;
+          the +1 counts the end pixel itself, so a single-pixel feature has length 1.
+        </dd>
+      </dl>
+    </div>
+
+    <h3>2. Radial hydride fraction</h3>
+    <div class="eq">
+      <span class="eq-name">Count-based Fn</span>
+      Fn<sub>count</sub> = | { i : &theta;<sub>i</sub> &ge; &theta;<sub>c</sub> } | &divide; N
+      <dl class="eq-where">
+        <dt>&theta;<sub>c</sub></dt>
+        <dd>angle threshold, 45&deg; by default <span class="metric-key">fn_angle_threshold_deg</span></dd>
+        <dt>N</dt>
+        <dd>
+          number of measured features, after the minimum size filter
+          <span class="metric-key">fn_count_denominator</span>
+        </dd>
+      </dl>
+      <p class="eq-where"><span class="metric-key">fn_count</span></p>
+    </div>
+
+    <div class="eq">
+      <span class="eq-name">Length-weighted Fn</span>
+      Fn<sub>length</sub> =
+      ( &Sigma;<sub>i : &theta;<sub>i</sub> &ge; &theta;<sub>c</sub></sub> L<sub>i</sub> )
+      &divide;
+      ( &Sigma;<sub>i</sub> L<sub>i</sub> )
+      <dl class="eq-where">
+        <dt>numerator</dt>
+        <dd>total length of radial hydrides <span class="metric-key">fn_length_numerator_px</span></dd>
+        <dt>denominator</dt>
+        <dd>total length of all measured hydrides <span class="metric-key">fn_length_denominator_px</span></dd>
+      </dl>
+      <p class="eq-where">
+        <span class="metric-key">fn_length_weighted</span> &mdash; normally the value to report; see
+        <a href="#fn">the Fn section</a> for why.
+      </p>
+    </div>
+
+    <h3>3. Coverage</h3>
+    <div class="eq">
+      <span class="eq-name">Area fraction</span>
+      &phi; = N<sub>hydride</sub> &divide; N<sub>total</sub>
+      <dl class="eq-where">
+        <dt>N<sub>hydride</sub></dt>
+        <dd>count of mask pixels classified as hydride <span class="metric-key">hydride_total_area_pixels</span></dd>
+        <dt>N<sub>total</sub></dt>
+        <dd>total pixels in the processed image</dd>
+      </dl>
+      <p class="eq-where">
+        <span class="metric-key">hydride_area_fraction</span>, and &times;100 as
+        <span class="metric-key">hydride_area_fraction_percent</span>. Note this counts every mask
+        pixel, including features excluded from the per-feature statistics as too small.
+      </p>
+    </div>
+
+    <div class="eq">
+      <span class="eq-name">Feature density</span>
+      &rho; = N &divide; ( N<sub>total</sub> &divide; 10<sup>6</sup> )
+      <dl class="eq-where">
+        <dt>&rho;</dt>
+        <dd>measured features per megapixel <span class="metric-key">hydride_density_per_megapixel</span></dd>
+      </dl>
+    </div>
+
+    <h3>4. Feature size</h3>
+    <div class="eq">
+      <span class="eq-name">Equivalent circular diameter</span>
+      d<sub>i</sub> = 2 &radic;( A<sub>i</sub> &divide; &pi; )
+      <dl class="eq-where">
+        <dt>A<sub>i</sub></dt>
+        <dd>area of feature <var>i</var> in pixels</dd>
+        <dt>d<sub>i</sub></dt>
+        <dd>
+          diameter of the circle with the same area. It is a single-number size for an
+          irregular shape, and for a long thin hydride it is much smaller than the length
+          <var>L</var><sub>i</sub> &mdash; the two describe different things.
+        </dd>
+      </dl>
+      <p class="eq-where"><span class="metric-key">equivalent_diameter_*_px</span></p>
+    </div>
+
+    <h3>5. Orientation dispersion</h3>
+    <div class="eq">
+      <span class="eq-name">Alignment index</span>
+      A = | (1 &divide; N) &Sigma;<sub>i</sub> e<sup>&nbsp;j&thinsp;2&theta;<sub>i</sub></sup> |
+      <dl class="eq-where">
+        <dt>A</dt>
+        <dd>
+          circular resultant length, between 0 and 1. The angle is <em>doubled</em> before averaging
+          because orientations repeat every 180&deg;; without that, hydrides just above and just
+          below horizontal would cancel instead of reinforcing. A = 1 means every hydride points the
+          same way; A near 0 means orientations are spread evenly.
+        </dd>
+      </dl>
+      <p class="eq-where"><span class="metric-key">orientation_alignment_index</span></p>
+    </div>
+
+    <div class="eq">
+      <span class="eq-name">Orientation entropy</span>
+      H = &minus; &Sigma;<sub>k</sub> p<sub>k</sub> log<sub>2</sub> p<sub>k</sub>,
+      &nbsp;&nbsp; p<sub>k</sub> = c<sub>k</sub> &divide; &Sigma;<sub>k</sub> c<sub>k</sub>
+      <dl class="eq-where">
+        <dt>c<sub>k</sub></dt>
+        <dd>count in bin <var>k</var> of the orientation histogram</dd>
+        <dt>H</dt>
+        <dd>
+          spread of the orientation distribution in bits. H = 0 means every hydride falls in one
+          bin; the maximum, log<sub>2</sub>B for B bins, means they are spread evenly across all of
+          them. Because it depends on the bin count, compare H only between runs using the same
+          number of orientation bins.
+        </dd>
+      </dl>
+      <p class="eq-where"><span class="metric-key">orientation_entropy_bits</span></p>
+    </div>
+
+    <h3>6. Summary statistics</h3>
+    <p>
+      Orientation and size are each summarised with the mean, median, standard deviation, 10th and
+      90th percentiles, minimum, and maximum, taken over the measured features.
+    </p>
+    <div class="eq">
+      <span class="eq-name">Standard deviation</span>
+      &sigma; = &radic;( (1 &divide; N) &Sigma;<sub>i</sub> (x<sub>i</sub> &minus; x&#772;)<sup>2</sup> )
+      <dl class="eq-where">
+        <dt>&sigma;</dt>
+        <dd>
+          population standard deviation, dividing by <var>N</var> rather than <var>N</var>&minus;1.
+          The features are the whole population being described, not a sample drawn from a larger
+          one.
+        </dd>
+      </dl>
+      <p class="eq-where">
+        <span class="metric-key">orientation_std_deg</span>,
+        <span class="metric-key">size_std_pixels</span>
+      </p>
+    </div>
+    <p class="callout callout--warn">
+      Orientation statistics are ordinary linear statistics over angles folded into 0&ndash;90&deg;,
+      not circular statistics. That is the right choice here because the folded range has genuine
+      endpoints &mdash; circumferential at 0&deg; and radial at 90&deg; &mdash; but it means the mean
+      orientation is not meaningful for a strongly bimodal specimen with hydrides at both extremes.
+      Use the alignment index and the histogram in that case; the alignment index <em>is</em>
+      computed circularly.
+    </p>
+
+    <h3>7. Scale calibration</h3>
+    <div class="eq">
+      <span class="eq-name">Pixels to physical units</span>
+      A<sup>&micro;m&sup2;</sup><sub>i</sub> = A<sub>i</sub> &middot; s&sup2;,
+      &nbsp;&nbsp;
+      d<sup>&micro;m</sup><sub>i</sub> = d<sub>i</sub> &middot; s
+      <dl class="eq-where">
+        <dt>s</dt>
+        <dd>scale in microns per pixel</dd>
+      </dl>
+    </div>
+    <p class="callout callout--warn">
+      This browser tool does not know your image scale, so <var>s</var> is unset and every
+      measurement it reports is in pixels. Fn is unaffected, because it is a ratio of lengths and
+      the scale cancels. Use the desktop application when you need calibrated areas or diameters.
     </p>
   </section>
 

@@ -17,10 +17,12 @@ from flask import (
     render_template,
     request,
     send_file,
+    url_for,
 )
 
 from .config import WebServerConfig
 from .jobs import WebJobManager
+from .library import THUMBNAIL_MIMETYPE, ImageLibrary
 from .models import CONVENTIONAL_MODEL_ID, ModelCatalog
 from .segmentation import (
     ALLOWED_EXTENSIONS,
@@ -52,6 +54,10 @@ def _jobs() -> WebJobManager:
     return current_app.extensions["microseg_web"]["jobs"]
 
 
+def _library() -> ImageLibrary:
+    return current_app.extensions["microseg_web"]["library"]
+
+
 def _error(code: str, detail: str, status: int, **extra: Any):
     payload = {"ok": False, "error": {"code": code, "detail": detail}}
     payload.update(extra)
@@ -69,6 +75,88 @@ def _resolve_sample(sample_id: str) -> Path | None:
             if candidate.exists():
                 return candidate
     return None
+
+
+class _ImageRequestError(Exception):
+    """Raised when the image a request names cannot be served."""
+
+    def __init__(self, code: str, detail: str, status: int) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.status = status
+
+
+def _read_request_image(config: WebServerConfig) -> tuple[bytes, str, str]:
+    """Return the image bytes a segmentation request refers to.
+
+    A request names its image in one of three ways: a file uploaded from the
+    user's machine, one of the configured example images, or a micrograph picked
+    from the server's library folder. Both segmentation routes need the same
+    resolution and the same validation, so it lives here.
+
+    Parameters
+    ----------
+    config:
+        Active server configuration, consulted for the upload ceiling.
+
+    Returns
+    -------
+    tuple[bytes, str, str]
+        Image bytes, the name to report as the source, and the origin, one of
+        ``"upload"``, ``"sample"``, or ``"library"``.
+
+    Raises
+    ------
+    _ImageRequestError
+        If no image was named, the named image does not exist, or an upload is
+        larger than this server accepts.
+    """
+
+    library_id = str(request.form.get("library_id", "")).strip()
+    sample_id = str(request.form.get("sample_id", "")).strip()
+
+    if library_id:
+        # Ids come from the browser, so the library resolves them defensively;
+        # a rejected id is indistinguishable from a missing file on purpose.
+        library_path = _library().resolve(library_id)
+        if library_path is None:
+            raise _ImageRequestError(
+                "NOT_FOUND",
+                f"No library image named {library_id!r} is available on this server.",
+                404,
+            )
+        # No upload ceiling applies here: the file never crossed the network, and
+        # prepare_image still downscales it to the configured pixel limits.
+        return library_path.read_bytes(), library_path.name, "library"
+
+    if sample_id:
+        sample_path = _resolve_sample(sample_id)
+        if sample_path is None:
+            raise _ImageRequestError(
+                "NOT_FOUND", f"No example image named {sample_id!r} is configured.", 404
+            )
+        return sample_path.read_bytes(), sample_path.name, "sample"
+
+    upload = request.files.get("image")
+    if upload is None or not str(upload.filename or "").strip():
+        raise _ImageRequestError(
+            "NO_IMAGE",
+            "Choose an image to upload, or pick one from the server library.",
+            400,
+        )
+    source_name = str(upload.filename)
+    validate_upload_name(source_name)
+    # Read one byte past the ceiling so an oversized upload is detected without
+    # pulling the whole body into memory.
+    data = upload.read(config.max_upload_bytes + 1)
+    if len(data) > config.max_upload_bytes:
+        raise _ImageRequestError(
+            "FILE_TOO_LARGE",
+            f"The image is larger than the {config.max_upload_mb} MB limit for this server.",
+            413,
+        )
+    return data, source_name, "upload"
 
 
 def create_web_blueprint() -> Blueprint:
@@ -97,6 +185,9 @@ def create_web_blueprint() -> Blueprint:
             controls=[control.to_dict() for control in CONVENTIONAL_CONTROLS],
             quantification_controls=[control.to_dict() for control in QUANTIFICATION_CONTROLS],
             samples=[{"id": item.sample_id, "label": item.label} for item in config.sample_images],
+            # Rendered as a hint only; the picker fetches the live listing, so a
+            # library populated after page load still works without a reload.
+            library_available=_library().available(),
             allowed_extensions=sorted(ALLOWED_EXTENSIONS),
             active_page="workspace",
         )
@@ -178,6 +269,73 @@ def create_web_blueprint() -> Blueprint:
             return _error("NOT_FOUND", f"No example image named {sample_id!r} is configured.", 404)
         return send_file(path, mimetype="image/png", download_name=path.name)
 
+    @bp.get("/api/library")
+    def library_listing():
+        """List micrographs stored on this server for users to browse.
+
+        Reports ``available: false`` when no library folder was supplied for this
+        deployment, in which case the caller offers the configured example images
+        instead. Both sets are returned so the browser needs only this one call.
+        """
+
+        config = _config()
+        images = _library().list_images()
+        return jsonify(
+            {
+                "ok": True,
+                "available": bool(images),
+                "source": "library" if images else "fallback",
+                "count": len(images),
+                "images": [
+                    dict(
+                        item.to_dict(),
+                        url=url_for("microseg_web.library_image", image_id=item.image_id),
+                        thumb_url=url_for(
+                            "microseg_web.library_thumbnail", image_id=item.image_id
+                        ),
+                    )
+                    for item in images
+                ],
+                "samples": [
+                    {
+                        "id": item.sample_id,
+                        "label": item.label,
+                        "url": url_for("microseg_web.sample_image", sample_id=item.sample_id),
+                    }
+                    for item in config.sample_images
+                ],
+            }
+        )
+
+    @bp.get("/api/library/<image_id>")
+    def library_image(image_id: str):
+        """Serve one full-size image from the server library."""
+
+        path = _library().resolve(image_id)
+        if path is None:
+            return _error("NOT_FOUND", f"No library image named {image_id!r} is available.", 404)
+        return send_file(path, download_name=path.name)
+
+    @bp.get("/api/library/<image_id>/thumb")
+    def library_thumbnail(image_id: str):
+        """Serve a small preview of one library image for the picker grid.
+
+        Full-size micrographs are megabytes each, so the grid would be unusable
+        without this; thumbnails are rendered once and cached in memory.
+        """
+
+        path = _library().resolve(image_id)
+        if path is None:
+            return _error("NOT_FOUND", f"No library image named {image_id!r} is available.", 404)
+        try:
+            payload = _library().thumbnail_bytes(path)
+        except Exception:
+            _LOGGER.warning("Could not render a thumbnail for %s", path.name, exc_info=True)
+            return _error("THUMBNAIL_FAILED", f"{path.name} could not be previewed.", 415)
+        response = current_app.response_class(payload, mimetype=THUMBNAIL_MIMETYPE)
+        response.headers["Cache-Control"] = "private, max-age=300"
+        return response
+
     @bp.post("/api/segment")
     def segment():
         """Run one segmentation job for an uploaded or example image."""
@@ -200,32 +358,8 @@ def create_web_blueprint() -> Blueprint:
                 409,
             )
 
-        sample_id = str(request.form.get("sample_id", "")).strip()
-        upload = request.files.get("image")
-
         try:
-            if sample_id:
-                sample_path = _resolve_sample(sample_id)
-                if sample_path is None:
-                    return _error("NOT_FOUND", f"No example image named {sample_id!r} is configured.", 404)
-                data = sample_path.read_bytes()
-                source_name = sample_path.name
-            else:
-                if upload is None or not str(upload.filename or "").strip():
-                    return _error(
-                        "NO_IMAGE",
-                        "Choose an image to upload, or use one of the example images.",
-                        400,
-                    )
-                validate_upload_name(upload.filename)
-                data = upload.read()
-                if len(data) > config.max_upload_bytes:
-                    return _error(
-                        "FILE_TOO_LARGE",
-                        f"The image is larger than the {config.max_upload_mb} MB limit for this server.",
-                        413,
-                    )
-                source_name = str(upload.filename)
+            data, source_name, origin = _read_request_image(config)
 
             prepared = prepare_image(
                 data,
@@ -243,6 +377,8 @@ def create_web_blueprint() -> Blueprint:
                     "device_policy": config.device_policy,
                 }
             quantification = build_quantification_config(form)
+        except _ImageRequestError as exc:
+            return _error(exc.code, exc.detail, exc.status)
         except SegmentationRequestError as exc:
             return _error("VALIDATION", str(exc), 400)
 
@@ -288,7 +424,8 @@ def create_web_blueprint() -> Blueprint:
                 "model_id": option.model_id,
                 "model_display_name": option.display_name,
                 "source_name": source_name,
-                "used_example_image": bool(sample_id),
+                "used_example_image": origin != "upload",
+                "image_origin": origin,
             }
         )
         fn_summary = payload.get("fn", {})
@@ -325,27 +462,8 @@ def create_web_blueprint() -> Blueprint:
                 409,
             )
 
-        sample_id = str(request.form.get("sample_id", "")).strip()
-        upload = request.files.get("image")
         try:
-            if sample_id:
-                sample_path = _resolve_sample(sample_id)
-                if sample_path is None:
-                    return _error("NOT_FOUND", f"No example image named {sample_id!r} is configured.", 404)
-                data = sample_path.read_bytes()
-                source_name = sample_path.name
-            else:
-                if upload is None or not str(upload.filename or "").strip():
-                    return _error("NO_IMAGE", "Choose an image or use an example image.", 400)
-                source_name = str(upload.filename)
-                validate_upload_name(source_name)
-                data = upload.read(config.max_upload_bytes + 1)
-                if len(data) > config.max_upload_bytes:
-                    return _error(
-                        "FILE_TOO_LARGE",
-                        f"The image is larger than the {config.max_upload_mb} MB limit for this server.",
-                        413,
-                    )
+            data, source_name, origin = _read_request_image(config)
             prepared = prepare_image(
                 data,
                 max_long_side_px=config.max_long_side_px,
@@ -359,6 +477,8 @@ def create_web_blueprint() -> Blueprint:
                 else {"enable_gpu": config.enable_gpu, "device_policy": config.device_policy}
             )
             quantification = build_quantification_config(form)
+        except _ImageRequestError as exc:
+            return _error(exc.code, exc.detail, exc.status)
         except SegmentationRequestError as exc:
             return _error("VALIDATION", str(exc), 400)
 
@@ -369,7 +489,7 @@ def create_web_blueprint() -> Blueprint:
 
         include_analysis = flag("include_analysis", config.include_analysis)
         include_fn_classification = include_analysis and flag("include_fn_classification", False)
-        used_example = bool(sample_id)
+        used_example = origin != "upload"
 
         def runner(progress_hook):
             payload = run_web_segmentation(
@@ -389,6 +509,7 @@ def create_web_blueprint() -> Blueprint:
                     "model_display_name": option.display_name,
                     "source_name": source_name,
                     "used_example_image": used_example,
+                    "image_origin": origin,
                 }
             )
             return payload

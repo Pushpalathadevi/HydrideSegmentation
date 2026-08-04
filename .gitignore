@@ -105,6 +105,11 @@ pre_trained_weights/**
 # Local transfer archives for air-gapped copy (never commit)
 transfer_bundle/
 
+# Browsable test image library supplied per deployment (never commit the images)
+test_library/**
+!test_library/.gitkeep
+!test_library/README.md
+
 # Local development
 .env.local
 .env.development.local

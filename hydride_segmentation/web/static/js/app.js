@@ -141,8 +141,9 @@
     var data = JSON.parse(dataNode.textContent);
 
     var state = {
-      file: null, sampleId: "", result: null, view: "overlay_png_b64",
-      running: false, lastEventSequence: 0, jobEvents: [], previewObjectUrl: ""
+      file: null, sampleId: "", libraryId: "", result: null, view: "overlay_png_b64",
+      running: false, lastEventSequence: 0, jobEvents: [], previewObjectUrl: "",
+      libraryLoaded: false
     };
 
     var dropzone = $("dropzone");
@@ -165,6 +166,12 @@
     var progressPercent = $("progress-percent");
     var progressMessage = $("progress-message");
     var jobLogOutput = $("job-log-output");
+    var libraryOpenBtn = $("library-open");
+    var libraryCloseBtn = $("library-close");
+    var libraryDialog = $("library-dialog");
+    var libraryGrid = $("library-grid");
+    var libraryStatus = $("library-status");
+    var fallbackSamples = $("fallback-samples");
     var emptyState = $("empty-state");
     var resultArea = $("result-area");
     var resultImage = $("result-image");
@@ -263,6 +270,7 @@
       if (!file || allowed.indexOf(extension) < 0) {
         state.file = null;
         state.sampleId = "";
+        state.libraryId = "";
         fileInput.value = "";
         fileName.textContent = "";
         clearPreview();
@@ -273,6 +281,7 @@
       if (file.size > data.maxUploadMb * 1024 * 1024) {
         state.file = null;
         state.sampleId = "";
+        state.libraryId = "";
         fileInput.value = "";
         fileName.textContent = "";
         clearPreview();
@@ -282,6 +291,7 @@
       }
       state.file = file;
       state.sampleId = "";
+      state.libraryId = "";
       var objectUrl = URL.createObjectURL(file);
       showPreview(objectUrl, "Preview of " + file.name, true);
       fileName.textContent = "Validated filename and size: " + file.name + " (" +
@@ -293,6 +303,7 @@
     function setSample(sampleId, label, sampleUrl) {
       state.file = null;
       state.sampleId = sampleId;
+      state.libraryId = "";
       fileInput.value = "";
       showPreview(sampleUrl, "Preview of example image: " + label, false);
       fileName.textContent = "Example image: " + label;
@@ -300,9 +311,20 @@
       updateRunButton();
     }
 
+    function setLibraryImage(imageId, label, imageUrl) {
+      state.file = null;
+      state.sampleId = "";
+      state.libraryId = imageId;
+      fileInput.value = "";
+      showPreview(imageUrl, "Preview of library image: " + label, false);
+      fileName.textContent = "Library image: " + label;
+      clearError();
+      updateRunButton();
+    }
+
     function updateRunButton() {
       var model = currentModel();
-      var hasImage = Boolean(state.file || state.sampleId);
+      var hasImage = Boolean(state.file || state.sampleId || state.libraryId);
       runBtn.disabled = state.running || !hasImage || !model || !model.available;
       if (state.running) {
         runStatus.textContent = "Running...";
@@ -346,6 +368,112 @@
           );
         });
       })(sampleButtons[s]);
+    }
+
+    /* -- server image library -- */
+
+    function renderLibrary(images) {
+      libraryGrid.innerHTML = "";
+      for (var i = 0; i < images.length; i++) {
+        (function (image) {
+          var button = document.createElement("button");
+          button.type = "button";
+          button.className = "library-item";
+          button.setAttribute("role", "listitem");
+          button.title = image.filename;
+
+          var thumb = document.createElement("img");
+          thumb.src = image.thumb_url;
+          thumb.alt = "";
+          thumb.loading = "lazy";
+          button.appendChild(thumb);
+
+          var caption = document.createElement("span");
+          caption.textContent = image.label;
+          button.appendChild(caption);
+
+          button.addEventListener("click", function () {
+            setLibraryImage(image.id, image.label, image.url);
+            closeLibrary();
+          });
+          libraryGrid.appendChild(button);
+        })(images[i]);
+      }
+    }
+
+    function loadLibrary() {
+      libraryStatus.textContent = "Loading the library...";
+      libraryStatus.removeAttribute("hidden");
+      return fetch(data.libraryUrl, { headers: { "Accept": "application/json" } })
+        .then(function (response) { return response.json(); })
+        .then(function (payload) {
+          if (!payload.ok || !payload.available || !payload.images.length) {
+            // The folder was removed or emptied since the page loaded. Send the
+            // user back to the built-in examples rather than an empty dialog.
+            libraryStatus.textContent =
+              "No image library is available on this server. Use the example images instead.";
+            libraryGrid.innerHTML = "";
+            showFallbackSamples();
+            return;
+          }
+          libraryStatus.setAttribute("hidden", "");
+          renderLibrary(payload.images);
+          state.libraryLoaded = true;
+        })
+        .catch(function () {
+          libraryStatus.textContent = "The library could not be loaded. Please try again.";
+          libraryStatus.removeAttribute("hidden");
+        });
+    }
+
+    function showFallbackSamples() {
+      if (libraryOpenBtn) { libraryOpenBtn.setAttribute("hidden", ""); }
+      if (fallbackSamples) { fallbackSamples.removeAttribute("hidden"); }
+    }
+
+    function openLibrary() {
+      if (!libraryDialog) { return; }
+      if (typeof libraryDialog.showModal === "function") {
+        libraryDialog.showModal();
+      } else {
+        // Very old browsers without <dialog>; the grid still works inline.
+        libraryDialog.setAttribute("open", "");
+      }
+      // Reload each time so images copied onto the server mid-session appear.
+      loadLibrary();
+    }
+
+    function closeLibrary() {
+      if (!libraryDialog) { return; }
+      if (typeof libraryDialog.close === "function") {
+        libraryDialog.close();
+      } else {
+        libraryDialog.removeAttribute("open");
+      }
+    }
+
+    if (libraryOpenBtn && libraryDialog) {
+      if (data.libraryAvailable) {
+        libraryOpenBtn.removeAttribute("hidden");
+        if (fallbackSamples) { fallbackSamples.setAttribute("hidden", ""); }
+      } else {
+        showFallbackSamples();
+      }
+      libraryOpenBtn.addEventListener("click", openLibrary);
+      libraryCloseBtn.addEventListener("click", closeLibrary);
+      // A modal <dialog> closes itself on Escape, but the attribute fallback
+      // above does not, so handle the key rather than trapping users in it.
+      libraryDialog.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" || event.key === "Esc") {
+          event.preventDefault();
+          closeLibrary();
+        }
+      });
+      // Clicking the backdrop closes the dialog, matching how users expect
+      // modals to behave; clicks inside the panel must not bubble out to it.
+      libraryDialog.addEventListener("click", function (event) {
+        if (event.target === libraryDialog) { closeLibrary(); }
+      });
     }
 
     modelSelect.addEventListener("change", onModelChanged);
@@ -583,7 +711,9 @@
 
       var form = new FormData();
       form.append("model_id", model.model_id);
-      if (state.sampleId) {
+      if (state.libraryId) {
+        form.append("library_id", state.libraryId);
+      } else if (state.sampleId) {
         form.append("sample_id", state.sampleId);
       } else if (state.file) {
         form.append("image", state.file, state.file.name);

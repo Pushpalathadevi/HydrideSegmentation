@@ -218,6 +218,73 @@ body {
 
 .samples { margin-top: 14px; }
 .samples-label { display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 6px; }
+.samples-buttons[hidden] { display: none; }
+.library-open { width: 100%; }
+.library-open[hidden] { display: none; }
+
+/* Server image library picker ------------------------------------------ */
+
+.library-dialog {
+  width: min(880px, 92vw);
+  max-height: 84vh;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+.library-dialog::backdrop { background: rgba(4, 9, 16, 0.66); }
+.library-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.library-dialog-head h2 { margin: 0 0 4px; font-size: 1.05rem; }
+.library-dialog-head .hint { margin: 0; }
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.library-item {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-alt);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.library-item:hover, .library-item:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.library-item img {
+  display: block;
+  width: 100%;
+  height: 108px;
+  object-fit: cover;
+  background: #09111d;
+}
+.library-item span {
+  display: block;
+  padding: 7px 9px 9px;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  /* Filenames are often long; keep every card the same height. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 520px) {
+  .library-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  .library-item img { height: 88px; }
+}
 
 .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 520px) { .controls-grid { grid-template-columns: 1fr; } }
@@ -284,7 +351,7 @@ body {
   padding: 8px 8px 8px 30px;
   overflow: auto;
   border-radius: 7px;
-  background: var(--background);
+  background: var(--surface-alt);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 .job-log li { margin: 3px 0; }
@@ -293,8 +360,125 @@ body {
   padding: 12px 14px;
   border-left: 4px solid var(--accent);
   border-radius: 0 8px 8px 0;
-  background: var(--background);
+  background: var(--surface-alt);
   font-family: Georgia, "Times New Roman", serif;
+}
+
+/* Pipeline flow sheets -------------------------------------------------- */
+
+.flow {
+  list-style: none;
+  margin: 14px 0 18px;
+  padding: 0 0 0 6px;
+  counter-reset: flow-step;
+}
+.flow-step {
+  position: relative;
+  margin: 0;
+  padding: 0 0 18px 42px;
+  counter-increment: flow-step;
+}
+.flow-step::before {
+  content: counter(flow-step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 24px;
+  text-align: center;
+}
+/* Rail joining each step to the next; the last step has nothing to join to. */
+.flow-step::after {
+  content: "";
+  position: absolute;
+  top: 30px;
+  bottom: 4px;
+  left: 13px;
+  width: 1px;
+  background: var(--border);
+}
+.flow-step:last-child { padding-bottom: 0; }
+.flow-step:last-child::after { display: none; }
+.flow-step h4 {
+  margin: 3px 0 5px;
+  font-size: 0.93rem;
+  font-weight: 650;
+}
+.flow-op {
+  margin: 0 0 5px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  /* Long expressions scroll rather than forcing the page sideways. */
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.flow-note { margin: 0; color: var(--text-muted); font-size: 0.87rem; }
+.flow-branch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  margin: 16px 0;
+}
+@media (max-width: 700px) { .flow-branch { grid-template-columns: 1fr; } }
+.flow-branch > section {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.flow-branch h3 { margin-top: 0; }
+
+/* Display equations ----------------------------------------------------- */
+
+.eq {
+  margin: 10px 0;
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface-alt);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+  overflow-x: auto;
+}
+.eq-name {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font);
+  font-size: 0.76rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.eq var { font-style: italic; }
+.eq-where {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.eq-where dt {
+  float: left;
+  clear: left;
+  min-width: 82px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+}
+.eq-where dd { margin: 0 0 3px 92px; }
+.metric-key {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--text-muted);
 }
 
 .btn {

@@ -68,6 +68,12 @@ class WebServerConfig:
 
     sample_images: tuple[SampleImage, ...] = ()
 
+    #: Absolute path of the browsable image library, or "" when none is configured.
+    #: The folder is deliberately not enumerated at startup so that images added
+    #: on the server appear without restarting the application.
+    library_dir: str = ""
+    library_max_images: int = 50
+
     repo_root: str = ""
     source_path: str = ""
     warnings: tuple[str, ...] = ()
@@ -234,6 +240,18 @@ def load_web_config(
                 continue
             samples.append(SampleImage(path=sample_path, label=str(item.get("label", "")) or candidate.name))
 
+    # The library folder is resolved but never listed here. Deployments drop new
+    # micrographs into it while the server is running, so listing happens per
+    # request instead. A missing folder is not a warning: falling back to the
+    # configured example images is the documented behaviour.
+    raw_library_dir = str(demo.get("library_dir", "test_library")).strip()
+    library_dir = ""
+    if raw_library_dir:
+        library_candidate = Path(raw_library_dir)
+        if not library_candidate.is_absolute():
+            library_candidate = root / library_candidate
+        library_dir = str(library_candidate)
+
     preload_ids = models.get("preload_model_ids", [])
     if isinstance(preload_ids, str):
         preload_ids = [part.strip() for part in preload_ids.split(",") if part.strip()]
@@ -270,6 +288,8 @@ def load_web_config(
         device_policy=str(models.get("device_policy", "cpu")).strip() or "cpu",
         include_analysis=_coerce_bool(analysis.get("include_analysis", True), True),
         sample_images=tuple(samples),
+        library_dir=library_dir,
+        library_max_images=max(1, _coerce_int(demo.get("library_max_images", 50), 50)),
         repo_root=str(root),
         source_path=str(path),
         warnings=tuple(warnings),

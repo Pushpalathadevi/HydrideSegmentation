@@ -29,10 +29,15 @@
 
       <p id="file-name" class="file-name" aria-live="polite"></p>
 
-      {% if samples %}
       <div class="samples">
-        <span class="samples-label">No image handy? Try an example:</span>
-        <div class="samples-buttons">
+        <span class="samples-label">No image handy?</span>
+
+        <button type="button" id="library-open" class="btn library-open" hidden>
+          Browse the server library
+        </button>
+
+        {% if samples %}
+        <div id="fallback-samples" class="samples-buttons" {% if library_available %}hidden{% endif %}>
           {% for sample in samples %}
           <button type="button" class="sample-btn" data-sample-id="{{ sample.id }}"
                   data-sample-label="{{ sample.label }}"
@@ -43,8 +48,8 @@
           </button>
           {% endfor %}
         </div>
+        {% endif %}
       </div>
-      {% endif %}
     </fieldset>
 
     <fieldset class="field-group">
@@ -235,6 +240,23 @@
     </div>
   </section>
 </div>
+
+<dialog id="library-dialog" class="library-dialog" aria-labelledby="library-dialog-title">
+  <div class="library-dialog-head">
+    <div>
+      <h2 id="library-dialog-title">Server image library</h2>
+      <p id="library-dialog-hint" class="hint">
+        Micrographs stored on this server. Choose one to segment.
+      </p>
+    </div>
+    <button type="button" id="library-close" class="btn btn-ghost" aria-label="Close the library">
+      Close
+    </button>
+  </div>
+
+  <p id="library-status" class="hint" aria-live="polite">Loading the library&hellip;</p>
+  <div id="library-grid" class="library-grid" role="list"></div>
+</dialog>
 {% endblock %}
 
 {% block scripts %}
@@ -245,6 +267,8 @@
   "controls": controls,
   "quantificationControls": quantification_controls,
   "samples": samples,
+  "libraryAvailable": library_available,
+  "libraryUrl": url_for('microseg_web.library_listing'),
   "allowedExtensions": allowed_extensions,
   "maxUploadMb": config.max_upload_mb,
   "maxLongSidePx": config.max_long_side_px

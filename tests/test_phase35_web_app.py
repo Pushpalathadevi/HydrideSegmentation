@@ -569,6 +569,53 @@ def test_help_page_explains_fn_and_its_settings(client) -> None:
         assert control.label in body
 
 
+def test_help_page_documents_both_processing_pipelines(client) -> None:
+    body = client.get("/help").get_data(as_text=True)
+
+    assert 'id="pipeline"' in body
+    # The conventional flow sheet must name each stage the implementation runs.
+    for stage in ("Normalise", "CLAHE", "Adaptive threshold", "Morphological closing"):
+        assert stage in body, f"conventional flow sheet is missing {stage!r}"
+    # The trained-model flow sheet must do the same.
+    for stage in ("Prepare the tensor", "Encoder", "Decoder", "Output head"):
+        assert stage in body, f"trained model flow sheet is missing {stage!r}"
+
+
+def test_help_page_only_documents_metrics_the_server_actually_reports(client) -> None:
+    """Guard the formulae section against drifting away from the real payload.
+
+    Every metric key cited in the help page is checked against the keys a real
+    run emits, so renaming a metric without updating the documentation fails
+    here rather than silently misleading a reader.
+    """
+
+    body = client.get("/help").get_data(as_text=True)
+    documented = set(re.findall(r'<span class="metric-key">([a-z0-9_]+)</span>', body))
+    assert documented, "the formulae section must cite the metric keys it defines"
+
+    produced = set(_run(client)["metrics"])
+
+    unknown = documented - produced
+    assert not unknown, f"help page documents metrics the server never reports: {sorted(unknown)}"
+
+
+def test_help_page_defines_the_quantification_formulae(client) -> None:
+    body = client.get("/help").get_data(as_text=True)
+
+    assert 'id="formulae"' in body
+    for heading in (
+        "Feature orientation",
+        "Feature length",
+        "Count-based Fn",
+        "Length-weighted Fn",
+        "Area fraction",
+        "Equivalent circular diameter",
+        "Alignment index",
+        "Orientation entropy",
+    ):
+        assert heading.upper() in body.upper(), f"formulae section is missing {heading!r}"
+
+
 def test_timing_separates_inference_from_analysis(client) -> None:
     timing = _run(client)["timing"]
 

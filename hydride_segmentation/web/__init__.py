@@ -13,12 +13,14 @@ from pathlib import Path
 from flask import Flask
 
 from .config import WebServerConfig, load_web_config
+from .library import ImageLibrary
 from .models import ModelCatalog
 from .routes import create_web_blueprint
 from .jobs import WebJobManager
 from .segmentation import JobLimiter
 
 __all__ = [
+    "ImageLibrary",
     "JobLimiter",
     "ModelCatalog",
     "WebServerConfig",
@@ -79,12 +81,14 @@ def create_app(
         max_retained_jobs=resolved.max_retained_jobs,
         retention_seconds=resolved.job_retention_seconds,
     )
+    library = ImageLibrary(resolved.library_dir, max_images=resolved.library_max_images)
 
     app.extensions["microseg_web"] = {
         "config": resolved,
         "catalog": catalog,
         "limiter": limiter,
         "jobs": jobs,
+        "library": library,
     }
 
     app.register_blueprint(create_web_blueprint())
@@ -99,6 +103,18 @@ def create_app(
             catalog.preload()
     else:
         _LOGGER.info("Model preloading is disabled; the first request will load its model")
+
+    # Report the library state once at startup so an operator who forgot to copy
+    # the folder onto a new host sees why only the built-in examples are offered.
+    library_count = len(library.list_images())
+    if library_count:
+        _LOGGER.info("Image library: %d image(s) from %s", library_count, resolved.library_dir)
+    else:
+        _LOGGER.info(
+            "Image library is unavailable at %s; falling back to the %d configured example image(s)",
+            resolved.library_dir or "(not configured)",
+            len(resolved.sample_images),
+        )
 
     _LOGGER.info(
         "Web application ready | config=%s | upload_limit=%dMB | jobs=%d",
