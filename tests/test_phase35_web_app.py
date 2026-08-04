@@ -779,21 +779,51 @@ def test_every_page_credits_the_author(client) -> None:
 
 
 def test_help_page_cites_the_method_paper(client) -> None:
-    """The reference must name the work this tool implements.
+    """The reference must carry the full record, verified against CrossRef.
 
-    Only the fields that have been confirmed are asserted. Volume, article
-    number, and DOI are deliberately absent rather than invented, so this test
-    does not require them; add them to both the page and this list together.
+    Every field below was checked against the CrossRef entry for the DOI, which
+    resolves to this exact title. A citation is copied out of a tool like this
+    without being re-checked, so a dropped author or a mistyped volume
+    propagates into other people's reference lists.
     """
 
     body = client.get("/help").get_data(as_text=True)
 
     assert 'id="references"' in body
-    assert "Mani Krishna" in body
+
+    # All five authors, in order. A truncated author list is a real citation error.
+    for author in (
+        "M. M. Darwhekar",
+        "Y. Pushpalatha Devi",
+        "T. Narayana Murty",
+        "K. V. Mani Krishna",
+        "R. N. Singh",
+    ):
+        assert author in body, f"the citation is missing author {author!r}"
+
+    assert "Automated hydride segmentation and quantification in zirconium alloys" in body
     assert "Journal of Nuclear Materials" in body
-    assert "2025" in body
+    assert "618" in body, "volume is missing"
+    assert "156209" in body, "article number is missing"
+    assert "10.1016/j.jnucmat.2025.156209" in body, "DOI is missing"
+
     # A reported Fn is only comparable when its settings are quoted with it.
     assert "angle threshold" in body
+
+
+def test_the_doi_is_not_a_hyperlink(client) -> None:
+    """doi.org is unreachable from an air-gapped host, so a link would mislead.
+
+    The offline-guarantee test would also fail on an external href; this states
+    the intent directly so the reason survives if that test is ever relaxed.
+    Asserted against the rendered page, not the template source, because the
+    template comment explaining this decision naturally mentions the domain.
+    """
+
+    body = client.get("/help").get_data(as_text=True)
+
+    assert "doi.org" not in body, "the DOI must be plain text, not a link to doi.org"
+    assert "doi:10.1016/j.jnucmat.2025.156209" in body
 
 
 def test_help_page_defines_the_quantification_formulae(client) -> None:

@@ -654,6 +654,13 @@ body {
   /* Hanging punctuation reads better for a citation than the body line height. */
   line-height: 1.55;
 }
+/* Monospaced so the identifier can be transcribed without ambiguity; it is not
+   a link because these hosts cannot reach doi.org. */
+.reference-doi {
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
 
 .param-list dt { font-weight: 650; margin-top: 14px; font-size: 0.92rem; }
 .param-default { font-weight: 400; font-size: 0.78rem; color: var(--text-muted); font-family: var(--mono); }
