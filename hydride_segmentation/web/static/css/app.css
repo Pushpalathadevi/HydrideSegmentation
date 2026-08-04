@@ -648,6 +648,13 @@ body {
 }
 .callout--warn { border-left-color: var(--warn); background: transparent; border: 1px solid var(--warn); border-radius: 6px; }
 
+.reference-list { padding-left: 22px; }
+.reference-list li {
+  margin-bottom: 10px;
+  /* Hanging punctuation reads better for a citation than the body line height. */
+  line-height: 1.55;
+}
+
 .param-list dt { font-weight: 650; margin-top: 14px; font-size: 0.92rem; }
 .param-default { font-weight: 400; font-size: 0.78rem; color: var(--text-muted); font-family: var(--mono); }
 .param-list dd { margin: 4px 0 0; color: var(--text-muted); font-size: 0.9rem; }
@@ -657,8 +664,14 @@ body {
 .site-footer { border-top: 1px solid var(--border); background: var(--surface); margin-top: auto; }
 .footer-inner {
   display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-  padding: 14px 20px; font-size: 0.8rem; color: var(--text-muted);
+  padding: 14px 20px 8px; font-size: 0.8rem; color: var(--text-muted);
 }
+.footer-credit {
+  padding: 0 20px 14px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.footer-credit strong { color: var(--text); font-weight: 600; }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

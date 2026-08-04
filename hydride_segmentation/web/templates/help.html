@@ -26,6 +26,7 @@
     <a href="#reading">Reading the results</a>
     <a href="#images">Image requirements</a>
     <a href="#trouble">Troubleshooting</a>
+    <a href="#references">References</a>
   </nav>
 
   <section id="quick">
@@ -600,6 +601,38 @@
         once models are loaded.
       </dd>
     </dl>
+  </section>
+
+  {#
+    Citation. The bibliographic details below are deliberately limited to what
+    has been confirmed: author, title, journal, and year. Volume, article
+    number, and DOI are not recorded here because inventing them would put a
+    false reference into circulation. Add them here once available, and add any
+    co-authors to the author list.
+  #}
+  <section id="references">
+    <h2>References</h2>
+    <p>
+      The machine-learning segmentation method implemented by this tool is described in:
+    </p>
+    <ol class="reference-list">
+      <li>
+        K. V. Mani Krishna,
+        &ldquo;Hydride segmentation using machine learning&rdquo;,
+        <em>Journal of Nuclear Materials</em>, 2025.
+      </li>
+    </ol>
+    <p>
+      Please cite that paper when reporting results obtained with this tool, together with
+      the segmentation method you used, the Fn angle threshold, and the minimum feature
+      size. Those three settings change the reported value, so a number is only comparable
+      when they are stated alongside it; all three are recorded in the downloadable JSON.
+    </p>
+    <p class="callout">
+      Measurements from this browser tool are in pixels, so any value quoted in physical
+      units must come from the desktop application, where the image scale is known. See
+      <a href="#formulae">Scale calibration</a>.
+    </p>
   </section>
 </div>
 {% endblock %}

@@ -770,6 +770,32 @@ def test_help_page_only_documents_metrics_the_server_actually_reports(client) ->
     assert not unknown, f"help page documents metrics the server never reports: {sorted(unknown)}"
 
 
+def test_every_page_credits_the_author(client) -> None:
+    for url in ("/", "/help"):
+        body = client.get(url).get_data(as_text=True)
+        assert "Designed and developed by" in body, f"{url} is missing the credit line"
+        assert "Mani Krishna" in body, f"{url} is missing the author name"
+        assert "Materials Group" in body, f"{url} is missing the group name"
+
+
+def test_help_page_cites_the_method_paper(client) -> None:
+    """The reference must name the work this tool implements.
+
+    Only the fields that have been confirmed are asserted. Volume, article
+    number, and DOI are deliberately absent rather than invented, so this test
+    does not require them; add them to both the page and this list together.
+    """
+
+    body = client.get("/help").get_data(as_text=True)
+
+    assert 'id="references"' in body
+    assert "Mani Krishna" in body
+    assert "Journal of Nuclear Materials" in body
+    assert "2025" in body
+    # A reported Fn is only comparable when its settings are quoted with it.
+    assert "angle threshold" in body
+
+
 def test_help_page_defines_the_quantification_formulae(client) -> None:
     body = client.get("/help").get_data(as_text=True)
 
