@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="828" viewBox="0 0 520 828"
+     role="img" aria-labelledby="conv-title conv-desc" font-family="'Segoe UI',Arial,Helvetica,sans-serif">
+  <title id="conv-title">Conventional segmentation pipeline</title>
+  <desc id="conv-desc">
+    Flow chart. Start, then read the greyscale image, normalise to the zero to one range,
+    apply CLAHE local contrast equalisation, compute a local adaptive threshold to obtain a
+    binary mask. A decision on whether the morphology iteration count is greater than zero
+    either applies morphological closing or leaves the mask unchanged. Both paths rejoin to
+    produce the binary mask, an overlay is drawn for review, and the chart ends.
+  </desc>
+
+  <defs>
+    <linearGradient id="c-panel" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#f4f9f5"/><stop offset="1" stop-color="#eaf3ee"/>
+    </linearGradient>
+    <linearGradient id="c-term" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fcd88f"/><stop offset="1" stop-color="#f2ad35"/>
+    </linearGradient>
+    <linearGradient id="c-proc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d6e9fb"/><stop offset="1" stop-color="#a9cbea"/>
+    </linearGradient>
+    <linearGradient id="c-dec" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c4ecab"/><stop offset="1" stop-color="#8fd06e"/>
+    </linearGradient>
+    <filter id="c-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.4" flood-color="#1d3348" flood-opacity="0.28"/>
+    </filter>
+    <marker id="c-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2f4257"/>
+    </marker>
+  </defs>
+
+  <rect x="6" y="6" width="508" height="816" rx="14" fill="url(#c-panel)" stroke="#c8ddd0"/>
+
+  <text x="260" y="36" text-anchor="middle" font-size="16" font-weight="700" fill="#17293c">
+    Conventional pipeline
+  </text>
+  <text x="260" y="56" text-anchor="middle" font-size="11.5" fill="#5a6b7c">
+    Deterministic image processing &#183; every step inspectable
+  </text>
+
+  <g stroke="#2f4257" stroke-width="1.6" fill="none" marker-end="url(#c-arrow)">
+    <path d="M260 110 V130"/>
+    <path d="M260 168 V190"/>
+    <path d="M260 228 V250"/>
+    <path d="M260 298 V320"/>
+    <path d="M260 382 V404"/>
+    <path d="M260 588 V636"/>
+    <path d="M260 674 V704"/>
+    <path d="M260 752 V772"/>
+  </g>
+
+  <!-- decision to the two branches, and both branches back to the join -->
+  <g stroke="#2f4257" stroke-width="1.6" fill="none">
+    <path d="M160 442 H116 V488" marker-end="url(#c-arrow)"/>
+    <path d="M360 442 H404 V488" marker-end="url(#c-arrow)"/>
+    <path d="M116 552 V588 H260"/>
+    <path d="M404 552 V588 H260"/>
+  </g>
+
+  <!-- Start -->
+  <g filter="url(#c-shadow)">
+    <rect x="200" y="76" width="120" height="34" rx="17" fill="url(#c-term)" stroke="#d19a28" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="98" text-anchor="middle" font-size="13" font-weight="650" fill="#4a3208">Start</text>
+
+  <!-- Read image -->
+  <g filter="url(#c-shadow)">
+    <rect x="140" y="130" width="240" height="38" rx="3" fill="url(#c-proc)" stroke="#4c7fb2" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="154" text-anchor="middle" font-size="12.5" fill="#15293d">Read greyscale micrograph
+    <tspan font-family="Georgia,'Times New Roman',serif" font-style="italic"> I</tspan>
+  </text>
+
+  <!-- Normalise -->
+  <g filter="url(#c-shadow)">
+    <rect x="140" y="190" width="240" height="38" rx="3" fill="url(#c-proc)" stroke="#4c7fb2" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="207" text-anchor="middle" font-size="12" fill="#15293d">Normalise intensities</text>
+  <text x="260" y="222" text-anchor="middle" font-size="12.5"
+        font-family="Georgia,'Times New Roman',serif" font-style="italic" fill="#15293d">I&#8242; &#8592; I / 255</text>
+
+  <!-- CLAHE -->
+  <g filter="url(#c-shadow)">
+    <rect x="140" y="250" width="240" height="48" rx="3" fill="url(#c-proc)" stroke="#4c7fb2" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="268" text-anchor="middle" font-size="12" fill="#15293d">Local contrast equalisation</text>
+  <text x="260" y="284" text-anchor="middle" font-size="12" fill="#15293d">
+    <tspan font-family="Georgia,'Times New Roman',serif" font-style="italic">C</tspan>
+    &#8592; CLAHE(<tspan font-family="Georgia,'Times New Roman',serif" font-style="italic">I&#8242;</tspan>; clip, tiles)
+  </text>
+
+  <!-- Threshold -->
+  <g filter="url(#c-shadow)">
+    <rect x="126" y="320" width="268" height="62" rx="3" fill="url(#c-proc)" stroke="#4c7fb2" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="338" text-anchor="middle" font-size="12" fill="#15293d">Adaptive threshold per pixel</text>
+  <text x="260" y="355" text-anchor="middle" font-size="12"
+        font-family="Georgia,'Times New Roman',serif" font-style="italic" fill="#15293d">
+    T(x,y) &#8592; mean<tspan baseline-shift="sub" font-size="9" font-style="normal">block</tspan>(C) &#8722; offset
+  </text>
+  <text x="260" y="372" text-anchor="middle" font-size="12"
+        font-family="Georgia,'Times New Roman',serif" font-style="italic" fill="#15293d">
+    M &#8592; [ C &lt; T ]
+  </text>
+
+  <!-- Decision -->
+  <g filter="url(#c-shadow)">
+    <path d="M260 404 L360 442 L260 480 L160 442 Z" fill="url(#c-dec)" stroke="#5c9f3f" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="438" text-anchor="middle" font-size="12" fill="#16300a">Is morphology</text>
+  <text x="260" y="452" text-anchor="middle" font-size="12" fill="#16300a">iterations &gt; 0?</text>
+
+  <text x="130" y="434" font-size="10.5" font-weight="700" fill="#2d6a17">TRUE</text>
+  <text x="368" y="434" font-size="10.5" font-weight="700" fill="#a33b2a">FALSE</text>
+
+  <!-- TRUE branch -->
+  <g filter="url(#c-shadow)">
+    <rect x="18" y="488" width="196" height="64" rx="3" fill="url(#c-proc)" stroke="#4c7fb2" stroke-width="1.4"/>
+  </g>
+  <text x="116" y="506" text-anchor="middle" font-size="11.5" fill="#15293d">Morphological closing,</text>
+  <text x="116" y="521" text-anchor="middle" font-size="11.5" fill="#15293d">repeated n times</text>
+  <text x="116" y="540" text-anchor="middle" font-size="12"
+        font-family="Georgia,'Times New Roman',serif" font-style="italic" fill="#15293d">
+    M &#8592; (M &#8853; S) &#8854; S
+  </text>
+
+  <!-- FALSE branch -->
+  <g filter="url(#c-shadow)">
+    <rect x="306" y="488" width="196" height="64" rx="3" fill="url(#c-proc)" stroke="#4c7fb2" stroke-width="1.4"/>
+  </g>
+  <text x="404" y="512" text-anchor="middle" font-size="11.5" fill="#15293d">Leave the mask as</text>
+  <text x="404" y="527" text-anchor="middle" font-size="11.5" fill="#15293d">thresholded</text>
+
+  <!-- join dot -->
+  <circle cx="260" cy="588" r="3.4" fill="#2f4257"/>
+
+  <!-- Mask -->
+  <g filter="url(#c-shadow)">
+    <rect x="140" y="636" width="240" height="38" rx="3" fill="url(#c-proc)" stroke="#4c7fb2" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="660" text-anchor="middle" font-size="12.5" fill="#15293d">Binary mask
+    <tspan font-family="Georgia,'Times New Roman',serif" font-style="italic"> M</tspan>
+  </text>
+
+  <!-- Overlay -->
+  <g filter="url(#c-shadow)">
+    <rect x="126" y="704" width="268" height="48" rx="3" fill="url(#c-proc)" stroke="#4c7fb2" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="722" text-anchor="middle" font-size="12" fill="#15293d">Draw review overlay</text>
+  <text x="260" y="739" text-anchor="middle" font-size="12"
+        font-family="Georgia,'Times New Roman',serif" font-style="italic" fill="#15293d">
+    edges &#8592; dilate(M) &#8853; M
+  </text>
+
+  <!-- End -->
+  <g filter="url(#c-shadow)">
+    <rect x="200" y="772" width="120" height="34" rx="17" fill="url(#c-term)" stroke="#d19a28" stroke-width="1.4"/>
+  </g>
+  <text x="260" y="794" text-anchor="middle" font-size="13" font-weight="650" fill="#4a3208">End</text>
+</svg>

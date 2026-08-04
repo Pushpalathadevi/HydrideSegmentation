@@ -6,6 +6,7 @@
 <title>{% block title %}{{ config.site_name }}{% endblock %}</title>
 <link rel="icon" href="{{ url_for('microseg_web.static', filename='img/favicon.svg') }}" type="image/svg+xml">
 <link rel="stylesheet" href="{{ url_for('microseg_web.static', filename='css/app.css') }}">
+{% block head_extra %}{% endblock %}
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to main content</a>

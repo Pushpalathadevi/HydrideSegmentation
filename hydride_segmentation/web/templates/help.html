@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Help &mdash; {{ config.site_name }}{% endblock %}
 
+{# KaTeX is vendored locally; this page must render its mathematics on a host
+   with no route to the internet. Loaded only here, not on the workspace. #}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('microseg_web.static', filename='vendor/katex/katex.min.css') }}">
+{% endblock %}
+
 {% block content %}
 <div class="doc">
   <h1>How to use this tool</h1>
@@ -122,109 +128,36 @@
     </ol>
 
     <div class="flow-branch">
-      <section>
-        <h3>Conventional pipeline</h3>
-        <p>
-          Classical image processing. Deterministic and fully inspectable: the same image and
-          settings always give the same mask.
-        </p>
-        <ol class="flow">
-          <li class="flow-step">
-            <h4>Normalise</h4>
-            <p class="flow-op">I&prime; = I / 255</p>
-            <p class="flow-note">Intensities are mapped to the range 0 to 1.</p>
-          </li>
-          <li class="flow-step">
-            <h4>Local contrast equalisation (CLAHE)</h4>
-            <p class="flow-op">C = CLAHE(I&prime;; clip, tiles) &rarr; 8-bit</p>
-            <p class="flow-note">
-              The image is divided into a grid of tiles and each is histogram-equalised
-              independently, so faint hydrides in a dark corner become visible. The clip limit caps
-              how far contrast is stretched inside a tile, which is what stops noise being amplified
-              into false detections.
-            </p>
-          </li>
-          <li class="flow-step">
-            <h4>Adaptive threshold</h4>
-            <p class="flow-op">T(x,y) = mean<sub>block</sub>(C) &minus; offset<br>M = [ C &lt; T ]</p>
-            <p class="flow-note">
-              The threshold is computed per pixel from its own neighbourhood rather than once for
-              the whole image, so uneven illumination does not bias the result. Hydrides are taken
-              to be <em>darker</em> than their surroundings, which is why the comparison is
-              &ldquo;less than&rdquo;. A larger offset makes detection stricter.
-            </p>
-          </li>
-          <li class="flow-step">
-            <h4>Morphological closing</h4>
-            <p class="flow-op">M &larr; (M &oplus; S) &#8854; S, repeated n times</p>
-            <p class="flow-note">
-              Dilation followed by erosion with a square structuring element S of side <var>k</var>.
-              This bridges small breaks along a hydride trace without growing its overall width.
-              Setting the iterations to zero disables it.
-            </p>
-          </li>
-          <li class="flow-step">
-            <h4>Overlay for review</h4>
-            <p class="flow-op">edges = dilate(M) &oplus; M</p>
-            <p class="flow-note">
-              The boundary ring is drawn in red over the original image. This is the Overlay tab.
-            </p>
-          </li>
-        </ol>
-      </section>
+      <figure class="diagram">
+        <img src="{{ url_for('microseg_web.static', filename='img/conventional_pipeline.svg') }}"
+             alt="Flow chart of the conventional pipeline: normalise, CLAHE, adaptive threshold,
+                  an optional morphological closing branch, then the binary mask and overlay.">
+        <figcaption>
+          <strong>CLAHE</strong> equalises each tile of the image independently, so faint hydrides
+          in a dark corner become visible; the clip limit caps how far contrast is stretched inside
+          a tile, which is what stops noise being amplified into false detections. The threshold is
+          computed per pixel from its own neighbourhood rather than once for the whole image, so
+          uneven illumination does not bias it. Hydrides are taken to be <em>darker</em> than their
+          surroundings, which is why the comparison is &ldquo;less than&rdquo;. Closing with a square
+          element \(S\) of side \(k\) bridges small breaks along a trace without widening it.
+        </figcaption>
+      </figure>
 
-      <section>
-        <h3>Trained model pipeline</h3>
-        <p>
-          A U-Net convolutional network that has learned hydride appearance from labelled
-          micrographs. There is nothing to tune at run time.
-        </p>
-        <ol class="flow">
-          <li class="flow-step">
-            <h4>Prepare the tensor</h4>
-            <p class="flow-op">x = I<sub>RGB</sub> / 255, shape (1, 3, H, W)</p>
-            <p class="flow-note">
-              The image is presented as three channels of floating-point values between 0 and 1.
-            </p>
-          </li>
-          <li class="flow-step">
-            <h4>Encoder (contracting path)</h4>
-            <p class="flow-op">DC(3&rarr;C) &rarr; pool &rarr; DC(C&rarr;2C) &rarr; pool &rarr; DC(2C&rarr;4C)</p>
-            <p class="flow-note">
-              Each <strong>DC</strong> block is two 3&times;3 convolutions, each followed by batch
-              normalisation and a ReLU. Each 2&times;2 max-pool halves the resolution and doubles the
-              channel count, trading spatial detail for context: deeper layers see a wider area and
-              so can tell a hydride from a scratch.
-            </p>
-          </li>
-          <li class="flow-step">
-            <h4>Decoder (expanding path)</h4>
-            <p class="flow-op">up(4C&rarr;2C) &#8853; skip &rarr; DC &rarr; up(2C&rarr;C) &#8853; skip &rarr; DC</p>
-            <p class="flow-note">
-              Transposed convolutions restore full resolution. At each level the matching encoder
-              feature map is concatenated back in (the skip connection), which is what lets the
-              network place a boundary precisely rather than approximately.
-            </p>
-          </li>
-          <li class="flow-step">
-            <h4>Output head</h4>
-            <p class="flow-op">z = Conv<sub>1&times;1</sub>(&middot;) &rarr; one logit per pixel</p>
-            <p class="flow-note">
-              A single 1&times;1 convolution collapses the feature channels to one unbounded score
-              per pixel.
-            </p>
-          </li>
-          <li class="flow-step">
-            <h4>Probability and decision</h4>
-            <p class="flow-op">p = &sigma;(z) = 1 / (1 + e<sup>&minus;z</sup>)<br>M = [ p &gt; 0.5 ]</p>
-            <p class="flow-note">
-              The logistic function turns each score into a hydride probability, and the mask keeps
-              the pixels above one half. The forward pass runs with gradients disabled, on CPU
-              unless this deployment enables a GPU.
-            </p>
-          </li>
-        </ol>
-      </section>
+      <figure class="diagram">
+        <img src="{{ url_for('microseg_web.static', filename='img/ml_pipeline.svg') }}"
+             alt="Flow chart of the trained model pipeline: build a normalised tensor, encoder,
+                  decoder with skip connections, one by one convolution, logistic function, then a
+                  per-pixel threshold producing the binary mask.">
+        <figcaption>
+          Each <strong>DC</strong> block is two \(3\times3\) convolutions, each followed by batch
+          normalisation and a ReLU. Every \(2\times2\) max-pool halves the resolution and doubles the
+          channel count, trading spatial detail for context: deeper layers see a wider area and so
+          can tell a hydride from a scratch. The dashed skip path carries each encoder feature map
+          into the matching decoder level, which is what lets the network place a boundary precisely
+          rather than approximately. The forward pass runs with gradients disabled, on CPU unless
+          this deployment enables a GPU.
+        </figcaption>
+      </figure>
     </div>
 
     <p class="callout">
@@ -332,7 +265,7 @@
       </li>
       <li class="flow-step">
         <h4>Reduce each feature to a centreline</h4>
-        <p class="flow-op">R<sub>i</sub> &rarr; fill holes &rarr; dilate(disk 1) &rarr; skeletonise</p>
+        <p class="flow-op">\(R_i\) &rarr; fill holes &rarr; dilate(disk 1) &rarr; skeletonise</p>
         <p class="flow-note">
           The skeleton is a one-pixel-wide centreline. Filling and a single dilation first keep a
           ragged edge from breaking the skeleton into disconnected stubs.
@@ -341,8 +274,8 @@
       <li class="flow-step">
         <h4>Find the dominant direction</h4>
         <p class="flow-op">
-          &Sigma; = cov(skeleton coordinates);
-          <strong>v</strong><sub>i</sub> = eigenvector of &Sigma; with the largest eigenvalue
+          \(\Sigma = \operatorname{cov}(\text{skeleton coordinates})\); &nbsp;
+          \(\mathbf{v}_i\) = eigenvector of \(\Sigma\) with the largest eigenvalue
         </p>
         <p class="flow-note">
           This is principal component analysis on the centreline points: the leading eigenvector is
@@ -353,13 +286,17 @@
 
     <div class="eq">
       <span class="eq-name">Feature orientation</span>
-      &theta;<sub>i</sub><sup>raw</sup> = atan2(v<sub>y</sub>, v<sub>x</sub>) mod 180&deg;,
-      &nbsp;&nbsp;
-      &theta;<sub>i</sub> =
-      &theta;<sub>i</sub><sup>raw</sup> if &theta;<sub>i</sub><sup>raw</sup> &le; 90&deg;,
-      otherwise 180&deg; &minus; &theta;<sub>i</sub><sup>raw</sup>
+      \[
+        \theta_i^{\text{raw}} = \operatorname{atan2}(v_y,\, v_x) \bmod 180^\circ,
+        \qquad
+        \theta_i =
+        \begin{cases}
+          \theta_i^{\text{raw}} & \text{if } \theta_i^{\text{raw}} \le 90^\circ \\[2pt]
+          180^\circ - \theta_i^{\text{raw}} & \text{otherwise}
+        \end{cases}
+      \]
       <dl class="eq-where">
-        <dt>&theta;<sub>i</sub></dt>
+        <dt>\(\theta_i\)</dt>
         <dd>
           angle of feature <var>i</var> from the horizontal, folded into 0&ndash;90&deg;. A line has
           no head or tail, so a direction and its reverse are the same orientation; folding removes
@@ -370,10 +307,12 @@
 
     <div class="eq">
       <span class="eq-name">Feature length</span>
-      L<sub>i</sub> = max<sub>p &isin; R<sub>i</sub></sub>(p &middot; <strong>v</strong><sub>i</sub>)
-      &minus; min<sub>p &isin; R<sub>i</sub></sub>(p &middot; <strong>v</strong><sub>i</sub>) + 1
+      \[
+        L_i = \max_{p \in R_i} (p \cdot \mathbf{v}_i)
+            - \min_{p \in R_i} (p \cdot \mathbf{v}_i) + 1
+      \]
       <dl class="eq-where">
-        <dt>L<sub>i</sub></dt>
+        <dt>\(L_i\)</dt>
         <dd>
           extent of the feature along its own dominant direction, in pixels. Every pixel of the
           feature is projected onto the direction vector and the span of those projections is taken;
@@ -385,11 +324,14 @@
     <h3>2. Radial hydride fraction</h3>
     <div class="eq">
       <span class="eq-name">Count-based Fn</span>
-      Fn<sub>count</sub> = | { i : &theta;<sub>i</sub> &ge; &theta;<sub>c</sub> } | &divide; N
+      \[
+        \mathrm{Fn}_{\text{count}}
+          = \frac{\bigl|\,\{\, i : \theta_i \ge \theta_c \,\}\,\bigr|}{N}
+      \]
       <dl class="eq-where">
-        <dt>&theta;<sub>c</sub></dt>
+        <dt>\(\theta_c\)</dt>
         <dd>angle threshold, 45&deg; by default <span class="metric-key">fn_angle_threshold_deg</span></dd>
-        <dt>N</dt>
+        <dt>\(N\)</dt>
         <dd>
           number of measured features, after the minimum size filter
           <span class="metric-key">fn_count_denominator</span>
@@ -400,10 +342,10 @@
 
     <div class="eq">
       <span class="eq-name">Length-weighted Fn</span>
-      Fn<sub>length</sub> =
-      ( &Sigma;<sub>i : &theta;<sub>i</sub> &ge; &theta;<sub>c</sub></sub> L<sub>i</sub> )
-      &divide;
-      ( &Sigma;<sub>i</sub> L<sub>i</sub> )
+      \[
+        \mathrm{Fn}_{\text{length}}
+          = \frac{\sum_{i \,:\, \theta_i \ge \theta_c} L_i}{\sum_i L_i}
+      \]
       <dl class="eq-where">
         <dt>numerator</dt>
         <dd>total length of radial hydrides <span class="metric-key">fn_length_numerator_px</span></dd>
@@ -419,11 +361,13 @@
     <h3>3. Coverage</h3>
     <div class="eq">
       <span class="eq-name">Area fraction</span>
-      &phi; = N<sub>hydride</sub> &divide; N<sub>total</sub>
+      \[
+        \varphi = \frac{N_{\text{hydride}}}{N_{\text{total}}}
+      \]
       <dl class="eq-where">
-        <dt>N<sub>hydride</sub></dt>
+        <dt>\(N_{\text{hydride}}\)</dt>
         <dd>count of mask pixels classified as hydride <span class="metric-key">hydride_total_area_pixels</span></dd>
-        <dt>N<sub>total</sub></dt>
+        <dt>\(N_{\text{total}}\)</dt>
         <dd>total pixels in the processed image</dd>
       </dl>
       <p class="eq-where">
@@ -435,9 +379,11 @@
 
     <div class="eq">
       <span class="eq-name">Feature density</span>
-      &rho; = N &divide; ( N<sub>total</sub> &divide; 10<sup>6</sup> )
+      \[
+        \rho = \frac{N}{N_{\text{total}} / 10^{6}}
+      \]
       <dl class="eq-where">
-        <dt>&rho;</dt>
+        <dt>\(\rho\)</dt>
         <dd>measured features per megapixel <span class="metric-key">hydride_density_per_megapixel</span></dd>
       </dl>
     </div>
@@ -445,11 +391,13 @@
     <h3>4. Feature size</h3>
     <div class="eq">
       <span class="eq-name">Equivalent circular diameter</span>
-      d<sub>i</sub> = 2 &radic;( A<sub>i</sub> &divide; &pi; )
+      \[
+        d_i = 2\sqrt{\frac{A_i}{\pi}}
+      \]
       <dl class="eq-where">
-        <dt>A<sub>i</sub></dt>
-        <dd>area of feature <var>i</var> in pixels</dd>
-        <dt>d<sub>i</sub></dt>
+        <dt>\(A_i\)</dt>
+        <dd>area of feature \(i\) in pixels</dd>
+        <dt>\(d_i\)</dt>
         <dd>
           diameter of the circle with the same area. It is a single-number size for an
           irregular shape, and for a long thin hydride it is much smaller than the length
@@ -462,9 +410,11 @@
     <h3>5. Orientation dispersion</h3>
     <div class="eq">
       <span class="eq-name">Alignment index</span>
-      A = | (1 &divide; N) &Sigma;<sub>i</sub> e<sup>&nbsp;j&thinsp;2&theta;<sub>i</sub></sup> |
+      \[
+        A = \left| \frac{1}{N} \sum_{i=1}^{N} e^{\,j\,2\theta_i} \right|
+      \]
       <dl class="eq-where">
-        <dt>A</dt>
+        <dt>\(A\)</dt>
         <dd>
           circular resultant length, between 0 and 1. The angle is <em>doubled</em> before averaging
           because orientations repeat every 180&deg;; without that, hydrides just above and just
@@ -477,16 +427,19 @@
 
     <div class="eq">
       <span class="eq-name">Orientation entropy</span>
-      H = &minus; &Sigma;<sub>k</sub> p<sub>k</sub> log<sub>2</sub> p<sub>k</sub>,
-      &nbsp;&nbsp; p<sub>k</sub> = c<sub>k</sub> &divide; &Sigma;<sub>k</sub> c<sub>k</sub>
+      \[
+        H = -\sum_k p_k \log_2 p_k,
+        \qquad
+        p_k = \frac{c_k}{\sum_k c_k}
+      \]
       <dl class="eq-where">
-        <dt>c<sub>k</sub></dt>
-        <dd>count in bin <var>k</var> of the orientation histogram</dd>
-        <dt>H</dt>
+        <dt>\(c_k\)</dt>
+        <dd>count in bin \(k\) of the orientation histogram</dd>
+        <dt>\(H\)</dt>
         <dd>
-          spread of the orientation distribution in bits. H = 0 means every hydride falls in one
-          bin; the maximum, log<sub>2</sub>B for B bins, means they are spread evenly across all of
-          them. Because it depends on the bin count, compare H only between runs using the same
+          spread of the orientation distribution in bits. \(H = 0\) means every hydride falls in one
+          bin; the maximum, \(\log_2 B\) for \(B\) bins, means they are spread evenly across all of
+          them. Because it depends on the bin count, compare \(H\) only between runs using the same
           number of orientation bins.
         </dd>
       </dl>
@@ -500,11 +453,13 @@
     </p>
     <div class="eq">
       <span class="eq-name">Standard deviation</span>
-      &sigma; = &radic;( (1 &divide; N) &Sigma;<sub>i</sub> (x<sub>i</sub> &minus; x&#772;)<sup>2</sup> )
+      \[
+        \sigma = \sqrt{\frac{1}{N} \sum_{i=1}^{N} \left(x_i - \bar{x}\right)^2}
+      \]
       <dl class="eq-where">
-        <dt>&sigma;</dt>
+        <dt>\(\sigma\)</dt>
         <dd>
-          population standard deviation, dividing by <var>N</var> rather than <var>N</var>&minus;1.
+          population standard deviation, dividing by \(N\) rather than \(N-1\).
           The features are the whole population being described, not a sample drawn from a larger
           one.
         </dd>
@@ -526,11 +481,13 @@
     <h3>7. Scale calibration</h3>
     <div class="eq">
       <span class="eq-name">Pixels to physical units</span>
-      A<sup>&micro;m&sup2;</sup><sub>i</sub> = A<sub>i</sub> &middot; s&sup2;,
-      &nbsp;&nbsp;
-      d<sup>&micro;m</sup><sub>i</sub> = d<sub>i</sub> &middot; s
+      \[
+        A_i^{\,\mu\mathrm{m}^2} = A_i \, s^2,
+        \qquad
+        d_i^{\,\mu\mathrm{m}} = d_i \, s
+      \]
       <dl class="eq-where">
-        <dt>s</dt>
+        <dt>\(s\)</dt>
         <dd>scale in microns per pixel</dd>
       </dl>
     </div>
@@ -645,4 +602,24 @@
     </dl>
   </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('microseg_web.static', filename='vendor/katex/katex.min.js') }}"></script>
+<script src="{{ url_for('microseg_web.static', filename='vendor/katex/auto-render.min.js') }}"></script>
+<script>
+  // Render every \( ... \) and \[ ... \] in the document. throwOnError is off so
+  // one malformed expression shows as red source text rather than leaving the
+  // rest of the page unrendered.
+  if (window.renderMathInElement) {
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      throwOnError: false,
+      errorColor: "#b3261e"
+    });
+  }
+</script>
 {% endblock %}

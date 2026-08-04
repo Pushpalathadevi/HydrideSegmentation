@@ -439,6 +439,26 @@ body {
 }
 .flow-branch h3 { margin-top: 0; }
 
+/* Pipeline diagrams ----------------------------------------------------- */
+
+.diagram { margin: 0; }
+.diagram img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  /* The SVGs carry their own light panel, so they read as figures in either
+     theme. The shadow lifts them off a dark page background. */
+  box-shadow: var(--shadow);
+}
+.diagram figcaption {
+  margin-top: 10px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 /* Display equations ----------------------------------------------------- */
 
 .eq {
@@ -480,6 +500,20 @@ body {
   font-size: 0.82rem;
   color: var(--text-muted);
 }
+
+/* KaTeX integration ----------------------------------------------------- */
+
+/* KaTeX draws with currentColor, so it follows the light and dark themes
+   without any per-theme rules of its own. */
+.katex { font-size: 1.04em; }
+.eq .katex-display {
+  margin: 6px 0 2px;
+  /* A long equation scrolls inside its own block instead of widening the page. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+}
+.eq-where .katex { font-size: 1em; }
 
 .btn {
   font: inherit; font-size: 0.9rem; font-weight: 550; cursor: pointer;

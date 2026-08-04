@@ -32,6 +32,13 @@ setup(
             'static/css/*.css',
             'static/js/*.js',
             'static/img/*.svg',
+            # Vendored KaTeX. The fonts must ship too, or the help page renders
+            # its mathematics in a fallback face on an air-gapped host.
+            'static/vendor/katex/*.css',
+            'static/vendor/katex/*.js',
+            'static/vendor/katex/fonts/*.woff2',
+            'static/vendor/katex/LICENSE',
+            'static/vendor/katex/README.md',
         ],
     },
     install_requires=requirements,

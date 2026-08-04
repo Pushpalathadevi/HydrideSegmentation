@@ -47,11 +47,21 @@ transformers = [
 [tool.setuptools.package-data]
 # Templates and static assets are served by the intranet web app and must ship
 # with the installed package, not only from a source checkout.
+#
+# This is the list the build backend actually reads. setup.py carries a copy for
+# anyone invoking it directly; keep the two in step.
 "hydride_segmentation.web" = [
     "templates/*.html",
     "static/css/*.css",
     "static/js/*.js",
     "static/img/*.svg",
+    # Vendored KaTeX. The fonts must ship as well, or an installed copy renders
+    # the help page mathematics in a fallback face on a host with no network.
+    "static/vendor/katex/*.css",
+    "static/vendor/katex/*.js",
+    "static/vendor/katex/fonts/*.woff2",
+    "static/vendor/katex/LICENSE",
+    "static/vendor/katex/README.md",
 ]
 
 [project.scripts]

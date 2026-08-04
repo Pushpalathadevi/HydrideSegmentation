@@ -7,6 +7,7 @@ import io
 import json
 import re
 from pathlib import Path
+from xml.etree import ElementTree
 
 import numpy as np
 import pytest
@@ -140,10 +141,101 @@ def test_static_assets_are_served(client) -> None:
         ("/static/css/app.css", "text/css"),
         ("/static/js/app.js", "javascript"),
         ("/static/img/favicon.svg", "svg"),
+        ("/static/img/conventional_pipeline.svg", "svg"),
+        ("/static/img/ml_pipeline.svg", "svg"),
+        ("/static/vendor/katex/katex.min.css", "text/css"),
+        ("/static/vendor/katex/katex.min.js", "javascript"),
+        ("/static/vendor/katex/auto-render.min.js", "javascript"),
     ):
         response = client.get(url)
-        assert response.status_code == 200
+        assert response.status_code == 200, f"{url} is not served"
         assert content_type in response.headers["Content-Type"]
+
+
+# -- vendored KaTeX ------------------------------------------------------
+
+
+def test_vendored_katex_asks_only_for_fonts_that_were_copied() -> None:
+    """A partial vendor copy must fail here, not on an air-gapped host.
+
+    The upstream stylesheet references woff, ttf, and woff2 copies of every
+    face. Only woff2 is shipped, so the rules were edited; if that edit is ever
+    lost or a font file is missed, the help page silently falls back to a
+    non-mathematical face on a machine with no route to a CDN.
+    """
+
+    katex_dir = WEB_PACKAGE_ROOT / "static" / "vendor" / "katex"
+    css = (katex_dir / "katex.min.css").read_text(encoding="utf-8")
+
+    referenced = set(re.findall(r"url\(fonts/([^)]+)\)", css))
+    assert referenced, "the vendored stylesheet declares no font faces"
+
+    missing = sorted(name for name in referenced if not (katex_dir / "fonts" / name).exists())
+    assert not missing, f"stylesheet references fonts that were not vendored: {missing}"
+
+    other_formats = sorted(name for name in referenced if not name.endswith(".woff2"))
+    assert not other_formats, f"only woff2 is vendored, but the CSS still asks for: {other_formats}"
+
+
+#: URLs that appear in vendored code as identifiers rather than as fetches.
+#: These are XML namespaces handed to createElementNS; nothing requests them.
+_NAMESPACE_URIS = frozenset(
+    {
+        "http://www.w3.org/1998/Math/MathML",
+        "http://www.w3.org/2000/svg",
+        "http://www.w3.org/1999/xhtml",
+    }
+)
+
+
+def test_vendored_katex_makes_no_remote_requests() -> None:
+    katex_dir = WEB_PACKAGE_ROOT / "static" / "vendor" / "katex"
+    for name in ("katex.min.css", "katex.min.js", "auto-render.min.js"):
+        text = (katex_dir / name).read_text(encoding="utf-8", errors="ignore")
+        urls = set(re.findall(r"https?://[^\"'\s)]+", text))
+        fetched = sorted(urls - _NAMESPACE_URIS)
+        assert not fetched, f"{name} would reach outside this host for: {fetched}"
+
+
+def test_vendored_katex_ships_its_licence() -> None:
+    licence = WEB_PACKAGE_ROOT / "static" / "vendor" / "katex" / "LICENSE"
+    assert licence.exists(), "vendored third-party code must ship its licence"
+    assert "MIT" in licence.read_text(encoding="utf-8")
+
+
+def test_packaging_includes_the_vendored_assets() -> None:
+    """Both packaging configs must ship the vendor tree.
+
+    ``pyproject.toml`` is the one the build backend reads, so a pattern present
+    only in ``setup.py`` silently produces a wheel with no KaTeX fonts, and the
+    help page then falls back to a non-mathematical face on exactly the
+    air-gapped host this was vendored for. Both files are checked because both
+    exist and they are easy to let drift apart.
+    """
+
+    repo_root = WEB_PACKAGE_ROOT.parents[1]
+    configs = {
+        "pyproject.toml": (repo_root / "pyproject.toml").read_text(encoding="utf-8"),
+        "setup.py": (repo_root / "setup.py").read_text(encoding="utf-8"),
+    }
+    for name, text in configs.items():
+        for pattern in (
+            "static/vendor/katex/*.css",
+            "static/vendor/katex/*.js",
+            "static/vendor/katex/fonts/*.woff2",
+        ):
+            assert pattern in text, f"{name} package data is missing {pattern}"
+
+
+def test_help_page_loads_katex_locally_and_renders_math() -> None:
+    body = (WEB_PACKAGE_ROOT / "templates" / "help.html").read_text(encoding="utf-8")
+
+    assert "vendor/katex/katex.min.css" in body
+    assert "vendor/katex/katex.min.js" in body
+    assert "vendor/katex/auto-render.min.js" in body
+    assert "renderMathInElement" in body
+    # Display equations are what the formulae section is for.
+    assert body.count("\\[") >= 8, "the formulae section should carry display equations"
 
 
 # -- pages ---------------------------------------------------------------
@@ -573,12 +665,55 @@ def test_help_page_documents_both_processing_pipelines(client) -> None:
     body = client.get("/help").get_data(as_text=True)
 
     assert 'id="pipeline"' in body
-    # The conventional flow sheet must name each stage the implementation runs.
-    for stage in ("Normalise", "CLAHE", "Adaptive threshold", "Morphological closing"):
-        assert stage in body, f"conventional flow sheet is missing {stage!r}"
-    # The trained-model flow sheet must do the same.
-    for stage in ("Prepare the tensor", "Encoder", "Decoder", "Output head"):
-        assert stage in body, f"trained model flow sheet is missing {stage!r}"
+    for diagram in ("img/conventional_pipeline.svg", "img/ml_pipeline.svg"):
+        assert diagram in body, f"the help page does not show {diagram}"
+
+
+@pytest.mark.parametrize(
+    ("diagram", "stages"),
+    [
+        (
+            "conventional_pipeline.svg",
+            ("Normalise", "CLAHE", "Adaptive threshold", "Morphological closing", "Binary mask"),
+        ),
+        (
+            "ml_pipeline.svg",
+            ("RGB tensor", "Encoder", "Decoder", "convolution", "Binary mask"),
+        ),
+    ],
+)
+def test_pipeline_flow_charts_name_the_stages_the_code_runs(diagram, stages) -> None:
+    """Each flow chart must describe the pipeline it claims to.
+
+    The diagrams are hand-drawn SVG, so nothing but a test keeps them honest
+    when the implementation moves on.
+    """
+
+    svg = (WEB_PACKAGE_ROOT / "static" / "img" / diagram).read_text(encoding="utf-8")
+
+    for stage in stages:
+        assert stage in svg, f"{diagram} does not mention {stage!r}"
+
+
+@pytest.mark.parametrize("diagram", ["conventional_pipeline.svg", "ml_pipeline.svg"])
+def test_pipeline_flow_charts_are_valid_and_self_contained(diagram) -> None:
+    svg = (WEB_PACKAGE_ROOT / "static" / "img" / diagram).read_text(encoding="utf-8")
+
+    root = ElementTree.fromstring(svg)
+    assert root.tag.endswith("svg")
+
+    # A screen reader needs these; the chart carries real information.
+    assert "<title" in svg and "<desc" in svg, f"{diagram} lacks a title and description"
+
+    # Gradients, filters, and markers must resolve, or shapes render unfilled.
+    declared = set(re.findall(r'\sid="([^"]+)"', svg))
+    referenced = set(re.findall(r"url\(#([^)]+)\)", svg))
+    assert not (referenced - declared), f"{diagram} references undefined ids: {referenced - declared}"
+
+    remote = svg.replace('xmlns="http://www.w3.org/2000/svg"', "")
+    assert "http://" not in remote and "https://" not in remote, (
+        f"{diagram} must not reference anything remote"
+    )
 
 
 def test_help_page_only_documents_metrics_the_server_actually_reports(client) -> None:
