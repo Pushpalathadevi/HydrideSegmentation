@@ -121,6 +121,7 @@ gui_user_guide
 intranet_web_app
 windows_offline_installer
 releases/v1.0.0
+releases/v1.0.0.closeout
 phase33_interactive_conventional_gui
 phase34_model_installation
 phase35_intranet_web_app

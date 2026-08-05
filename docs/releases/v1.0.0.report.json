@@ -1,0 +1,93 @@
+{
+  "schema_version": "microseg.release_closeout.v1",
+  "status": "passed",
+  "release_version": "1.0.0",
+  "created_utc": "2026-08-05T18:02:16.0272093Z",
+  "release_branch": "codex/release-v1.0.0",
+  "release_source_commit": "5400717827b4be41ab62913dbd411fed1290756f",
+  "validation": {
+    "full_cpu_test_suite": {
+      "status": "passed",
+      "passed": 328,
+      "skipped": 1,
+      "warnings": 15,
+      "seconds": 198.76
+    },
+    "release_packaging_tests": {
+      "status": "passed",
+      "passed": 25
+    },
+    "web_and_release_regression_tests": {
+      "status": "passed",
+      "passed": 114,
+      "skipped": 1
+    },
+    "strict_phase_gate": {
+      "status": "passed",
+      "tests_reused_from_full_suite": true,
+      "report": "outputs/phase_gates/v1.0.0_release_phase_gate.json"
+    },
+    "model_registry": {
+      "status": "passed",
+      "errors": 0,
+      "warnings": 0,
+      "report": "outputs/registry/validation_report.json"
+    },
+    "documentation_html": {
+      "status": "passed",
+      "warnings": 0,
+      "output": "docs/_build/html"
+    },
+    "real_browser_smoke": {
+      "status": "passed",
+      "preload_mode": "on_demand",
+      "readiness_text": "Ready - models load on first use",
+      "sample": "hydride_optical_sample.png",
+      "model": "hydride_conventional",
+      "measured_features": 167,
+      "fn_count_based": 0.0778,
+      "fn_length_weighted": 0.0339
+    },
+    "packaged_desktop_smoke": {
+      "status": "passed",
+      "app_version": "1.0.0",
+      "sample_image_count": 2
+    },
+    "installed_desktop_smoke": {
+      "status": "passed",
+      "app_version": "1.0.0",
+      "sample_image_count": 2
+    },
+    "packaged_and_installed_cli": {
+      "status": "passed",
+      "reported_version": "MicroSeg 1.0.0"
+    },
+    "silent_install_and_uninstall": {
+      "status": "passed",
+      "verification_install_removed": true
+    }
+  },
+  "installer": {
+    "artifact": "dist/installer/MicroSegDesktop_1.0.0_offline_setup.exe",
+    "bytes": 325598962,
+    "sha256": "014daa348e9dc0b988eaa4f2659079f282875b6daf206ca67a61e35394edbd9a",
+    "source_commit": "5400717827b4be41ab62913dbd411fed1290756f",
+    "python_version": "3.12.2",
+    "pyinstaller_version": "6.21.0",
+    "inno_setup_version": "6.7.0",
+    "authenticode_signed": false
+  },
+  "phase_goal_stocktake": {
+    "stable_version_metadata": "complete",
+    "web_readiness_and_segmentation": "complete",
+    "desktop_source_and_installed_runtime": "complete",
+    "single_file_offline_installer": "complete",
+    "release_notes_changelog_and_docs": "complete",
+    "machine_and_human_closeout": "complete"
+  },
+  "remaining_gaps": [
+    "The Windows installer is not Authenticode-signed, so Windows may display an unknown-publisher warning.",
+    "Large validated trained checkpoints remain separately managed local artifacts and are not embedded in the base installer."
+  ],
+  "scope_note": "Unrelated user-owned book-chapter and generated browser/output files were excluded from release commits."
+}

@@ -28,6 +28,7 @@ Start here:
 - [`intranet_web_app.md`](intranet_web_app.md) for serving the browser app to colleagues on an air-gapped intranet
 - [`windows_offline_installer.md`](windows_offline_installer.md) for building and validating the single-file Windows installer
 - [`releases/v1.0.0.md`](releases/v1.0.0.md) for the first stable release notes, installation guidance, compatibility notes, and validation evidence
+- [`releases/v1.0.0.closeout.md`](releases/v1.0.0.closeout.md) for the human-readable release stocktake, final installer checksum, validation results, and remaining gaps
 - [`phase35_intranet_web_app.md`](phase35_intranet_web_app.md) for the intranet web application closeout
 - [`phase36_memory_safe_interfaces_and_hci_spec.md`](phase36_memory_safe_interfaces_and_hci_spec.md) for memory-safe interfaces and the HCI candidate-spec closeout
 - [`frozen_checkpoint_registry.md`](frozen_checkpoint_registry.md) for the registry metadata the installer writes when adding a new trained model
