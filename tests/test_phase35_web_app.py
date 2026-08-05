@@ -322,9 +322,20 @@ def test_status_endpoint_reports_models_and_limits(client) -> None:
     payload = client.get("/api/status").get_json()
 
     assert payload["ok"] is True
+    assert payload["preload_enabled"] is False
     assert payload["conventional_available"] is True
     assert payload["max_upload_mb"] > 0
     assert isinstance(payload["models"], list) and payload["models"]
+
+
+def test_on_demand_model_loading_is_reported_as_ready(client) -> None:
+    payload = client.get("/api/status").get_json()
+    script = (WEB_PACKAGE_ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert payload["preload_enabled"] is False
+    assert payload["preload_finished"] is False
+    assert "payload.preload_enabled === false" in script
+    assert "Ready - models load on first use" in script
 
 
 def test_models_endpoint_offers_a_runnable_default(client) -> None:

@@ -68,11 +68,13 @@ class ModelCatalog:
         enable_gpu: bool = False,
         device_policy: str = "cpu",
         preload_model_ids: tuple[str, ...] = (),
+        preload_enabled: bool = True,
     ) -> None:
         self._lock = threading.Lock()
         self._enable_gpu = bool(enable_gpu)
         self._device_policy = str(device_policy)
         self._preload_model_ids = tuple(preload_model_ids)
+        self._preload_enabled = bool(preload_enabled)
         self._options: list[WebModelOption] = []
         self._warm_state: dict[str, dict[str, Any]] = {}
         self._preload_started = False
@@ -291,6 +293,7 @@ class ModelCatalog:
             preload_seconds = self._preload_seconds
         trained = [option for option in options if not option.is_conventional]
         return {
+            "preload_enabled": self._preload_enabled,
             "preload_started": preload_started,
             "preload_finished": preload_finished,
             "preload_seconds": round(float(preload_seconds), 3),

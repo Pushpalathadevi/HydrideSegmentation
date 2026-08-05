@@ -1,6 +1,6 @@
 # Desktop App Workspace
 
-Current implementation status:
+Current v1.0.0 implementation status:
 
 - Phase 2 workflow manager is in `src/microseg/app/desktop_workflow.py`.
 - Phase 3 introduces Qt GUI foundation:
@@ -16,5 +16,8 @@ Windows packaging assets:
 - Inno Setup script: `windows/microseg_desktop.iss`
 - build helper script: `../../scripts/build_windows_installer.ps1`
 
-Planned migration:
-- Move Qt desktop app assembly into `apps/desktop/` package boundaries while preserving stable CLI entry points.
+The build produces an application folder containing `MicroSegDesktop.exe` and
+`MicroSegCLI.exe`, then wraps that folder into one per-user offline setup file.
+Installed runtime data is synchronized into the writable local application-data
+workspace so logs, outputs, local registry overlays, and checkpoints never need
+write access to the installation directory.

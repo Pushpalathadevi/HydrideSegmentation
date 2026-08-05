@@ -1,4 +1,4 @@
-# Current State Gap Analysis (v0.22.0)
+# Current State Gap Analysis (v1.0.0)
 
 ## Baseline Status
 
@@ -38,7 +38,7 @@ Implemented:
 - Conventional-model parameters exposed above a unified side-by-side input/result workspace, with defaults, hover help, stale-result clearing, and debounced live reruns
 - Bundled sample image onboarding (`Load Sample` + `File -> Open Sample`)
 - Persistent desktop operational logs in `outputs/logs/desktop/`
-- Windows packaging assets for offline installer build (PyInstaller spec + Inno Setup script + build script)
+- Verified single-file Windows offline installer workflow with packaged GUI and CLI launchers, per-user writable runtime workspace, executable smoke reports, silent install/uninstall validation, and SHA-256 release metadata
 - Sphinx-based documentation source tree with HTML/PDF build helper, SVG diagrams, and math-aware narrative docs
 
 ## Remaining Gaps To World-Class Target
@@ -53,7 +53,7 @@ High-priority gaps:
 Medium-priority gaps:
 - Multi-feature default registries beyond hydrides
 - Rich experiment tracking backends
-- Signed installer and update channels for field distribution
+- Authenticode-signed installer and update channels for field distribution
 - More GUI schematic screenshots and captured visual QA artifacts for future release notes
 
 ## Risks
@@ -70,10 +70,11 @@ Medium-priority gaps:
 
 ## Latest Health Audit Snapshot
 
-- Full tests pass (`76 passed`).
-- Strict phase gate pass confirmed (`Airgap Pretrained HPC Hardening`).
-- API validation warnings removed (Pydantic v2 validators and image-type probing modernization).
-- Detailed audit record: `repo_health_audit.md`.
+- v1.0.0 release validation is recorded in `releases/v1.0.0.report.json`.
+- Release gates cover the full CPU test suite, strict phase gate, web and Qt
+  smoke checks, packaged executable checks, silent installer verification, and
+  documentation build.
+- Detailed repository audit record: `repo_health_audit.md`.
 
 ## 2026-02 HPC-readiness hardening update
 

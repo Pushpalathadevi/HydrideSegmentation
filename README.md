@@ -1,6 +1,6 @@
 # HydrideSegmentation -> MicroSeg Platform (Transition)
 
-Current release version: `0.22.0`
+Current release version: `1.0.0`
 
 This repository is transitioning from a hydride-specific toolkit into a general local platform for microstructural segmentation.
 Hydride segmentation is the first validated workflow.
@@ -107,6 +107,13 @@ Windows offline installer build tooling:
 powershell -ExecutionPolicy Bypass -File scripts/build_windows_installer.ps1
 ```
 See `docs/windows_offline_installer.md`.
+
+Windows users can install v1.0.0 from the single release artifact
+`MicroSegDesktop_1.0.0_offline_setup.exe`. It installs per-user without
+administrator privileges and includes both `MicroSegDesktop.exe` and the
+`MicroSegCLI.exe` background-job companion. Release details are in
+[`docs/releases/v1.0.0.md`](docs/releases/v1.0.0.md), with cumulative history in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ## Primary Usage
 

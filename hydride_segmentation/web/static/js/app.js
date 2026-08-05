@@ -100,6 +100,11 @@
       chip.textContent = "Conventional only - no trained model installed";
       return true;
     }
+    if (payload.preload_enabled === false) {
+      chip.className = "status-chip status-chip--ready";
+      chip.textContent = "Ready - models load on first use";
+      return true;
+    }
     if (!payload.preload_finished) {
       chip.className = "status-chip status-chip--pending";
       chip.textContent = "Loading models...";

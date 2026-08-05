@@ -88,6 +88,7 @@ from src.microseg.quality import (
     write_compatibility_matrix,
     write_promotion_decision,
 )
+from src.microseg.version import __version__
 from src.microseg.training import (
     PixelClassifierTrainer,
     PixelTrainingConfig,
@@ -1594,6 +1595,7 @@ def _phaseid_benchmark(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="MicroSeg unified CLI")
+    p.add_argument("--version", action="version", version=f"MicroSeg {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     infer = sub.add_parser("infer", help="Run inference and export artifacts")

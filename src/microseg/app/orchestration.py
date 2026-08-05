@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 
+from .runtime_paths import resolve_desktop_runtime_paths
+
 
 def _repo_root_from(start: Path) -> Path:
     cur = start.resolve()
@@ -21,17 +23,24 @@ class OrchestrationCommandBuilder:
 
     repo_root: Path
     python_executable: str = sys.executable
+    cli_executable: Path | None = None
 
     @classmethod
     def discover(cls, *, start: Path | None = None) -> OrchestrationCommandBuilder:
-        base = start or Path(__file__)
-        return cls(repo_root=_repo_root_from(base))
+        runtime = resolve_desktop_runtime_paths(start=start or Path(__file__))
+        return cls(
+            repo_root=runtime.workspace_root,
+            python_executable=sys.executable,
+            cli_executable=runtime.cli_executable,
+        )
 
     @property
     def cli_script(self) -> Path:
         return self.repo_root / "scripts" / "microseg_cli.py"
 
     def _base(self) -> list[str]:
+        if self.cli_executable is not None:
+            return [str(self.cli_executable)]
         return [self.python_executable, str(self.cli_script)]
 
     @staticmethod

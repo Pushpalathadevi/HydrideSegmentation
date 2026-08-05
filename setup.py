@@ -20,7 +20,7 @@ requirements = _load_requirements("requirements.txt")
 
 setup(
     name='hydride-segmentation',
-    version='0.22.0',
+    version='1.0.0',
     description='Toolkit for zirconium hydride segmentation and analysis',
     packages=find_packages(),
     include_package_data=True,

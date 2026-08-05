@@ -26,6 +26,8 @@ Start here:
 - [`gui_model_integration_guide.md`](gui_model_integration_guide.md) for installing a trained checkpoint into desktop and CLI inference, including on air-gapped machines
 - [`phase34_model_installation.md`](phase34_model_installation.md) for the local model-installation closeout
 - [`intranet_web_app.md`](intranet_web_app.md) for serving the browser app to colleagues on an air-gapped intranet
+- [`windows_offline_installer.md`](windows_offline_installer.md) for building and validating the single-file Windows installer
+- [`releases/v1.0.0.md`](releases/v1.0.0.md) for the first stable release notes, installation guidance, compatibility notes, and validation evidence
 - [`phase35_intranet_web_app.md`](phase35_intranet_web_app.md) for the intranet web application closeout
 - [`phase36_memory_safe_interfaces_and_hci_spec.md`](phase36_memory_safe_interfaces_and_hci_spec.md) for memory-safe interfaces and the HCI candidate-spec closeout
 - [`frozen_checkpoint_registry.md`](frozen_checkpoint_registry.md) for the registry metadata the installer writes when adding a new trained model

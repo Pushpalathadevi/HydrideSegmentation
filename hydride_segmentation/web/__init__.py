@@ -67,10 +67,12 @@ def create_app(
     for warning in resolved.warnings:
         _LOGGER.warning("Web configuration: %s", warning)
 
+    should_preload = resolved.preload_on_startup if preload is None else bool(preload)
     catalog = ModelCatalog(
         enable_gpu=resolved.enable_gpu,
         device_policy=resolved.device_policy,
         preload_model_ids=resolved.preload_model_ids,
+        preload_enabled=should_preload,
     )
     limiter = JobLimiter(
         max_concurrent_jobs=resolved.max_concurrent_jobs,
@@ -93,7 +95,6 @@ def create_app(
 
     app.register_blueprint(create_web_blueprint())
 
-    should_preload = resolved.preload_on_startup if preload is None else bool(preload)
     if should_preload:
         if resolved.preload_in_background:
             _LOGGER.info("Warming trained models in the background")

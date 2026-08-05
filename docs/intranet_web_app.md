@@ -174,7 +174,7 @@ Defaults live in [`configs/app/web_server.default.yml`](../configs/app/web_serve
 | `limits.max_concurrent_jobs` | `2` | Simultaneous segmentation jobs; extra requests queue |
 | `limits.max_retained_jobs` | `32` | Bound on queued and completed in-memory records |
 | `limits.job_retention_seconds` | `1800` | Time before terminal in-memory reports expire |
-| `models.preload_on_startup` | `true` | Load checkpoints at startup so the first request is fast |
+| `models.preload_on_startup` | `true` | Load checkpoints at startup so the first request is fast; when disabled, the status indicator reports that models will load on first use |
 | `models.default_model_id` | `auto` | `auto` picks the first ready trained model |
 | `analysis.include_analysis` | `true` | Include orientation and distribution figures |
 | `demo.sample_images` | two images | Example images offered in the browser |
@@ -190,7 +190,7 @@ Command-line flags take precedence over both: `--host`, `--port`, `--threads`, `
 
 ## Performance
 
-Model loading is the one cost worth eliminating up front, so trained checkpoints are warmed into a shared in-process cache at startup, on a background thread. `/health` answers immediately while that happens, and the header status indicator turns green when it finishes. Every later request reuses the loaded model.
+By default, trained checkpoints are warmed into a shared in-process cache at startup on a background thread. `/health` answers immediately while that happens, and the header status indicator turns green when it finishes. Every later request reuses the loaded model. With `--no-preload`, the indicator instead reports **Ready - models load on first use** and the selected model is loaded on demand.
 
 Measured on a 1024 x 768 optical micrograph, CPU only:
 
@@ -269,4 +269,4 @@ This app is designed for a trusted intranet and has no authentication of its own
 - [`gui_model_integration_guide.md`](gui_model_integration_guide.md) installing a checkpoint
 - [`gui_user_guide.md`](gui_user_guide.md) the desktop application
 - [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) what the conventional parameters do scientifically
-- [`deploy/README.md`](../deploy/README.md) service files
+- `deploy/README.md` service files

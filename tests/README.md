@@ -47,6 +47,7 @@ Current phase coverage includes:
 - `test_phase27_desktop_report_customization.py` single-run report profile/section/metric customization and JSON/HTML/CSV artifact checks
 - `test_phase27_desktop_batch_export.py` multi-run batch results summary export (JSON/HTML/CSV aggregate artifacts)
 - `test_phase27_qt_settings_smoke.py` Qt offscreen smoke for settings/config application and GUI-to-export config wiring
+- `test_release_v1_packaging.py` v1.0.0 version consistency, packaged GUI/CLI topology, per-user installer contract, writable runtime workspace preservation, and CLI-version checks
 
 - `test_data_preparation_module.py` paired image/mask collector, RGB red-threshold + red-dominance fallback binarization, noisy-grayscale auto-Otsu fallback, short-side resize+crop alignment, empty-mask warn/error policy, manifests/QA reports, debug criteria exports, and dry-run behavior
 - `test_data_preparation_module.py` also covers shared augmentation integration in the paired prep path, including deterministic outputs and `debug_augmentation/` metadata panels

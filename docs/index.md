@@ -44,6 +44,8 @@ python -m http.server 8000 -d docs/_build/html
 
 ## Current State Snapshot
 
+- Stable release version 1.0.0 is defined across Python, package, desktop, web,
+  and installer metadata.
 - CPU-first local inference is available.
 - Qt desktop workflows, correction export, and result packaging are implemented.
 - Config-driven CLI and GUI orchestration share the same core contracts.
@@ -117,10 +119,12 @@ data_preparation
 results_analysis
 gui_user_guide
 intranet_web_app
+windows_offline_installer
+releases/v1.0.0
 phase33_interactive_conventional_gui
 phase34_model_installation
-   phase35_intranet_web_app
-   phase36_memory_safe_interfaces_and_hci_spec
+phase35_intranet_web_app
+phase36_memory_safe_interfaces_and_hci_spec
 configuration_workflow
 scientific_validation
 model_architecture_manuscript_foundation
