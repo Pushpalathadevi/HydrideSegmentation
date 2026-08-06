@@ -29,6 +29,7 @@ from src.microseg.evaluation.hydride_statistics import (
     compute_hydride_statistics,
     render_fn_debug_visualizations,
     render_hydride_visualizations,
+    statistics_to_json,
 )
 from src.microseg.utils import image_to_png_base64
 
@@ -734,6 +735,7 @@ def run_web_segmentation(
     images.setdefault("input_png_b64", image_to_png_base64(prepared.array))
 
     metrics = dict(result.metrics or {})
+    analysis_data: dict[str, Any] = {}
     mask = np.asarray(result.mask)
     if mask.size:
         metrics.setdefault("area_fraction", float(np.count_nonzero(mask) / mask.size))
@@ -750,6 +752,7 @@ def run_web_segmentation(
             include_fn_metrics=config.include_fn_metrics,
             fn_angle_threshold_deg=config.fn_angle_threshold_deg,
         )
+        analysis_data = statistics_to_json(stats, decimal_places=8)
         metrics.update(stats.scalar_metrics)
         if progress_hook is not None:
             progress_hook("analysis", 88, "Rendering the scientific analysis views.")
@@ -787,6 +790,7 @@ def run_web_segmentation(
         "model_id": result.model_id,
         "metrics": metrics,
         "metric_groups": group_metrics(metrics),
+        "analysis_data": analysis_data,
         "fn": summarize_fn(metrics),
         "images": images,
         "manifest": manifest,

@@ -7,6 +7,7 @@ Every response is generated locally; no request ever leaves the host.
 from __future__ import annotations
 
 import logging
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -19,11 +20,18 @@ from flask import (
     send_file,
     url_for,
 )
+from hydride_segmentation.version import __version__
 
 from .config import WebServerConfig
+from .downloads import DownloadCatalog
 from .jobs import WebJobManager
 from .library import THUMBNAIL_MIMETYPE, ImageLibrary
 from .models import CONVENTIONAL_MODEL_ID, ModelCatalog
+from .reporting import (
+    build_pdf_report,
+    build_report_bundle,
+    report_download_name,
+)
 from .segmentation import (
     ALLOWED_EXTENSIONS,
     CONVENTIONAL_CONTROLS,
@@ -56,6 +64,10 @@ def _jobs() -> WebJobManager:
 
 def _library() -> ImageLibrary:
     return current_app.extensions["microseg_web"]["library"]
+
+
+def _downloads() -> DownloadCatalog:
+    return current_app.extensions["microseg_web"]["downloads"]
 
 
 def _error(code: str, detail: str, status: int, **extra: Any):
@@ -202,6 +214,33 @@ def create_web_blueprint() -> Blueprint:
             quantification_controls=[control.to_dict() for control in QUANTIFICATION_CONTROLS],
             allowed_extensions=sorted(ALLOWED_EXTENSIONS),
             active_page="help",
+        )
+
+    @bp.get("/downloads")
+    def downloads_page():
+        """Show metadata-described downloads available on this deployment."""
+
+        return render_template(
+            "downloads.html",
+            config=_config(),
+            assets=[item.to_dict() for item in _downloads().assets()],
+            active_page="downloads",
+        )
+
+    @bp.get("/downloads/<asset_id>")
+    def download_asset(asset_id: str):
+        """Serve one cataloged file after repository-bound path validation."""
+
+        asset = _downloads().get(asset_id)
+        if asset is None:
+            return _error("NOT_FOUND", "No download with that ID is cataloged.", 404)
+        if not asset.available:
+            return _error("UNAVAILABLE", "This cataloged file is not installed on this server.", 404)
+        return send_file(
+            asset.path,
+            mimetype=asset.media_type,
+            as_attachment=True,
+            download_name=asset.download_name,
         )
 
     # -- api -------------------------------------------------------------
@@ -546,6 +585,56 @@ def create_web_blueprint() -> Blueprint:
         except ValueError:
             return _error("VALIDATION", "The 'after' sequence must be an integer.", 400)
         return jsonify(job.to_dict(after_sequence=after, include_result=True))
+
+    def completed_job(job_id: str):
+        job = _jobs().get(job_id)
+        if job is None:
+            return None, _error("NOT_FOUND", "This job does not exist or its in-memory report expired.", 404)
+        if job.state != "completed" or job.result is None:
+            return None, _error("NOT_READY", "The detailed report is available after segmentation completes.", 409)
+        return job, None
+
+    @bp.get("/api/jobs/<job_id>/report.pdf")
+    def detailed_report(job_id: str):
+        """Generate a compact scientific PDF for a completed in-memory job."""
+
+        job, error = completed_job(job_id)
+        if error is not None:
+            return error
+        assert job is not None and job.result is not None
+        payload = build_pdf_report(
+            job.result,
+            app_version=__version__,
+            job_meta={"job_id": job.job_id, "created_utc": job.created_utc, "finished_utc": job.finished_utc},
+        )
+        return send_file(
+            BytesIO(payload),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=report_download_name(job.result, "detailed_report.pdf"),
+            max_age=0,
+        )
+
+    @bp.get("/api/jobs/<job_id>/bundle.zip")
+    def detailed_report_bundle(job_id: str):
+        """Generate PDF, XLSX, JSON, and PNG artifacts as one ZIP package."""
+
+        job, error = completed_job(job_id)
+        if error is not None:
+            return error
+        assert job is not None and job.result is not None
+        payload = build_report_bundle(
+            job.result,
+            app_version=__version__,
+            job_meta={"job_id": job.job_id, "created_utc": job.created_utc, "finished_utc": job.finished_utc},
+        )
+        return send_file(
+            BytesIO(payload),
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=report_download_name(job.result, "scientific_results.zip"),
+            max_age=0,
+        )
 
     @bp.post("/api/warm")
     def warm():

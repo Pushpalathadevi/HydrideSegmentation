@@ -12,7 +12,10 @@ from pathlib import Path
 
 from flask import Flask
 
+from hydride_segmentation.version import __version__
+
 from .config import WebServerConfig, load_web_config
+from .downloads import DownloadCatalog
 from .library import ImageLibrary
 from .models import ModelCatalog
 from .routes import create_web_blueprint
@@ -84,6 +87,7 @@ def create_app(
         retention_seconds=resolved.job_retention_seconds,
     )
     library = ImageLibrary(resolved.library_dir, max_images=resolved.library_max_images)
+    downloads = DownloadCatalog(resolved.repo_root)
 
     app.extensions["microseg_web"] = {
         "config": resolved,
@@ -91,7 +95,12 @@ def create_app(
         "limiter": limiter,
         "jobs": jobs,
         "library": library,
+        "downloads": downloads,
     }
+
+    @app.context_processor
+    def inject_product_metadata() -> dict[str, str]:
+        return {"app_version": __version__}
 
     app.register_blueprint(create_web_blueprint())
 

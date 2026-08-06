@@ -34,10 +34,31 @@ All three changes benefit the desktop GUI and the CLI equally, since they share 
 
 End-to-end effect on a 1024 x 768 optical micrograph, CPU only, analysis figures included: conventional 0.95 s to 0.73 s, trained UNet 3.24 s to 1.32 s.
 
+## 2026-08 professional workspace and reporting enhancement
+
+The deployed browser surface now closes the main review and handoff gaps identified after the
+original phase closeout:
+
+- the primary Run action is directly below image selection;
+- the header displays the software version and opens a metadata-driven Downloads catalog;
+- the completed result begins with aligned input/mask panes and a synchronized, focal-point zoom
+  tool that resets with `Esc`;
+- completed retained jobs generate a compact two-page scientific PDF or a ZIP with the PDF,
+  provenance JSON, individual PNG views, and a formatted XLSX workbook carrying scalar metrics,
+  per-feature data, histogram bins, and editable charts;
+- the catalog validates repository-bound paths and displays file size and SHA-256 metadata for the
+  local Windows installer, research publication, release notes, and future JSON-described assets.
+
+The report and workbook remain in memory until downloaded. PDF pages were rendered with Poppler for
+visual QA; the workbook was imported, inspected, formula-error scanned, and rendered through the
+artifact validation workflow. Live browser QA confirmed identical scale and transform origin in both
+comparison panes and verified `Esc` returns each pane to 1x.
+
 ## Verification and traceability
 
 - New test module: `tests/test_phase35_web_app.py` (49 tests) covering configuration loading and environment overrides, missing-file and missing-sample fallbacks, offline asset guarantees, page rendering and embedded bootstrap JSON, help-page coverage of every control, all API endpoints, conventional and trained segmentation, parameter effect, downscaling, upload validation across six failure modes, oversized uploads, catalog defaults and warm loading, job-limiter concurrency, and Fn quantification: presence on both routes, threshold monotonicity, minimum-feature-size exclusion, manifest recording, opt-in classification views, dense-mask rendering that previously exhausted memory, metric grouping completeness, and threshold validation.
-- Full repository suite: 263 passed.
+- Original closeout suite: 263 passed. Current enhancement gate: 333 passed, 1 skipped.
+- Focused enhancement suite: `tests/test_web_downloads_and_reports.py` (5 passed).
 - Live browser verification against a running waitress server: both routes executed end to end, all six result tabs populated, measurements rendered, downloads enabled, no console errors, and `performance.getEntriesByType("resource")` reported zero external requests.
 - User documentation: [`intranet_web_app.md`](intranet_web_app.md).
 - Machine-readable closeout: `docs/phase35_intranet_web_app.report.json`.

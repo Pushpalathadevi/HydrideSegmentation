@@ -52,6 +52,29 @@
       </div>
     </fieldset>
 
+    <div class="actions primary-run-actions">
+      <button type="button" id="run-btn" class="btn btn-primary">Run segmentation</button>
+      <span id="run-status" class="run-status" aria-live="polite"></span>
+    </div>
+
+    <p id="error-box" class="error-box" role="alert" hidden></p>
+
+    <section id="progress-panel" class="progress-panel" aria-label="Job progress" hidden>
+      <div class="progress-head">
+        <strong id="progress-stage">Preparing</strong>
+        <span id="progress-percent">0%</span>
+      </div>
+      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+           aria-valuenow="0" id="progress-bar">
+        <span id="progress-fill"></span>
+      </div>
+      <p id="progress-message" class="hint" aria-live="polite"></p>
+      <details class="job-log" open>
+        <summary>Live processing log</summary>
+        <ol id="job-log-output" aria-live="polite"></ol>
+      </details>
+    </section>
+
     <fieldset class="field-group">
       <legend>2. Choose a method</legend>
       <label class="sr-only" for="model-select">Segmentation model</label>
@@ -142,34 +165,14 @@
       </label>
     </fieldset>
 
-    <div class="actions">
-      <button type="button" id="run-btn" class="btn btn-primary">Run segmentation</button>
-      <span id="run-status" class="run-status" aria-live="polite"></span>
-    </div>
-
-    <p id="error-box" class="error-box" role="alert" hidden></p>
-
-    <section id="progress-panel" class="progress-panel" aria-label="Job progress" hidden>
-      <div class="progress-head">
-        <strong id="progress-stage">Preparing</strong>
-        <span id="progress-percent">0%</span>
-      </div>
-      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-           aria-valuenow="0" id="progress-bar">
-        <span id="progress-fill"></span>
-      </div>
-      <p id="progress-message" class="hint" aria-live="polite"></p>
-      <details class="job-log" open>
-        <summary>Live processing log</summary>
-        <ol id="job-log-output" aria-live="polite"></ol>
-      </details>
-    </section>
   </section>
 
   <section class="panel results" aria-label="Results">
     <div class="results-head">
       <h2 class="panel-title">Results</h2>
       <div class="results-actions">
+        <button type="button" id="download-report" class="btn btn-primary" disabled>Download detailed report</button>
+        <button type="button" id="download-bundle" class="btn btn-ghost" disabled>Report + data (.zip)</button>
         <button type="button" id="download-mask" class="btn btn-ghost" disabled>Download mask</button>
         <button type="button" id="download-overlay" class="btn btn-ghost" disabled>Download overlay</button>
       </div>
@@ -185,6 +188,34 @@
     </div>
 
     <div id="result-area" hidden>
+      <section class="compare-section" aria-labelledby="compare-title">
+        <div class="compare-toolbar">
+          <div>
+            <h3 id="compare-title">Synchronized inspection</h3>
+            <p id="zoom-status" class="hint">Input and predicted mask are aligned side by side.</p>
+          </div>
+          <div class="zoom-actions" role="toolbar" aria-label="Synchronized image zoom">
+            <button type="button" id="zoom-toggle" class="btn btn-ghost zoom-toggle" aria-pressed="false" title="Activate synchronized magnifier">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5M10.5 7v7M7 10.5h7"></path></svg>
+              Magnify both
+            </button>
+            <button type="button" id="zoom-out" class="btn btn-ghost" disabled>−</button>
+            <button type="button" id="zoom-reset" class="btn btn-ghost" disabled>Reset</button>
+          </div>
+        </div>
+        <div id="compare-view" class="compare-view">
+          <figure class="compare-pane" data-zoom-pane>
+            <figcaption>Input micrograph</figcaption>
+            <div class="compare-viewport"><img id="compare-input-image" alt="Input micrograph"></div>
+          </figure>
+          <figure class="compare-pane" data-zoom-pane>
+            <figcaption>Predicted mask</figcaption>
+            <div class="compare-viewport"><img id="compare-mask-image" alt="Computed segmentation mask"></div>
+          </figure>
+        </div>
+        <p class="zoom-help"><strong>Magnifier:</strong> activate the tool, then click either view or use the mouse wheel. Both views stay on the same location and scale. Press <kbd>Esc</kbd> to exit.</p>
+      </section>
+
       <section id="fn-panel" class="fn-panel" aria-label="Radial hydride fraction" hidden>
         <div class="fn-head">
           <h3>Radial hydride fraction (Fn)</h3>
@@ -213,7 +244,8 @@
         </p>
       </section>
 
-      <div class="tabs" role="tablist" aria-label="Result views">
+      <h3 class="supplementary-title">Additional analysis views</h3>
+      <div class="tabs" role="tablist" aria-label="Additional result views">
         <button class="tab active" role="tab" data-view="overlay_png_b64" aria-selected="true">Overlay</button>
         <button class="tab" role="tab" data-view="input_png_b64" aria-selected="false">Input</button>
         <button class="tab" role="tab" data-view="mask_png_b64" aria-selected="false">Mask</button>

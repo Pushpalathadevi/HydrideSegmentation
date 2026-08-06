@@ -4,9 +4,11 @@
   "title": "Intranet Web Application",
   "status": "implemented",
   "verification": {
-    "full_test_suite": "263 passed",
+    "full_test_suite": "333 passed, 1 skipped",
     "focused_web_suite": "49 passed",
-    "live_browser_check": "both routes executed against a running waitress server with zero external resource requests, Fn panel and classification views confirmed"
+    "focused_download_report_suite": "5 passed",
+    "live_browser_check": "trained segmentation executed against a running waitress server; top Run placement, version, download catalog, input/mask split, identical 2x synchronized transforms, and Esc reset confirmed",
+    "artifact_qa": "two A4 landscape PDF pages rendered with Poppler; XLSX imported and rendered with artifact-tool with five expected sheets and zero formula-error matches"
   },
   "delivered": [
     "self-contained Flask application factory under hydride_segmentation/web/",
@@ -32,6 +34,19 @@
     "fn_classification_render": "MemoryError -> 0.64s on a 1386-feature mask; also fixes the desktop result-export path",
     "conventional_request": "0.95s -> 0.73s",
     "trained_model_request": "3.24s -> 1.32s"
+  },
+  "professional_workspace_enhancement": {
+    "date": "2026-08-05",
+    "delivered": [
+      "Run action directly below image selection",
+      "header software version and metadata-driven Downloads catalog",
+      "repository-bound catalog paths with file size and SHA-256 metadata",
+      "aligned input and predicted-mask split view",
+      "synchronized focal-point magnifier with Escape reset",
+      "two-page in-memory scientific PDF report",
+      "ZIP package with PDF, XLSX, PNG views, and provenance JSON",
+      "XLSX scalar metrics, per-feature measurements, histogram bins, and editable charts"
+    ]
   },
   "remaining_gaps": [
     "no authentication; assumes a trusted intranet or a reverse proxy",

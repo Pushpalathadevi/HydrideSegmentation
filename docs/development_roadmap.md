@@ -569,3 +569,16 @@ Exit criteria:
 - GUI supports model selection, sample onboarding, segmentation, correction, statistics review, and report export in one flow.
 - Results package contains machine-readable + human-readable deliverables suitable for audit handoff.
 - Windows offline installer process is documented and scriptable.
+
+## Phase 35 follow-up - Professional browser review and handoff (Implemented)
+
+- Move the primary Run action directly below image selection.
+- Present input and predicted mask side by side with synchronized focal-point magnification and an
+  explicit `Esc` exit path.
+- Display the software version and provide a repository-bound, JSON-metadata Downloads catalog.
+- Generate a compact scientific PDF and an optional ZIP containing all PNG views, provenance JSON,
+  and an editable XLSX workbook with per-feature and histogram source data.
+- Verify with focused route/export tests, full CPU regression tests, rendered PDF/XLSX artifact QA,
+  and live browser interaction checks.
+
+Status: implemented and recorded in [`phase35_intranet_web_app.md`](phase35_intranet_web_app.md).

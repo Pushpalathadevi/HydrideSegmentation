@@ -27,6 +27,7 @@ dependencies = [
     "flask",
     "pydantic",
     "PyYAML",
+    "xlsxwriter",
 ]
 
 [project.optional-dependencies]

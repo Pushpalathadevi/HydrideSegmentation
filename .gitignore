@@ -150,6 +150,12 @@ build/
 develop-eggs/
 dist/
 downloads/
+# Track only the web catalog sidecars; large downloadable binaries stay local.
+!downloads/
+downloads/*
+!downloads/README.md
+!downloads/metadata/
+!downloads/metadata/*.json
 eggs/
 .eggs/
 lib/

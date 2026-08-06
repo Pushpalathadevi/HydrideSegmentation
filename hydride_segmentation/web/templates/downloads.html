@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Downloads · {{ config.site_name }}{% endblock %}
+
+{% block content %}
+<section class="downloads-page" aria-labelledby="downloads-title">
+  <div class="downloads-hero">
+    <p class="eyebrow">Resources</p>
+    <h1 id="downloads-title">Downloads</h1>
+    <p>Install MicroSeg, read the scientific background, and keep the supporting release material with your analysis records.</p>
+  </div>
+
+  {% if assets %}
+  <div class="download-grid">
+    {% for asset in assets %}
+    <article class="download-card {{ 'download-card--featured' if asset.featured else '' }}">
+      <div class="download-card-head">
+        <span class="download-category">{{ asset.category }}</span>
+        {% if asset.version %}<span class="download-version">{{ asset.version }}</span>{% endif %}
+      </div>
+      <h2>{{ asset.display_name }}</h2>
+      <p class="download-help">{{ asset.help_text }}</p>
+      {% if asset.description %}<p class="download-description">{{ asset.description }}</p>{% endif %}
+      <div class="download-meta">
+        {% if asset.available %}
+          <span>{{ asset.size_label }}</span>
+          <span title="SHA-256 {{ asset.sha256 }}">SHA-256 {{ asset.sha256[:12] }}…</span>
+        {% else %}
+          <span class="unavailable-label">Not installed on this server</span>
+        {% endif %}
+      </div>
+      {% if asset.available %}
+      <a class="btn btn-primary download-button" href="{{ url_for('microseg_web.download_asset', asset_id=asset.asset_id) }}" aria-label="Download {{ asset.display_name }}">Download <span aria-hidden="true">↓</span></a>
+      {% else %}
+      <button class="btn download-button" type="button" disabled>Currently unavailable</button>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><p><strong>No downloads are cataloged.</strong></p><p>An administrator can add JSON records under <code>downloads/metadata</code>.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

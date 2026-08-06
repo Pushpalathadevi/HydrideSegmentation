@@ -20,6 +20,9 @@ See `docs/mission_statement.md`.
 - Registry-backed segmentation orchestration (`src/microseg`)
 - Browser-based intranet app (`microseg-web`) for colleagues who should not have to install anything:
   - one air-gapped host serves the whole team; clients need only a browser
+  - the Run action sits directly below image selection, with the software version and a metadata-driven Downloads catalog in the header
+  - input and predicted mask are shown side by side with a synchronized magnifier; `Esc` exits inspection mode
+  - completed jobs export a compact scientific PDF or a ZIP containing the PDF, individual PNG views, provenance JSON, and an Excel workbook with per-feature and histogram source data
   - drag-and-drop upload plus bundled example images for testing without private data
   - immediate upload preview and clickable thumbnail previews for bundled examples
   - strict 5 MB image validation, memory-only processing, and asynchronous progress with a live log
@@ -123,6 +126,10 @@ python scripts/run_web_server.py
 ```
 
 The command prints the `http://<host>:5005/` links to share with colleagues. Open the host firewall for the port, and the team needs nothing installed. Deployment, configuration, service setup, and the offline wheelhouse install are covered in `docs/intranet_web_app.md`.
+
+The header **Downloads** page reads `downloads/metadata/*.json`. It currently
+catalogs the Windows installer, research publication, and release notes; a card
+is enabled when its repository-relative file exists on the host.
 
 Qt GUI:
 ```bash

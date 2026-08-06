@@ -148,7 +148,8 @@
     var state = {
       file: null, sampleId: "", libraryId: "", result: null, view: "overlay_png_b64",
       running: false, lastEventSequence: 0, jobEvents: [], previewObjectUrl: "",
-      libraryLoaded: false
+      libraryLoaded: false, currentJobId: "", zoomActive: false, zoomScale: 1,
+      zoomX: 50, zoomY: 50
     };
 
     var dropzone = $("dropzone");
@@ -180,6 +181,13 @@
     var emptyState = $("empty-state");
     var resultArea = $("result-area");
     var resultImage = $("result-image");
+    var compareView = $("compare-view");
+    var compareInputImage = $("compare-input-image");
+    var compareMaskImage = $("compare-mask-image");
+    var zoomToggle = $("zoom-toggle");
+    var zoomOut = $("zoom-out");
+    var zoomReset = $("zoom-reset");
+    var zoomStatus = $("zoom-status");
     var viewCaption = $("view-caption");
     var metricGroups = $("metric-groups");
     var runMeta = $("run-meta");
@@ -534,6 +542,75 @@
 
     /* -- results -- */
 
+    function applySynchronizedZoom() {
+      var images = [compareInputImage, compareMaskImage];
+      for (var i = 0; i < images.length; i++) {
+        images[i].style.transformOrigin = state.zoomX + "% " + state.zoomY + "%";
+        images[i].style.transform = "scale(" + state.zoomScale + ")";
+      }
+      compareView.classList.toggle("magnify-active", state.zoomActive);
+      zoomToggle.classList.toggle("active", state.zoomActive);
+      zoomToggle.setAttribute("aria-pressed", state.zoomActive ? "true" : "false");
+      zoomOut.disabled = !state.result || state.zoomScale <= 1;
+      zoomReset.disabled = !state.result || state.zoomScale <= 1;
+      if (!state.result) {
+        zoomStatus.textContent = "Input and predicted mask are aligned side by side.";
+      } else if (state.zoomScale > 1) {
+        zoomStatus.textContent = state.zoomScale.toFixed(1) + "× synchronized zoom at " +
+          Math.round(state.zoomX) + "%, " + Math.round(state.zoomY) + "% of the image.";
+      } else if (state.zoomActive) {
+        zoomStatus.textContent = "Magnifier active — click either image to inspect the same location in both views.";
+      } else {
+        zoomStatus.textContent = "Input and predicted mask are aligned side by side.";
+      }
+    }
+
+    function resetSynchronizedZoom() {
+      state.zoomScale = 1; state.zoomX = 50; state.zoomY = 50;
+      applySynchronizedZoom();
+    }
+
+    function setMagnifier(active) {
+      state.zoomActive = Boolean(active);
+      if (!state.zoomActive) { state.zoomScale = 1; state.zoomX = 50; state.zoomY = 50; }
+      applySynchronizedZoom();
+    }
+
+    zoomToggle.addEventListener("click", function () { setMagnifier(!state.zoomActive); });
+    zoomOut.addEventListener("click", function () {
+      state.zoomScale = Math.max(1, state.zoomScale - 0.5); applySynchronizedZoom();
+    });
+    zoomReset.addEventListener("click", resetSynchronizedZoom);
+
+    var zoomPanes = document.querySelectorAll("[data-zoom-pane]");
+    for (var zp = 0; zp < zoomPanes.length; zp++) {
+      (function (pane) {
+        var viewport = pane.querySelector(".compare-viewport");
+        viewport.addEventListener("click", function (event) {
+          if (!state.zoomActive || !state.result) { return; }
+          var rect = viewport.getBoundingClientRect();
+          state.zoomX = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+          state.zoomY = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+          state.zoomScale = Math.max(2, state.zoomScale);
+          applySynchronizedZoom();
+        });
+        viewport.addEventListener("wheel", function (event) {
+          if (!state.zoomActive || !state.result) { return; }
+          event.preventDefault();
+          var rect = viewport.getBoundingClientRect();
+          state.zoomX = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+          state.zoomY = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+          state.zoomScale = Math.max(1, Math.min(6, state.zoomScale + (event.deltaY < 0 ? 0.5 : -0.5)));
+          applySynchronizedZoom();
+        }, { passive: false });
+      })(zoomPanes[zp]);
+    }
+    document.addEventListener("keydown", function (event) {
+      if ((event.key === "Escape" || event.key === "Esc") && state.zoomActive) {
+        setMagnifier(false);
+      }
+    });
+
     function selectView(view) {
       state.view = view;
       var tabs = document.querySelectorAll(".tab");
@@ -624,6 +701,9 @@
 
     function renderResult(payload) {
       state.result = payload;
+      compareInputImage.src = "data:image/png;base64," + payload.images.input_png_b64;
+      compareMaskImage.src = "data:image/png;base64," + payload.images.mask_png_b64;
+      resetSynchronizedZoom();
 
       var tabs = document.querySelectorAll(".tab");
       var firstAvailable = null;
@@ -657,6 +737,8 @@
       resultArea.removeAttribute("hidden");
       $("download-mask").disabled = !payload.images.mask_png_b64;
       $("download-overlay").disabled = !payload.images.overlay_png_b64;
+      $("download-report").disabled = !state.currentJobId;
+      $("download-bundle").disabled = !state.currentJobId;
 
       selectView(payload.images[state.view] ? state.view : (firstAvailable || "overlay_png_b64"));
     }
@@ -674,6 +756,13 @@
 
     $("download-mask").addEventListener("click", function () { download("mask_png_b64", "mask"); });
     $("download-overlay").addEventListener("click", function () { download("overlay_png_b64", "overlay"); });
+
+    $("download-report").addEventListener("click", function () {
+      if (state.currentJobId) { window.location.href = "api/jobs/" + state.currentJobId + "/report.pdf"; }
+    });
+    $("download-bundle").addEventListener("click", function () {
+      if (state.currentJobId) { window.location.href = "api/jobs/" + state.currentJobId + "/bundle.zip"; }
+    });
 
     $("download-metrics").addEventListener("click", function () {
       if (!state.result) { return; }
@@ -712,6 +801,9 @@
 
       clearError();
       state.running = true;
+      state.currentJobId = "";
+      $("download-report").disabled = true;
+      $("download-bundle").disabled = true;
       updateRunButton();
 
       var form = new FormData();
@@ -751,6 +843,7 @@
             showError(detail);
             throw new Error("__handled__");
           }
+          state.currentJobId = result.payload.job_id || "";
           return pollJob(result.payload.status_url);
         })
         .catch(function (error) {

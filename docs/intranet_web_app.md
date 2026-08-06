@@ -9,11 +9,18 @@ One host runs the server. Everyone else just opens a URL. No one else needs Pyth
 - Upload a micrograph, or run a bundled example image without needing their own data.
 - Preview a selected upload in the drop area before running; bundled examples are presented as
   clickable thumbnail cards and also populate the same preview.
+- Start immediately from the primary **Run segmentation** action directly below the selected image.
 - Choose between the trained model and the conventional pipeline.
 - **Radial hydride fraction (Fn)** reported as the headline result, both length-weighted and count-based, with a user-controlled angle threshold.
 - Tune conventional and quantification parameters, each with in-app help behind a `?` button.
+- Inspect the input micrograph and predicted mask side by side. The visible magnifier applies the
+  same point and scale to both views; press `Esc` to leave magnification mode.
 - View overlay, mask, Fn classification, orientation map, and size/angle distributions.
-- Download the mask and overlay as PNG, and all measurements as JSON.
+- Download the mask and overlay as PNG, all measurements as JSON, a compact detailed PDF, or a
+  ZIP package containing the PDF, every rendered PNG, provenance JSON, and an XLSX workbook with
+  scalar metrics, per-feature measurements, histogram bins, and editable charts.
+- See the running software version in the header and open a professional **Downloads** catalog for
+  the desktop installer, scientific publication, release notes, and other deployment-managed files.
 - A dedicated in-app Help page covering method choice, Fn interpretation, parameter meaning, result interpretation, and troubleshooting.
 
 Uploaded images, masks, and reports are held in process memory only and are never written to disk or
@@ -50,6 +57,32 @@ Ticking **Show which hydrides were counted** adds two QA views: an annotated ima
 The in-app Help page explains all of this at `/help#fn`, including the guidance to always report the threshold and minimum feature size alongside the value.
 
 Measurements are grouped into Fn, coverage, orientation, and feature size, with the Fn group open by default.
+
+## Detailed Scientific Report
+
+After a job completes, **Download detailed report** generates a two-page PDF in memory. Page 1
+records the input and predicted mask, software version, model ID, source image, image dimensions,
+processing time, Fn settings, and key quantification results. Page 2 collects the overlay,
+orientation map, and size/orientation distributions for quality control. The report explicitly
+reminds the reader to verify the mask before scientific interpretation.
+
+**Report + data (.zip)** adds a formatted Excel workbook with `Summary`, `Metrics`, `Features`,
+`Histograms`, and `Metadata` sheets. The histogram sheets preserve bin edges and counts, and the
+workbook charts remain editable so plots can be regenerated independently. Reports are generated
+on demand from the retained in-memory result; they expire with the job and are not written by the
+server.
+
+## Downloads Catalog
+
+`/downloads` reads JSON sidecars under [`downloads/metadata/`](../downloads/metadata/). Each record
+uses schema `microseg.download.v1` and specifies a stable ID, display name, help text, category,
+repository-relative `repo_path`, and optional version/download name/media type. The server rejects
+paths that escape the repository. Available files show their size and SHA-256 digest; missing files
+remain visible but disabled so an incomplete deployment is obvious.
+
+Binary installers and publication PDFs do not need to be tracked in Git. Copy them to the path named
+by their sidecar before starting the server. See [`downloads/README.md`](../downloads/README.md) for
+the metadata fields.
 
 ## Requirements
 
@@ -213,11 +246,15 @@ The browser UI is built on a small JSON API you can also call from scripts.
 | --- | --- | --- |
 | `GET` | `/` | Workspace page |
 | `GET` | `/help` | In-app help page |
+| `GET` | `/downloads` | Metadata-driven installer, publication, and documentation catalog |
+| `GET` | `/downloads/<asset_id>` | Download one validated catalog asset |
 | `GET` | `/health` | Liveness probe; never blocks on model loading |
 | `GET` | `/api/status` | Model readiness, active jobs, configured limits |
 | `GET` | `/api/models` | Selectable models with availability |
 | `GET` | `/api/samples` | Example images offered |
 | `GET` | `/api/samples/<id>` | One example image |
+| `GET` | `/api/jobs/<id>/report.pdf` | Generate the detailed PDF for a completed retained job |
+| `GET` | `/api/jobs/<id>/bundle.zip` | Generate PDF, XLSX, PNG, and JSON artifacts for a completed retained job |
 | `POST` | `/api/segment` | Run a segmentation |
 | `POST` | `/api/jobs` | Validate and submit an asynchronous in-memory job |
 | `GET` | `/api/jobs/<job_id>` | Poll new progress events and retrieve the terminal result |

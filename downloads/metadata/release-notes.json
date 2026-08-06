@@ -1,0 +1,14 @@
+{
+  "schema_version": "microseg.download.v1",
+  "asset_id": "release-notes",
+  "display_name": "MicroSeg v1.0.0 Release Notes",
+  "help_text": "Versioned feature, compatibility, validation, and installer notes for the stable release.",
+  "description": "Keep this document alongside regulated or long-lived analysis records to identify the deployed software baseline.",
+  "category": "Documentation",
+  "version": "1.0.0",
+  "repo_path": "docs/releases/v1.0.0.md",
+  "download_name": "MicroSeg_v1.0.0_release_notes.md",
+  "media_type": "text/markdown",
+  "featured": false,
+  "order": 30
+}
