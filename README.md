@@ -15,6 +15,13 @@ Build a scientifically robust, CPU-first desktop + CLI platform for microstructu
 
 See `docs/mission_statement.md`.
 
+## Standalone and portal integration
+
+HydrideSegmentation is independently deployable as its own web application, desktop application,
+CLI, or library. The `ml_server` portal is an optional integration and discovery layer; it is not
+required to develop, test, or deploy HydrideSegmentation, and no unrelated platform tool is a
+prerequisite.
+
 ## Core Capabilities
 
 - Registry-backed segmentation orchestration (`src/microseg`)

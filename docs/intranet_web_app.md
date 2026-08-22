@@ -4,6 +4,10 @@ This guide covers running the segmentation tool as a browser application that co
 
 One host runs the server. Everyone else just opens a URL. No one else needs Python, a checkpoint, or an install of any kind.
 
+This web app is independently deployable and does not require `ml_server` or any other platform
+tool. The portal can optionally link to this service through its stable URL, without changing the
+standalone installation or runtime contract.
+
 ## What Users Get
 
 - Upload a micrograph, or run a bundled example image without needing their own data.

@@ -1,6 +1,6 @@
 # Deploying HydrideSegmentation on an Intranet
 
-There are two ways to make segmentation available to colleagues on an internal network. Both are CPU-only and need no CUDA and no internet access at run time.
+There are two ways to make segmentation available to colleagues on an internal network. Both are CPU-only and need no CUDA and no internet access at run time. Both are standalone deployment modes; integration with `ml_server` is optional.
 
 ## 1. Browser App (recommended)
 
