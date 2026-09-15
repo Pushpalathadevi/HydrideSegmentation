@@ -519,7 +519,13 @@
     <ul>
       <li><strong>Overlay</strong> &mdash; detected regions drawn over your original image. The fastest way to judge quality.</li>
       <li><strong>Input</strong> &mdash; the image exactly as the server processed it, after any downscaling.</li>
-      <li><strong>Mask</strong> &mdash; the binary segmentation on its own. This is what you download for further analysis.</li>
+      <li><strong>Mask</strong> &mdash; the binary segmentation on its own. <em>Download mask</em> offers
+        <strong>Mask labels</strong> (<code>_mask_labels.png</code>: class numbers, 0 = background and
+        1 = hydride, for model training and annotation tools such as OnlineAnnotator),
+        <strong>Mask preview</strong> (<code>_mask_preview.png</code>: 0 and 255 so the mask is visible in
+        any viewer; not class labels), <strong>Labels + preview + metadata</strong> (a ZIP with both and a
+        JSON record of class IDs, display values, dimensions and the run), and the mask exactly as
+        displayed. Both PNGs come from the same labels and have identical dimensions.</li>
       <li><strong>Orientation</strong> &mdash; detected features coloured by their measured angle.</li>
       <li><strong>Size</strong> and <strong>Angle</strong> &mdash; distributions across all detected features.</li>
       <li><strong>Fn counted</strong> and <strong>Fn threshold</strong> &mdash; shown when you tick the Fn option; see <a href="#fn">the Fn section</a>.</li>

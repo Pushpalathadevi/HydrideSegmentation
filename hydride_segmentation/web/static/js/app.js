@@ -736,6 +736,10 @@
       emptyState.setAttribute("hidden", "");
       resultArea.removeAttribute("hidden");
       $("download-mask").disabled = !payload.images.mask_png_b64;
+      $("download-mask-labels").disabled = !state.currentJobId || !payload.images.mask_png_b64;
+      $("download-mask-preview").disabled = $("download-mask-labels").disabled;
+      $("download-mask-bundle").disabled = $("download-mask-labels").disabled;
+      $("mask-menu-toggle").setAttribute("aria-disabled", payload.images.mask_png_b64 ? "false" : "true");
       $("download-overlay").disabled = !payload.images.overlay_png_b64;
       $("download-report").disabled = !state.currentJobId;
       $("download-bundle").disabled = !state.currentJobId;
@@ -755,6 +759,14 @@
     }
 
     $("download-mask").addEventListener("click", function () { download("mask_png_b64", "mask"); });
+
+    /* Server-encoded mask downloads: class labels {0,1}, display preview {0,255}, or both + metadata. */
+    function jobDownload(path) {
+      if (state.currentJobId) { window.location.href = "api/jobs/" + state.currentJobId + "/" + path; }
+    }
+    $("download-mask-labels").addEventListener("click", function () { jobDownload("mask_labels.png"); });
+    $("download-mask-preview").addEventListener("click", function () { jobDownload("mask_preview.png"); });
+    $("download-mask-bundle").addEventListener("click", function () { jobDownload("masks.zip"); });
     $("download-overlay").addEventListener("click", function () { download("overlay_png_b64", "overlay"); });
 
     $("download-report").addEventListener("click", function () {
@@ -804,6 +816,9 @@
       state.currentJobId = "";
       $("download-report").disabled = true;
       $("download-bundle").disabled = true;
+      $("download-mask-labels").disabled = true;
+      $("download-mask-preview").disabled = true;
+      $("download-mask-bundle").disabled = true;
       updateRunButton();
 
       var form = new FormData();

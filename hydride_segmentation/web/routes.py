@@ -27,9 +27,12 @@ from .downloads import DownloadCatalog
 from .jobs import WebJobManager
 from .library import THUMBNAIL_MIMETYPE, ImageLibrary
 from .models import CONVENTIONAL_MODEL_ID, ModelCatalog
+from src.microseg.io.mask_download import MaskEncodingError, build_mask_bundle
+
 from .reporting import (
     build_pdf_report,
     build_report_bundle,
+    mask_downloads_for_result,
     report_download_name,
 )
 from .segmentation import (
@@ -635,6 +638,51 @@ def create_web_blueprint() -> Blueprint:
             download_name=report_download_name(job.result, "scientific_results.zip"),
             max_age=0,
         )
+
+    def job_mask_downloads(job_id: str):
+        job, error = completed_job(job_id)
+        if error is not None:
+            return None, error
+        assert job is not None and job.result is not None
+        try:
+            downloads = mask_downloads_for_result(
+                job.result,
+                app_version=__version__,
+                job_meta={"job_id": job.job_id, "created_utc": job.created_utc, "finished_utc": job.finished_utc},
+            )
+        except MaskEncodingError as exc:
+            return None, _error("MASK_NOT_BINARY", f"The mask cannot be exported as class labels: {exc}.", 422)
+        return downloads, None
+
+    @bp.get("/api/jobs/<job_id>/mask_labels.png")
+    def mask_labels_download(job_id: str):
+        """Semantic class labels {0, 1} for model training and annotation tools."""
+
+        downloads, error = job_mask_downloads(job_id)
+        if error is not None:
+            return error
+        return send_file(BytesIO(downloads.labels_png), mimetype="image/png", as_attachment=True,
+                         download_name=downloads.labels_name, max_age=0)
+
+    @bp.get("/api/jobs/<job_id>/mask_preview.png")
+    def mask_preview_download(job_id: str):
+        """Display preview {0, 255} of the same mask, for image viewers."""
+
+        downloads, error = job_mask_downloads(job_id)
+        if error is not None:
+            return error
+        return send_file(BytesIO(downloads.preview_png), mimetype="image/png", as_attachment=True,
+                         download_name=downloads.preview_name, max_age=0)
+
+    @bp.get("/api/jobs/<job_id>/masks.zip")
+    def mask_bundle_download(job_id: str):
+        """Labels PNG, preview PNG and a JSON record of class IDs and display mapping."""
+
+        downloads, error = job_mask_downloads(job_id)
+        if error is not None:
+            return error
+        return send_file(BytesIO(build_mask_bundle(downloads)), mimetype="application/zip", as_attachment=True,
+                         download_name=downloads.bundle_name, max_age=0)
 
     @bp.post("/api/warm")
     def warm():

@@ -15,6 +15,13 @@ import matplotlib
 import numpy as np
 from PIL import Image
 
+from src.microseg.io.mask_download import (
+    MaskDownloads,
+    MaskEncodingError,
+    build_mask_downloads,
+    decode_mask_png,
+)
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
@@ -272,3 +279,22 @@ def report_download_name(result: dict[str, Any], suffix: str) -> str:
     """Return a safe attachment filename for one report artifact."""
 
     return f"{_safe_base_name(str(result.get('source_name', 'micrograph')))}_{suffix}"
+
+
+def mask_downloads_for_result(
+    result: dict[str, Any], *, app_version: str, job_meta: dict[str, Any]
+) -> MaskDownloads:
+    """Semantic labels ``{0, 1}``, display preview ``{0, 255}`` and metadata for a result's mask."""
+
+    encoded = (result.get("images") or {}).get("mask_png_b64")
+    if not encoded:
+        raise MaskEncodingError("this result has no mask")
+    source = str(result.get("source_name", "micrograph"))
+    return build_mask_downloads(
+        decode_mask_png(encoded),
+        source_name=source,
+        base_name=_safe_base_name(source),
+        app_version=app_version,
+        model_id=str(result.get("model_id", "")),
+        job_meta=job_meta,
+    )

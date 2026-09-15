@@ -76,6 +76,33 @@ workbook charts remain editable so plots can be regenerated independently. Repor
 on demand from the retained in-memory result; they expire with the job and are not written by the
 server.
 
+## Mask Downloads: Class Labels Versus Display Values
+
+A mask means one thing and is shown another way, so **Download mask** offers separate files
+(implemented in [`src/microseg/io/mask_download.py`](../src/microseg/io/mask_download.py)):
+
+| Choice | File | Pixel values | Use it for |
+| --- | --- | --- | --- |
+| Mask labels | `<stem>_mask_labels.png` | `0` background, `1` hydride (class IDs) | model training, OnlineAnnotator and other annotation tools |
+| Mask preview | `<stem>_mask_preview.png` | `0` and `255` (display values) | looking at the mask; normalize `255 -> 1` before training |
+| Labels + preview + metadata | `<stem>_masks.zip` | both PNGs, `<stem>_mask_metadata.json`, `README.txt` | archiving and handing a mask to another tool |
+| Mask as displayed | `<stem>_mask.png` | as rendered in the Mask tab (unchanged behaviour) | existing workflows |
+
+Both PNGs are 8-bit greyscale, written from the same label array, and have identical dimensions;
+nothing is resized. The labels are produced with the repository's binary rules: canonical
+`{0,255} -> {0,1}` (`to_index_mask`) and `two_value_zero_background`
+(`normalize_binary_index_mask`). A mask with more than two values, without background `0`, or in
+colour is refused with `422 MASK_NOT_BINARY` instead of being binarized silently.
+
+The metadata (schema `microseg.mask_download.v1`) records the class map
+(`0 background`, `1 hydride`), the display mapping `{"0": 0, "1": 255}`, width and height, the
+source values and normalization rule, foreground pixels and fraction, the SHA-256 of both PNGs,
+`label_sha256` (`"<w>x<h>:"` + raw label bytes, the same convention OnlineAnnotator uses) and the
+job, model and application version. Each PNG also carries a `Software` text chunk, which
+OnlineAnnotator records as the source tool when none is typed. OnlineAnnotator's import pairs
+`<stem>_mask_labels.png` and `<stem>_mask_preview.png` with the image `<stem>` and keeps `{0,1}`
+labels as class numbers.
+
 ## Downloads Catalog
 
 `/downloads` reads JSON sidecars under [`downloads/metadata/`](../downloads/metadata/). Each record
@@ -259,6 +286,9 @@ The browser UI is built on a small JSON API you can also call from scripts.
 | `GET` | `/api/samples/<id>` | One example image |
 | `GET` | `/api/jobs/<id>/report.pdf` | Generate the detailed PDF for a completed retained job |
 | `GET` | `/api/jobs/<id>/bundle.zip` | Generate PDF, XLSX, PNG, and JSON artifacts for a completed retained job |
+| `GET` | `/api/jobs/<id>/mask_labels.png` | Class-label mask `{0,1}` for a completed retained job |
+| `GET` | `/api/jobs/<id>/mask_preview.png` | Display mask `{0,255}` for a completed retained job |
+| `GET` | `/api/jobs/<id>/masks.zip` | Labels, preview, metadata JSON and README for a completed retained job |
 | `POST` | `/api/segment` | Run a segmentation |
 | `POST` | `/api/jobs` | Validate and submit an asynchronous in-memory job |
 | `GET` | `/api/jobs/<job_id>` | Poll new progress events and retrieve the terminal result |

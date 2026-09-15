@@ -173,7 +173,15 @@
       <div class="results-actions">
         <button type="button" id="download-report" class="btn btn-primary" disabled>Download detailed report</button>
         <button type="button" id="download-bundle" class="btn btn-ghost" disabled>Report + data (.zip)</button>
-        <button type="button" id="download-mask" class="btn btn-ghost" disabled>Download mask</button>
+        <details class="download-menu" id="mask-menu">
+          <summary class="btn btn-ghost" id="mask-menu-toggle" aria-disabled="true">Download mask &#9662;</summary>
+          <div class="download-menu-panel" role="group" aria-label="Mask downloads">
+            <button type="button" id="download-mask-labels" class="btn btn-ghost" disabled>Mask labels (.png)<small>Class numbers: 0 = background, 1 = hydride. For model training and annotation tools such as OnlineAnnotator.</small></button>
+            <button type="button" id="download-mask-preview" class="btn btn-ghost" disabled>Mask preview (.png)<small>Black 0 and white 255, for viewing. Not class labels.</small></button>
+            <button type="button" id="download-mask-bundle" class="btn btn-ghost" disabled>Labels + preview + metadata (.zip)<small>Both PNGs and a JSON record of the class IDs, display values and run.</small></button>
+            <button type="button" id="download-mask" class="btn btn-ghost" disabled>Mask as displayed (.png)<small>The image shown in the Mask tab, saved as before.</small></button>
+          </div>
+        </details>
         <button type="button" id="download-overlay" class="btn btn-ghost" disabled>Download overlay</button>
       </div>
     </div>
