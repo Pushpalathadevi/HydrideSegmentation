@@ -15,7 +15,7 @@ scientific guidance and job visibility in both user interfaces.
   is the static, tracked development-path diagram.
 - Array-native predictor and pipeline contracts let conventional and trained inference operate
   without temporary source files.
-- The web application enforces a 5 MB image-byte limit, decoded-pixel ceiling, supported real
+- The web application enforces a 10 MB image-byte limit, decoded-pixel ceiling, supported real
   image formats, matching content and filename extension, and single-frame input.
 - Web jobs validate before queueing, run in bounded memory, publish ordered progress events, and
   expire terminal reports without an upload directory or result database.

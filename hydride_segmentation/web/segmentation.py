@@ -31,7 +31,7 @@ from src.microseg.evaluation.hydride_statistics import (
     render_hydride_visualizations,
     statistics_to_json,
 )
-from src.microseg.utils import image_to_png_base64
+from src.microseg.utils import image_to_png_base64, mask_overlay
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -305,6 +305,9 @@ class PreparedImage:
     sha256: str
     original_mode: str
     frame_count: int
+    #: Full-resolution decoded image, kept only when ``array`` was downscaled so
+    #: results can be restored to the uploaded dimensions.
+    original_array: np.ndarray | None = None
 
     def to_metadata(self) -> dict[str, Any]:
         """Return a JSON-serializable description of the prepared image."""
@@ -316,6 +319,9 @@ class PreparedImage:
             "height": int(self.height),
             "downscaled": bool(self.downscaled),
             "scale": round(float(self.scale), 4),
+            "output_width": int(self.original_width),
+            "output_height": int(self.original_height),
+            "mask_restored_to_original": bool(self.downscaled),
             "source_format": self.source_format,
             "byte_size": int(self.byte_size),
             "sha256": self.sha256,
@@ -440,6 +446,7 @@ def prepare_image(
 
     if limit and long_side > limit:
         scale = float(limit) / float(long_side)
+        original_array = array
         new_size = (max(1, int(round(original_width * scale))), max(1, int(round(original_height * scale))))
         array = np.asarray(Image.fromarray(array).resize(new_size, Image.BILINEAR), dtype=np.uint8)
         return PreparedImage(
@@ -455,6 +462,7 @@ def prepare_image(
             sha256=hashlib.sha256(data).hexdigest(),
             original_mode=original_mode,
             frame_count=frame_count,
+            original_array=original_array,
         )
 
     return PreparedImage(
@@ -666,6 +674,57 @@ def group_metrics(metrics: dict[str, Any]) -> list[dict[str, Any]]:
     return groups
 
 
+def restore_to_original_size(
+    original: np.ndarray,
+    processed_view: np.ndarray,
+    mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the input view and mask at the uploaded image's dimensions.
+
+    Segmentation of a downscaled image yields a mask at the reduced size. The
+    mask is enlarged with nearest-neighbour interpolation, so it keeps exactly
+    the label values the predictor produced and never gains intermediate grey
+    levels. Its detail is therefore that of the downscaled image. The input view
+    is rebuilt from the full-resolution upload, in the same channel layout the
+    predictor returned (greyscale or RGB), so overlays stay sharp.
+
+    Parameters
+    ----------
+    original:
+        Full-resolution decoded RGB upload, shape ``(H, W, 3)``.
+    processed_view:
+        Image returned by the predictor for the downscaled input.
+    mask:
+        Predicted mask for the downscaled input, shape ``(h, w)``.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``(input_view, mask)`` with height ``H`` and width ``W``.
+    """
+
+    height, width = int(original.shape[0]), int(original.shape[1])
+    mask_2d = np.asarray(mask)
+    if mask_2d.ndim == 3:
+        mask_2d = mask_2d[:, :, 0]
+    if mask_2d.dtype == np.bool_:
+        mask_2d = mask_2d.astype(np.uint8)
+    if mask_2d.dtype != np.uint8:
+        if mask_2d.min() < 0 or mask_2d.max() > 255:
+            raise ValueError("mask values must lie in 0..255 to be restored to the original size")
+        mask_2d = mask_2d.astype(np.uint8)
+    restored_mask = np.asarray(
+        Image.fromarray(mask_2d).resize((width, height), Image.NEAREST), dtype=np.uint8
+    )
+
+    rgb = np.asarray(original, dtype=np.uint8)
+    if np.asarray(processed_view).ndim == 2:
+        view = np.asarray(Image.fromarray(rgb).convert("L"), dtype=np.uint8)
+    else:
+        view = rgb
+    return view, restored_mask
+
+
 def run_web_segmentation(
     prepared: PreparedImage,
     *,
@@ -733,10 +792,22 @@ def run_web_segmentation(
     predictor_seconds = max(0.0, time.perf_counter() - started)
     images = dict(result.images_b64)
     images.setdefault("input_png_b64", image_to_png_base64(prepared.array))
+    base_image = prepared.array
+    mask = np.asarray(result.mask)
+
+    if prepared.downscaled and prepared.original_array is not None and mask.size:
+        if progress_hook is not None:
+            progress_hook("rendering", 76, "Restoring the mask to the uploaded image size.")
+        base_image, mask = restore_to_original_size(
+            prepared.original_array, np.asarray(result.image), mask
+        )
+        overlay = mask_overlay(base_image, mask)
+        images["input_png_b64"] = image_to_png_base64(base_image)
+        images["mask_png_b64"] = image_to_png_base64(mask)
+        images["overlay_png_b64"] = image_to_png_base64(overlay)
 
     metrics = dict(result.metrics or {})
     analysis_data: dict[str, Any] = {}
-    mask = np.asarray(result.mask)
     if mask.size:
         metrics.setdefault("area_fraction", float(np.count_nonzero(mask) / mask.size))
 
@@ -763,7 +834,7 @@ def run_web_segmentation(
         if include_fn_classification:
             if progress_hook is not None:
                 progress_hook("analysis", 94, "Rendering the optional Fn audit views.")
-            fn_visuals = render_fn_debug_visualizations(stats, base_image=prepared.array)
+            fn_visuals = render_fn_debug_visualizations(stats, base_image=base_image)
             images["fn_classification_png_b64"] = image_to_png_base64(fn_visuals["fn_classification_rgb"])
             images["fn_angle_threshold_png_b64"] = image_to_png_base64(
                 fn_visuals["fn_angle_distribution_rgb"]

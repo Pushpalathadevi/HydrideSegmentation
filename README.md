@@ -1,6 +1,6 @@
 # HydrideSegmentation -> MicroSeg Platform (Transition)
 
-Current release version: `1.0.0`
+Current release version: `1.1.1`
 
 This repository is transitioning from a hydride-specific toolkit into a general local platform for microstructural segmentation.
 Hydride segmentation is the first validated workflow.
@@ -32,7 +32,7 @@ prerequisite.
   - completed jobs export a compact scientific PDF or a ZIP containing the PDF, individual PNG views, provenance JSON, and an Excel workbook with per-feature and histogram source data
   - drag-and-drop upload plus bundled example images for testing without private data
   - immediate upload preview and clickable thumbnail previews for bundled examples
-  - strict 5 MB image validation, memory-only processing, and asynchronous progress with a live log
+  - strict 10 MB image validation, memory-only processing, and asynchronous progress with a live log
   - both the conventional pipeline and any installed trained model, from the same registry the desktop app uses
   - radial hydride fraction (Fn) as the headline result, length-weighted and count-based, with a user-controlled angle threshold and opt-in views showing which hydrides were counted
   - per-parameter in-app help and a dedicated help page

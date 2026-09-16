@@ -17,6 +17,7 @@ from hydride_segmentation.web import create_app
 from hydride_segmentation.web.config import WebServerConfig
 from hydride_segmentation.web.downloads import DownloadCatalog
 from hydride_segmentation.web.reporting import build_pdf_report, build_report_bundle
+from src.microseg.version import __version__
 
 
 def _png_b64(color: tuple[int, int, int]) -> str:
@@ -122,7 +123,7 @@ def test_workspace_places_run_button_near_input_and_exposes_split_zoom_and_versi
     assert 'id="compare-mask-image"' in body
     assert 'id="zoom-toggle"' in body
     assert 'id="download-report"' in body and 'id="download-bundle"' in body
-    assert "v1.0.0" in body and ">Downloads<" in body
+    assert f"v{__version__}" in body and ">Downloads<" in body
     assert 'event.key === "Escape"' in script
     assert "applySynchronizedZoom" in script
 

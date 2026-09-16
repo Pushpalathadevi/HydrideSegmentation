@@ -31,7 +31,7 @@ Uploaded images, masks, and reports are held in process memory only and are neve
 forwarded anywhere. Background reports expire automatically, so users should download the artifacts
 they need before leaving the page.
 
-The workspace validates the filename extension and 5 MB limit immediately. The server then verifies
+The workspace validates the filename extension and 10 MB limit immediately. The server then verifies
 that the decoded format matches the extension, rejects multi-frame content and unsafe decoded
 dimensions, and only then queues the in-memory job. A staged progress bar and timestamped live log
 make preprocessing, inference, postprocessing, analysis, and rendering visible.
@@ -232,8 +232,8 @@ Defaults live in [`configs/app/web_server.default.yml`](../configs/app/web_serve
 | `server.host` | `0.0.0.0` | `0.0.0.0` publishes to the intranet; `127.0.0.1` keeps it local |
 | `server.port` | `5005` | Listening port |
 | `server.threads` | `4` | Waitress worker threads; keep near the core count |
-| `limits.max_upload_mb` | `5` | Exact image-byte ceiling, enforced before decoding |
-| `limits.max_long_side_px` | `2048` | Larger images are downscaled for speed; `0` disables |
+| `limits.max_upload_mb` | `10` | Exact image-byte ceiling, enforced before decoding |
+| `limits.max_long_side_px` | `2048` | Larger images are segmented downscaled for speed, then the mask is restored to the uploaded size (nearest-neighbour); `0` disables |
 | `limits.max_image_pixels` | `40000000` | Decoded-pixel safety ceiling |
 | `limits.max_concurrent_jobs` | `2` | Simultaneous segmentation jobs; extra requests queue |
 | `limits.max_retained_jobs` | `32` | Bound on queued and completed in-memory records |

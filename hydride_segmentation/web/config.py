@@ -50,7 +50,7 @@ class WebServerConfig:
     threads: int = 4
     request_timeout_seconds: int = 300
 
-    max_upload_mb: int = 5
+    max_upload_mb: int = 10
     max_long_side_px: int = 2048
     max_image_pixels: int = 40_000_000
     max_concurrent_jobs: int = 2
@@ -268,7 +268,7 @@ def load_web_config(
         port=_coerce_int(server.get("port", 5005), 5005),
         threads=max(1, _coerce_int(server.get("threads", 4), 4)),
         request_timeout_seconds=_coerce_int(server.get("request_timeout_seconds", 300), 300),
-        max_upload_mb=max(1, _coerce_int(limits.get("max_upload_mb", 5), 5)),
+        max_upload_mb=max(1, _coerce_int(limits.get("max_upload_mb", 10), 10)),
         max_long_side_px=max(0, _coerce_int(limits.get("max_long_side_px", 2048), 2048)),
         max_image_pixels=max(
             1_000_000,

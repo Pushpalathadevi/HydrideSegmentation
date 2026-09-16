@@ -25,6 +25,7 @@ from hydride_segmentation.web.segmentation import (
     build_quantification_config,
     group_metrics,
     prepare_image,
+    restore_to_original_size,
     summarize_fn,
     validate_upload_name,
 )
@@ -448,6 +449,34 @@ def test_large_images_are_downscaled_and_reported(client) -> None:
     assert meta["downscaled"] is True
     assert max(meta["width"], meta["height"]) == 64
     assert meta["original_width"] == 200
+    assert (meta["output_width"], meta["output_height"]) == (200, 150)
+    assert meta["mask_restored_to_original"] is True
+
+    for key in ("input_png_b64", "mask_png_b64", "overlay_png_b64"):
+        view = Image.open(io.BytesIO(base64.b64decode(payload["images"][key])))
+        assert view.size == (200, 150), key
+    mask = np.asarray(Image.open(io.BytesIO(base64.b64decode(payload["images"]["mask_png_b64"]))))
+    assert set(np.unique(mask).tolist()) <= {0, 255}
+
+
+def test_restore_to_original_size_keeps_labels_exact() -> None:
+    original = np.zeros((90, 120, 3), dtype=np.uint8)
+    mask = np.zeros((30, 40), dtype=np.uint8)
+    mask[10:20, 5:35] = 1
+
+    view, restored = restore_to_original_size(original, original[:30, :40, 0], mask)
+
+    assert view.shape == (90, 120)
+    assert restored.shape == (90, 120)
+    assert set(np.unique(restored).tolist()) == {0, 1}
+    assert np.count_nonzero(restored) == np.count_nonzero(mask) * 9
+
+
+def test_images_within_the_limit_are_not_resized() -> None:
+    prepared = prepare_image(_png_bytes(60, 40), max_long_side_px=64)
+
+    assert prepared.original_array is None
+    assert prepared.to_metadata()["mask_restored_to_original"] is False
 
 
 # -- request validation --------------------------------------------------

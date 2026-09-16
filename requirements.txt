@@ -1,2 +1,3 @@
 -r requirements-gui.txt
 pytest
+pypdf

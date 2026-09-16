@@ -294,9 +294,9 @@ def test_a_library_image_larger_than_the_upload_limit_is_still_accepted(tmp_path
     """The upload ceiling guards the network path, which library images bypass."""
 
     root = tmp_path / "test_library"
-    # Random pixels compress poorly, so this comfortably exceeds the 5 MB ceiling.
-    _write_image(root / "huge.png", width=1800, height=1400)
-    assert (root / "huge.png").stat().st_size > 5 * 1024 * 1024
+    # Random pixels compress poorly, so this comfortably exceeds the 10 MB ceiling.
+    _write_image(root / "huge.png", width=2400, height=1800)
+    assert (root / "huge.png").stat().st_size > 10 * 1024 * 1024
 
     response = _client(root).post(
         "/api/segment",

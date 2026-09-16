@@ -18,7 +18,7 @@ def orientation_analysis(mask: np.ndarray):
     for i in range(1, labels.max() + 1):
         region = labels == i
         filled = binary_fill_holes(region)
-        dilated = morphology.binary_dilation(filled, morphology.disk(1))
+        dilated = morphology.dilation(filled, morphology.disk(1))
         skel = morphology.skeletonize(dilated)
         coords = np.column_stack(np.nonzero(skel))[:, ::-1]
         if len(coords) < 2:

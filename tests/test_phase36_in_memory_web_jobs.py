@@ -21,8 +21,8 @@ def _image_bytes(*, image_format: str = "PNG") -> bytes:
     return buffer.getvalue()
 
 
-def test_packaged_upload_limit_is_five_mb() -> None:
-    assert load_web_config().max_upload_mb == 5
+def test_packaged_upload_limit_is_ten_mb() -> None:
+    assert load_web_config().max_upload_mb == 10
 
 
 def test_workspace_exposes_upload_preview_and_sample_thumbnails() -> None:

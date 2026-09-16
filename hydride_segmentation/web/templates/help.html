@@ -98,8 +98,9 @@
         <p class="flow-op">decode &rarr; greyscale array{% if config.max_long_side_px %} &rarr; downscale if long side &gt; {{ config.max_long_side_px }} px{% endif %}</p>
         <p class="flow-note">
           Colour images are converted internally.{% if config.max_long_side_px %} Downscaling is
-          reported with the result, and every pixel measurement then refers to the downscaled
-          image.{% endif %} The array stays in memory and is never written to disk.
+          reported with the result. The mask is then enlarged back to the uploaded size
+          (nearest-neighbour, so labels stay exact), and every pixel measurement refers to the
+          original image.{% endif %} The array stays in memory and is never written to disk.
         </p>
       </li>
       <li class="flow-step">
@@ -518,7 +519,7 @@
     <h2>Reading the results</h2>
     <ul>
       <li><strong>Overlay</strong> &mdash; detected regions drawn over your original image. The fastest way to judge quality.</li>
-      <li><strong>Input</strong> &mdash; the image exactly as the server processed it, after any downscaling.</li>
+      <li><strong>Input</strong> &mdash; your image at its original size, as the server read it.</li>
       <li><strong>Mask</strong> &mdash; the binary segmentation on its own. <em>Download mask</em> offers
         <strong>Mask labels</strong> (<code>_mask_labels.png</code>: class numbers, 0 = background and
         1 = hydride, for model training and annotation tools such as OnlineAnnotator),
@@ -556,8 +557,10 @@
         {{ "{:,}".format(config.max_image_pixels) }} pixels.</li>
       {% if config.max_long_side_px %}
       <li>
-        Images longer than {{ config.max_long_side_px }} px on their long side are downscaled before
-        processing so results come back quickly. The result page tells you when this happened.
+        Images longer than {{ config.max_long_side_px }} px on their long side are downscaled for
+        segmentation so results come back quickly. The mask, overlay and measurements are returned at
+        your original image size; mask boundaries carry the detail of the downscaled image. The result
+        page tells you when this happened.
       </li>
       {% endif %}
       <li>Greyscale and colour images are both accepted; colour is converted internally.</li>

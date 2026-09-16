@@ -22,7 +22,7 @@ server:
 
 limits:
   # Rejects larger uploads before they are read into memory.
-  max_upload_mb: 5
+  max_upload_mb: 10
   # Images longer than this on their long side are downscaled before inference.
   # Set to 0 to disable downscaling and always run at full resolution.
   max_long_side_px: 2048

@@ -7,7 +7,7 @@
 
   var VIEW_CAPTIONS = {
     overlay_png_b64: "Detected features drawn over your image. Judge quality here first.",
-    input_png_b64: "The image exactly as the server processed it, after any downscaling.",
+    input_png_b64: "The uploaded image at its original size, as the server read it.",
     mask_png_b64: "Binary segmentation on its own. This is the image the download button saves.",
     fn_classification_png_b64: "Green outlines counted towards Fn, red not counted. Labels show the angle and length of the largest counted features.",
     fn_angle_threshold_png_b64: "Orientation histogram with the Fn threshold marked. Shows how sensitive Fn is to where you set the threshold.",
@@ -724,12 +724,12 @@
       var parts = [
         payload.model_display_name,
         payload.source_name,
-        image.width + " x " + image.height + " px",
+        (image.output_width || image.width) + " x " + (image.output_height || image.height) + " px",
         (payload.timing && payload.timing.total_seconds !== undefined)
           ? payload.timing.total_seconds + " s" : ""
       ];
       if (image.downscaled) {
-        parts.push("downscaled from " + image.original_width + " x " + image.original_height + " px for speed");
+        parts.push("segmented at " + image.width + " x " + image.height + " px for speed, mask restored to original size");
       }
       runMeta.textContent = parts.filter(Boolean).join("  |  ");
 

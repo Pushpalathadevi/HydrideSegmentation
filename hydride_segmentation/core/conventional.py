@@ -27,13 +27,13 @@ def segment(image: np.ndarray, params: ConventionalParams) -> tuple[np.ndarray, 
         clahe_img, params.adaptive_window, offset=params.adaptive_offset
     )
     mask = (clahe_img < thresh).astype(np.uint8)
-    selem = morphology.square(params.morph_kernel)
+    selem = morphology.footprint_rectangle((params.morph_kernel, params.morph_kernel))
     mask = mask.astype(bool)
     for _ in range(params.morph_iters):
-        mask = morphology.binary_closing(mask, selem)
+        mask = morphology.closing(mask, selem)
     mask = (mask.astype(np.uint8)) * 255
 
-    edges = morphology.binary_dilation(mask > 0) ^ (mask > 0)
+    edges = morphology.dilation(mask > 0) ^ (mask > 0)
     overlay = np.stack([image] * 3, axis=-1)
     overlay[edges] = [255, 0, 0]
     return mask, overlay
