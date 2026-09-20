@@ -29,6 +29,59 @@
 
       <p id="file-name" class="file-name" aria-live="polite"></p>
 
+      <details id="rotate-panel" class="rotate-panel" hidden>
+        <summary class="rotate-summary">
+          <span>Straighten and rotate <span class="rotate-badge" id="rotate-badge" hidden>0&deg;</span></span>
+          <span class="rotate-summary-hint">Optional</span>
+        </summary>
+
+        <p class="hint rotate-intro">
+          Fn is measured against the image axes: <strong>horizontal is circumferential</strong>
+          and <strong>vertical is radial</strong>. If your micrograph was not captured that way,
+          turn it here until the tube's circumferential direction runs along the guide lines.
+          Rotation is applied on the server before segmentation, so every result and the report
+          describe the straightened image.
+        </p>
+
+        <div class="rotate-stage">
+          <canvas id="rotate-canvas" class="rotate-canvas" role="img"
+                  aria-label="Preview of the selected image with the current rotation applied"></canvas>
+          <div class="rotate-guides" id="rotate-guides" aria-hidden="true">
+            <span class="rotate-axis rotate-axis--circ">circumferential</span>
+            <span class="rotate-axis rotate-axis--rad">radial</span>
+          </div>
+          <p id="rotate-preview-note" class="rotate-preview-note" hidden></p>
+        </div>
+
+        <div class="rotate-quick" role="group" aria-label="Quarter turns">
+          <button type="button" class="btn btn-ghost rotate-step" id="rotate-left"
+                  title="Rotate 90 degrees left">&#8634; 90&deg; left</button>
+          <button type="button" class="btn btn-ghost rotate-step" id="rotate-right"
+                  title="Rotate 90 degrees right">&#8635; 90&deg; right</button>
+          <button type="button" class="btn btn-ghost rotate-step" id="rotate-reset"
+                  title="Remove the rotation">Reset</button>
+        </div>
+
+        <div class="rotate-fine">
+          <label for="rotate-slider">Fine angle</label>
+          <input type="range" id="rotate-slider" class="rotate-slider"
+                 min="-45" max="45" step="0.5" value="0"
+                 aria-describedby="rotate-fine-hint">
+          <div class="rotate-readout">
+            <label for="rotate-value" class="rotate-total-label">Total</label>
+            <input type="number" id="rotate-value" class="input rotate-value"
+                   min="-180" max="180" step="0.5" value="0"
+                   aria-label="Total rotation in degrees">
+            <span class="rotate-unit">&deg;</span>
+          </div>
+        </div>
+        <p id="rotate-fine-hint" class="hint">
+          The slider tilts within a quarter turn; the quarter-turn buttons above carry the rest.
+          Angles that are not a quarter turn are resampled once and cropped to the largest
+          rectangle that stays inside the picture, so no blank corners are ever measured.
+        </p>
+      </details>
+
       <div class="samples">
         <span class="samples-label">No image handy?</span>
 
@@ -132,6 +185,9 @@
         two ways: by <em>count</em> (how many hydrides qualify) and <em>length-weighted</em> (what
         fraction of total hydride length qualifies). The length-weighted value is usually the more
         meaningful of the two, because one long radial hydride matters more than several short ones.
+        Angles are measured against the image axes, so the horizontal direction must be the tube's
+        circumferential direction. If your micrograph was captured at some other orientation, use
+        <em>Straighten and rotate</em> under the image first.
         <a href="{{ url_for('microseg_web.help_page') }}#fn">Read the full explanation</a>.
       </div>
 

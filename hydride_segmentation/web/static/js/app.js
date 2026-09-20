@@ -149,7 +149,11 @@
       file: null, sampleId: "", libraryId: "", result: null, view: "overlay_png_b64",
       running: false, lastEventSequence: 0, jobEvents: [], previewObjectUrl: "",
       libraryLoaded: false, currentJobId: "", zoomActive: false, zoomScale: 1,
-      zoomX: 50, zoomY: 50
+      zoomX: 50, zoomY: 50,
+      /* Orientation editor: quarter holds the whole quarter turns, fine the
+         tilt within one. The submitted rotation is the sum, normalized. */
+      quarterTurnDeg: 0, fineAngleDeg: 0, previewReady: false, previewRetried: false,
+      previewFallbackUrl: ""
     };
 
     var dropzone = $("dropzone");
@@ -158,6 +162,13 @@
     var selectionPreview = $("selection-preview");
     var dropzonePlaceholder = $("dropzone-placeholder");
     var previewReplaceHint = $("preview-replace-hint");
+    var rotatePanel = $("rotate-panel");
+    var rotateBadge = $("rotate-badge");
+    var rotateCanvas = $("rotate-canvas");
+    var rotateGuides = $("rotate-guides");
+    var rotatePreviewNote = $("rotate-preview-note");
+    var rotateSlider = $("rotate-slider");
+    var rotateValue = $("rotate-value");
     var modelSelect = $("model-select");
     var modelDescription = $("model-description");
     var modelWarning = $("model-warning");
@@ -252,28 +263,306 @@
         URL.revokeObjectURL(state.previewObjectUrl);
         state.previewObjectUrl = "";
       }
+      state.previewReady = false;
       selectionPreview.removeAttribute("src");
       selectionPreview.alt = "";
       selectionPreview.setAttribute("hidden", "");
       previewReplaceHint.setAttribute("hidden", "");
       dropzonePlaceholder.removeAttribute("hidden");
       dropzone.classList.remove("has-preview");
+      dropzone.classList.remove("is-decoding");
+      state.previewFallbackUrl = "";
+      hideRotatePanel();
     }
 
-    function showPreview(url, alt, objectUrl) {
-      clearPreview();
+    /* Put the image on screen. The slot is revealed before the bytes have
+       decoded, so a chosen image is confirmed immediately rather than at the
+       end of the run, while the other settings are still being filled in. */
+    function renderPreview(url, alt, objectUrl) {
+      if (state.previewObjectUrl && state.previewObjectUrl !== url) {
+        URL.revokeObjectURL(state.previewObjectUrl);
+      }
       state.previewObjectUrl = objectUrl ? url : "";
-      selectionPreview.src = url;
+      state.previewReady = false;
       selectionPreview.alt = alt;
       selectionPreview.removeAttribute("hidden");
       previewReplaceHint.removeAttribute("hidden");
       dropzonePlaceholder.setAttribute("hidden", "");
       dropzone.classList.add("has-preview");
+      dropzone.classList.add("is-decoding");
+      selectionPreview.src = url;
+    }
+
+    /* Show a newly chosen image. `fallbackUrl`, when given, is a server-rendered
+       preview to fall back on if the browser cannot decode the original; for an
+       upload there is no such URL, and the bytes are posted instead. */
+    function showPreview(url, alt, objectUrl, fallbackUrl) {
+      clearPreview();
+      state.previewRetried = false;
+      state.previewFallbackUrl = fallbackUrl || "";
+      renderPreview(url, alt, objectUrl);
+      // A new image starts upright; a rotation carried over from the previous
+      // one would silently change what Fn means.
+      resetRotation();
+    }
+
+    selectionPreview.addEventListener("load", function () {
+      dropzone.classList.remove("is-decoding");
+      state.previewReady = true;
+      showRotatePanel();
+    });
+
+    function failPreview() {
+      dropzone.classList.remove("is-decoding");
+      state.previewReady = false;
+      hideRotatePanel();
+      selectionPreview.setAttribute("hidden", "");
+      previewReplaceHint.setAttribute("hidden", "");
+      dropzonePlaceholder.removeAttribute("hidden");
+      dropzone.classList.remove("has-preview");
+      fileName.textContent += " Preview is unavailable in this browser, but the image remains selected.";
     }
 
     selectionPreview.addEventListener("error", function () {
-      clearPreview();
-      fileName.textContent += " Preview is unavailable in this browser, but the image remains selected.";
+      dropzone.classList.remove("is-decoding");
+      state.previewReady = false;
+      // Browsers cannot decode TIFF, which is what most micrographs are. The
+      // server can, so ask it for a small JPEG rendering instead. Retrying only
+      // once keeps a failing fallback from looping.
+      if (!state.previewRetried) {
+        state.previewRetried = true;
+        if (state.previewFallbackUrl) {
+          var fallbackUrl = state.previewFallbackUrl;
+          state.previewFallbackUrl = "";
+          renderPreview(fallbackUrl, selectionPreview.alt, false);
+          return;
+        }
+        if (state.file) {
+          requestServerPreview(state.file);
+          return;
+        }
+      }
+      failPreview();
+    });
+
+    function requestServerPreview(file) {
+      var form = new FormData();
+      form.append("image", file, file.name);
+      var alt = selectionPreview.alt;
+      fetch("api/preview", { method: "POST", body: form })
+        .then(function (res) {
+          if (!res.ok) { throw new Error("preview unavailable"); }
+          return res.blob();
+        })
+        .then(function (blob) {
+          // The user may have chosen something else while this was in flight.
+          if (state.file !== file) { return; }
+          renderPreview(URL.createObjectURL(blob), alt, true);
+        })
+        .catch(function () {
+          if (state.file !== file) { return; }
+          failPreview();
+        });
+    }
+
+    /* -- orientation editor --
+
+       Fn treats the horizontal image axis as circumferential and the vertical
+       axis as radial. Micrographs are not always captured in that frame, so the
+       user can turn the image before it is segmented. The preview mirrors what
+       the server does: quarter turns are plain rotations, and any other angle
+       is cropped to the largest rectangle that stays inside the picture, which
+       is exactly what clipping to the canvas gives. */
+
+    var ROTATE_CANVAS_MAX_H = 200;
+
+    function rotateCanvasMaxWidth() {
+      // The settings column is narrow and resizable, so the canvas is sized
+      // against whatever width the stage actually has rather than a constant
+      // that would be squashed by max-width and distort the aspect ratio.
+      var stage = rotateCanvas ? rotateCanvas.parentNode : null;
+      if (!stage || !stage.clientWidth) { return 430; }
+      var style = window.getComputedStyle ? window.getComputedStyle(stage) : null;
+      var padding = style
+        ? (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+        : 0;
+      var available = stage.clientWidth - padding;
+      return available > 40 ? available : 430;
+    }
+
+    function normalizeRotation(degrees) {
+      var value = Number(degrees);
+      if (!isFinite(value)) { return 0; }
+      value = value % 360;
+      if (value <= -180) { value += 360; } else if (value > 180) { value -= 360; }
+      if (value === -180) { value = 180; }
+      return value;
+    }
+
+    function currentRotation() {
+      return normalizeRotation(state.quarterTurnDeg + state.fineAngleDeg);
+    }
+
+    function largestInscribedRect(width, height, angleRad) {
+      if (width <= 0 || height <= 0) { return [0, 0]; }
+      var widthIsLonger = width >= height;
+      var sideLong = widthIsLonger ? width : height;
+      var sideShort = widthIsLonger ? height : width;
+      var sinA = Math.abs(Math.sin(angleRad));
+      var cosA = Math.abs(Math.cos(angleRad));
+      if (sideShort <= 2 * sinA * cosA * sideLong || Math.abs(sinA - cosA) < 1e-10) {
+        var half = 0.5 * sideShort;
+        if (widthIsLonger) {
+          return [sinA ? half / sinA : sideLong, cosA ? half / cosA : sideShort];
+        }
+        return [cosA ? half / cosA : sideShort, sinA ? half / sinA : sideLong];
+      }
+      var cos2a = cosA * cosA - sinA * sinA;
+      return [
+        (width * cosA - height * sinA) / cos2a,
+        (height * cosA - width * sinA) / cos2a
+      ];
+    }
+
+    function rotatedExtent(width, height, degrees) {
+      var rotation = normalizeRotation(degrees);
+      var quarters = Math.round(rotation / 90);
+      if (Math.abs(rotation - quarters * 90) < 0.01) {
+        return (quarters % 2 === 0) ? [width, height] : [height, width];
+      }
+      var rect = largestInscribedRect(width, height, rotation * Math.PI / 180);
+      return [Math.max(1, Math.floor(rect[0])), Math.max(1, Math.floor(rect[1]))];
+    }
+
+    function drawRotatePreview() {
+      if (!rotateCanvas || !state.previewReady) { return; }
+      var context = rotateCanvas.getContext ? rotateCanvas.getContext("2d") : null;
+      var sourceWidth = selectionPreview.naturalWidth || 0;
+      var sourceHeight = selectionPreview.naturalHeight || 0;
+      if (!context || !sourceWidth || !sourceHeight) { return; }
+
+      var rotation = currentRotation();
+      var extent = rotatedExtent(sourceWidth, sourceHeight, rotation);
+      var scale = Math.min(
+        rotateCanvasMaxWidth() / extent[0],
+        ROTATE_CANVAS_MAX_H / extent[1]
+      );
+      var canvasWidth = Math.max(1, Math.round(extent[0] * scale));
+      var canvasHeight = Math.max(1, Math.round(extent[1] * scale));
+      rotateCanvas.width = canvasWidth;
+      rotateCanvas.height = canvasHeight;
+      rotateCanvas.style.width = canvasWidth + "px";
+      rotateCanvas.style.height = canvasHeight + "px";
+      if (rotateGuides) {
+        rotateGuides.style.width = canvasWidth + "px";
+        rotateGuides.style.height = canvasHeight + "px";
+      }
+
+      context.clearRect(0, 0, canvasWidth, canvasHeight);
+      context.save();
+      context.translate(canvasWidth / 2, canvasHeight / 2);
+      // Canvas angles run clockwise because y grows downwards; the server
+      // rotates counter-clockwise, so the sign is flipped here to match.
+      context.rotate(-rotation * Math.PI / 180);
+      context.drawImage(
+        selectionPreview,
+        -sourceWidth * scale / 2,
+        -sourceHeight * scale / 2,
+        sourceWidth * scale,
+        sourceHeight * scale
+      );
+      context.restore();
+    }
+
+    function syncRotateControls() {
+      var rotation = currentRotation();
+      if (rotateSlider) { rotateSlider.value = String(state.fineAngleDeg); }
+      if (rotateValue && document.activeElement !== rotateValue) {
+        rotateValue.value = String(Math.round(rotation * 10) / 10);
+      }
+      if (rotateBadge) {
+        if (rotation) {
+          rotateBadge.textContent = (Math.round(rotation * 10) / 10) + "\u00b0";
+          rotateBadge.removeAttribute("hidden");
+        } else {
+          rotateBadge.setAttribute("hidden", "");
+        }
+      }
+      if (rotatePreviewNote) {
+        var quarters = Math.round(rotation / 90);
+        if (rotation && Math.abs(rotation - quarters * 90) >= 0.01) {
+          rotatePreviewNote.textContent =
+            "Cropped to the largest upright rectangle inside the turned image.";
+          rotatePreviewNote.removeAttribute("hidden");
+        } else {
+          rotatePreviewNote.setAttribute("hidden", "");
+        }
+      }
+      drawRotatePreview();
+    }
+
+    function setRotation(quarterDeg, fineDeg) {
+      var fine = Number(fineDeg);
+      if (!isFinite(fine)) { fine = 0; }
+      state.fineAngleDeg = Math.max(-45, Math.min(45, fine));
+      var quarter = Number(quarterDeg);
+      state.quarterTurnDeg = isFinite(quarter) ? Math.round(quarter / 90) * 90 : 0;
+      syncRotateControls();
+    }
+
+    function setTotalRotation(totalDeg) {
+      var total = normalizeRotation(totalDeg);
+      var quarter = Math.round(total / 90) * 90;
+      setRotation(quarter, total - quarter);
+    }
+
+    function resetRotation() {
+      setRotation(0, 0);
+    }
+
+    function showRotatePanel() {
+      if (!rotatePanel) { return; }
+      rotatePanel.removeAttribute("hidden");
+      syncRotateControls();
+    }
+
+    function hideRotatePanel() {
+      if (!rotatePanel) { return; }
+      rotatePanel.setAttribute("hidden", "");
+    }
+
+    if (rotateSlider) {
+      rotateSlider.addEventListener("input", function () {
+        setRotation(state.quarterTurnDeg, rotateSlider.value);
+      });
+    }
+    if (rotateValue) {
+      rotateValue.addEventListener("change", function () {
+        setTotalRotation(rotateValue.value);
+      });
+    }
+    if ($("rotate-left")) {
+      $("rotate-left").addEventListener("click", function () {
+        setRotation(state.quarterTurnDeg + 90, state.fineAngleDeg);
+      });
+    }
+    if ($("rotate-right")) {
+      $("rotate-right").addEventListener("click", function () {
+        setRotation(state.quarterTurnDeg - 90, state.fineAngleDeg);
+      });
+    }
+    if ($("rotate-reset")) {
+      $("rotate-reset").addEventListener("click", resetRotation);
+    }
+    if (rotatePanel) {
+      // The canvas has no laid-out size while the details element is closed, so
+      // redraw when it opens rather than leaving an empty box.
+      rotatePanel.addEventListener("toggle", function () {
+        if (rotatePanel.open) { drawRotatePreview(); }
+      });
+    }
+    window.addEventListener("resize", function () {
+      if (rotatePanel && rotatePanel.open) { drawRotatePreview(); }
     });
 
     function setFile(file) {
@@ -324,12 +613,12 @@
       updateRunButton();
     }
 
-    function setLibraryImage(imageId, label, imageUrl) {
+    function setLibraryImage(imageId, label, imageUrl, thumbUrl) {
       state.file = null;
       state.sampleId = "";
       state.libraryId = imageId;
       fileInput.value = "";
-      showPreview(imageUrl, "Preview of library image: " + label, false);
+      showPreview(imageUrl, "Preview of library image: " + label, false, thumbUrl);
       fileName.textContent = "Library image: " + label;
       clearError();
       updateRunButton();
@@ -406,7 +695,7 @@
           button.appendChild(caption);
 
           button.addEventListener("click", function () {
-            setLibraryImage(image.id, image.label, image.url);
+            setLibraryImage(image.id, image.label, image.url, image.thumb_url);
             closeLibrary();
           });
           libraryGrid.appendChild(button);
@@ -844,6 +1133,7 @@
         if (qInput) { form.append(quantControls[q].key, qInput.value); }
       }
       form.append("include_fn_classification", $("chk-fn-classification").checked ? "true" : "false");
+      form.append("rotation_deg", String(currentRotation()));
 
       var started = Date.now();
       resetProgress();

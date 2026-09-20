@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- Software version: `1.1.1`
+- Software version: `1.2.0`
 - Version source of truth:
   - `src/microseg/version.py`
   - `hydride_segmentation/version.py` re-exports the canonical value for compatibility
@@ -48,7 +48,7 @@ Before release:
 
 ## Deployment Guidance
 
-Field deployments should pin explicit versions (for example `hydride-segmentation==1.1.1`) and avoid floating upgrades.
+Field deployments should pin explicit versions (for example `hydride-segmentation==1.2.0`) and avoid floating upgrades.
 
 ## Patch And Rollback Protocol
 

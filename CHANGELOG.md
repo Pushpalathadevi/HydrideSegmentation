@@ -6,6 +6,31 @@ release, v1.0.0.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-20
+
+### Added
+
+- The web app can rotate a micrograph before segmenting it. Fn reads the
+  horizontal image axis as the tube's circumferential direction and the vertical
+  axis as radial, an assumption nothing in a micrograph can confirm, so an image
+  captured in another frame previously returned an Fn measured against the wrong
+  axes. A new **Straighten and rotate** editor under the chosen image offers
+  90-degree turns and a fine-angle slider over guide lines, with a live preview.
+  Quarter turns transpose the pixel array losslessly; other angles are resampled
+  once and cropped to the largest upright rectangle inside the turned image, so
+  no invented corner pixels are ever measured. The applied angle travels in the
+  request as `rotation_deg`, appears in the run manifest as `rotation_deg`,
+  `rotation_applied`, `uploaded_width` and `uploaded_height`, and is printed on
+  the detailed report.
+
+### Changed
+
+- A chosen image now shows its thumbnail immediately, while the rest of the form
+  is still being filled in, instead of only appearing once the run finished.
+  TIFF micrographs, which browsers cannot decode, are previewed through a new
+  `POST /api/preview` endpoint that renders and discards a JPEG thumbnail
+  in memory; library images fall back to their cached thumbnail.
+
 ## [1.1.1] - 2026-09-16
 
 ### Changed

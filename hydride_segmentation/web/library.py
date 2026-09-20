@@ -289,6 +289,34 @@ def _to_displayable(image: Image.Image) -> Image.Image:
     return image.convert("RGB")
 
 
+def render_thumbnail_bytes(data: bytes) -> bytes:
+    """Render a small JPEG preview of an in-memory image.
+
+    The browser can display PNG, JPEG and BMP by itself, but not the TIFF files
+    micrographs most often arrive as. This gives the picker something to show
+    for those without persisting the upload: the bytes are decoded, shrunk, and
+    dropped when the response has been written.
+
+    Parameters
+    ----------
+    data:
+        Raw image bytes as uploaded.
+
+    Returns
+    -------
+    bytes
+        JPEG-encoded thumbnail, media type :data:`THUMBNAIL_MIMETYPE`.
+    """
+
+    with Image.open(io.BytesIO(data)) as handle:
+        handle.draft("L", (THUMBNAIL_LONG_SIDE_PX, THUMBNAIL_LONG_SIDE_PX))
+        image = _to_displayable(handle)
+        image.thumbnail((THUMBNAIL_LONG_SIDE_PX, THUMBNAIL_LONG_SIDE_PX), Image.LANCZOS)
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=THUMBNAIL_JPEG_QUALITY, optimize=True)
+    return buffer.getvalue()
+
+
 def _render_thumbnail(path: Path) -> bytes:
     with Image.open(path) as handle:
         handle.draft("L", (THUMBNAIL_LONG_SIDE_PX, THUMBNAIL_LONG_SIDE_PX))

@@ -21,6 +21,7 @@
     <a href="#methods">Choosing a method</a>
     <a href="#pipeline">How the processing works</a>
     <a href="#fn">Radial hydride fraction (Fn)</a>
+    <a href="#orientation">Image orientation and rotation</a>
     <a href="#formulae">Formulae</a>
     <a href="#conventional">Conventional settings</a>
     <a href="#reading">Reading the results</a>
@@ -186,6 +187,43 @@
       <li>Features at or above the angle threshold count as radial.</li>
       <li>Two fractions are reported.</li>
     </ol>
+
+    <h3 id="orientation">The image has to be in the tube's frame</h3>
+    <p>
+      Step 2 measures angles against the image axes. The tool therefore assumes that the
+      <strong>horizontal axis of your image is the circumferential direction</strong> of the tube and
+      that the <strong>vertical axis is the radial direction</strong>. Nothing in a micrograph tells
+      the software which way the tube was oriented, so this assumption cannot be checked for you: a
+      micrograph mounted 90&deg; away returns an Fn that is close to <em>one minus</em> the correct
+      value, and one that is a few degrees off shifts features across the threshold.
+    </p>
+    <p>
+      Use <strong>Straighten and rotate</strong>, under the image on the main page, to bring the
+      micrograph into that frame before running. Open it, then either take quarter turns with the
+      90&deg; buttons or drag the fine-angle slider until the circumferential direction lies along
+      the horizontal guide line. What you see in the preview is what is segmented.
+    </p>
+    <ul>
+      <li>
+        <strong>Quarter turns are lossless.</strong> 90&deg;, 180&deg; and 270&deg; only transpose
+        the pixel array, so no pixel value changes.
+      </li>
+      <li>
+        <strong>Other angles are resampled once</strong> and then cropped to the largest upright
+        rectangle that fits wholly inside the turned image. Cropping rather than padding is
+        deliberate: blank corners would be invented pixels, and the segmentation would measure them
+        as part of the micrograph, biasing the area fraction and Fn.
+      </li>
+      <li>
+        <strong>The rotation is part of the result.</strong> Every view, measurement and download
+        describes the rotated image, and the angle applied is written onto the detailed report, so a
+        result stays reproducible.
+      </li>
+    </ul>
+    <p>
+      Leave the rotation at zero when your micrograph is already captured with the circumferential
+      direction horizontal, which is the usual convention.
+    </p>
 
     <h3>The two Fn numbers</h3>
     <p class="formula"><strong>Fn<sub>length</sub></strong> =

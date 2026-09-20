@@ -11,6 +11,7 @@ memory. Nothing is persisted by the web application.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 import hashlib
@@ -40,6 +41,14 @@ ALLOWED_EXTENSIONS: frozenset[str] = frozenset({"png", "jpg", "jpeg", "tif", "ti
 
 #: Pillow format names mapped onto accepted extensions.
 _FORMAT_ALIASES = {"jpeg": "jpg", "tif": "tiff"}
+
+#: Largest rotation the browser editor may request, in degrees. Rotations are
+#: reduced into (-180, 180] first, so this covers every orientation.
+MAX_ROTATION_DEG = 180.0
+
+#: Rotations closer than this to a multiple of 90 degrees are snapped onto it
+#: and applied as a lossless array transpose instead of a resampled rotation.
+_ROTATION_SNAP_DEG = 0.01
 
 
 class SegmentationRequestError(ValueError):
@@ -305,6 +314,12 @@ class PreparedImage:
     sha256: str
     original_mode: str
     frame_count: int
+    #: Counter-clockwise rotation applied to the decoded image before anything
+    #: else. Every width and height on this record describes the rotated image.
+    rotation_deg: float = 0.0
+    #: Width and height as decoded, before the rotation was applied.
+    uploaded_width: int = 0
+    uploaded_height: int = 0
     #: Full-resolution decoded image, kept only when ``array`` was downscaled so
     #: results can be restored to the uploaded dimensions.
     original_array: np.ndarray | None = None
@@ -327,6 +342,10 @@ class PreparedImage:
             "sha256": self.sha256,
             "original_mode": self.original_mode,
             "frame_count": int(self.frame_count),
+            "rotation_deg": round(float(self.rotation_deg), 3),
+            "rotation_applied": abs(float(self.rotation_deg)) >= _ROTATION_SNAP_DEG,
+            "uploaded_width": int(self.uploaded_width or self.original_width),
+            "uploaded_height": int(self.uploaded_height or self.original_height),
             "input_transport": "memory",
         }
 
@@ -364,12 +383,132 @@ def validate_upload_name(filename: str) -> str:
     return ext
 
 
+def normalize_rotation(value: Any) -> float:
+    """Return a submitted rotation reduced into the ``(-180, 180]`` range.
+
+    Fn is measured against the image axes: the horizontal axis is taken as the
+    tube's circumferential direction and the vertical axis as its radial
+    direction. A micrograph that was not captured in that frame has to be turned
+    before the angles mean anything, which is what this rotation is for.
+
+    Parameters
+    ----------
+    value:
+        Rotation in degrees as submitted by the browser. Blank or missing values
+        mean "no rotation".
+
+    Returns
+    -------
+    float
+        Counter-clockwise rotation in degrees, reduced into ``(-180, 180]``.
+
+    Raises
+    ------
+    SegmentationRequestError
+        If the value is not a number.
+    """
+
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return 0.0
+    try:
+        degrees = float(text)
+    except (TypeError, ValueError) as exc:
+        raise SegmentationRequestError(
+            f"The rotation must be a number of degrees, not {text!r}."
+        ) from exc
+    if not math.isfinite(degrees):
+        raise SegmentationRequestError("The rotation must be a finite number of degrees.")
+    degrees = math.fmod(degrees, 360.0)
+    if degrees <= -180.0:
+        degrees += 360.0
+    elif degrees > 180.0:
+        degrees -= 360.0
+    # -180 and 180 describe the same turn; report the positive one so the
+    # metadata and the browser agree on what was applied.
+    if degrees == -180.0:
+        degrees = 180.0
+    return degrees
+
+
+def _largest_inscribed_rect(width: float, height: float, angle_rad: float) -> tuple[float, float]:
+    """Return the largest axis-aligned rectangle inside a rotated rectangle."""
+
+    if width <= 0 or height <= 0:
+        return 0.0, 0.0
+    width_is_longer = width >= height
+    side_long = width if width_is_longer else height
+    side_short = height if width_is_longer else width
+
+    sin_a = abs(math.sin(angle_rad))
+    cos_a = abs(math.cos(angle_rad))
+    if side_short <= 2.0 * sin_a * cos_a * side_long or abs(sin_a - cos_a) < 1e-10:
+        # Half-constrained case: the crop touches the two shorter sides.
+        half = 0.5 * side_short
+        if width_is_longer:
+            return (half / sin_a if sin_a else side_long, half / cos_a if cos_a else side_short)
+        return (half / cos_a if cos_a else side_short, half / sin_a if sin_a else side_long)
+
+    cos_2a = cos_a * cos_a - sin_a * sin_a
+    return (
+        (width * cos_a - height * sin_a) / cos_2a,
+        (height * cos_a - width * sin_a) / cos_2a,
+    )
+
+
+def rotate_image_array(array: np.ndarray, degrees: float) -> np.ndarray:
+    """Rotate a decoded image counter-clockwise by ``degrees``.
+
+    Quarter turns are applied as an array transpose, so they are exactly
+    lossless. Any other angle is resampled once and then cropped to the largest
+    rectangle that lies wholly inside the rotated image. Cropping rather than
+    padding matters here: padded corners would be invented pixels that the
+    segmentation would happily measure as background or as a very large dark
+    feature, which would bias the area fraction and Fn.
+
+    Parameters
+    ----------
+    array:
+        Decoded image, shape ``(H, W, 3)``.
+    degrees:
+        Counter-clockwise rotation, already reduced by :func:`normalize_rotation`.
+
+    Returns
+    -------
+    numpy.ndarray
+        The rotated image. The input is returned unchanged for a zero rotation.
+    """
+
+    angle = float(degrees)
+    if abs(angle) < _ROTATION_SNAP_DEG:
+        return array
+
+    quarter_turns = round(angle / 90.0)
+    if abs(angle - quarter_turns * 90.0) < _ROTATION_SNAP_DEG:
+        return np.ascontiguousarray(np.rot90(array, k=int(quarter_turns) % 4))
+
+    rotated = Image.fromarray(array).rotate(
+        angle, resample=Image.BICUBIC, expand=True
+    )
+    source_height, source_width = int(array.shape[0]), int(array.shape[1])
+    crop_width, crop_height = _largest_inscribed_rect(
+        float(source_width), float(source_height), math.radians(angle)
+    )
+    target_width = max(1, min(rotated.width, int(math.floor(crop_width))))
+    target_height = max(1, min(rotated.height, int(math.floor(crop_height))))
+    left = (rotated.width - target_width) // 2
+    top = (rotated.height - target_height) // 2
+    cropped = rotated.crop((left, top, left + target_width, top + target_height))
+    return np.asarray(cropped, dtype=np.uint8)
+
+
 def prepare_image(
     data: bytes,
     *,
     max_long_side_px: int = 0,
     max_image_pixels: int = 40_000_000,
     expected_extension: str = "",
+    rotation_deg: float = 0.0,
 ) -> PreparedImage:
     """Decode uploaded bytes and downscale them when they exceed the limit.
 
@@ -379,6 +518,11 @@ def prepare_image(
         Raw uploaded bytes.
     max_long_side_px:
         Longest allowed image side. ``0`` disables downscaling.
+    rotation_deg:
+        Counter-clockwise rotation to apply straight after decoding, so that the
+        image's horizontal axis is the circumferential direction and its vertical
+        axis is the radial one. Applied before the downscaling limit, and every
+        dimension on the returned record describes the rotated image.
 
     Returns
     -------
@@ -440,6 +584,16 @@ def prepare_image(
             f"'{normalized_format}'. Rename or re-export the image so its extension matches its format."
         )
 
+    uploaded_height, uploaded_width = int(array.shape[0]), int(array.shape[1])
+    rotation = normalize_rotation(rotation_deg)
+    if rotation:
+        array = rotate_image_array(array, rotation)
+        if array.size == 0 or array.shape[0] < 1 or array.shape[1] < 1:
+            raise SegmentationRequestError(
+                "Rotating this image by "
+                f"{rotation:g} degrees leaves nothing to segment. Choose a smaller angle."
+            )
+
     original_height, original_width = int(array.shape[0]), int(array.shape[1])
     long_side = max(original_width, original_height)
     limit = int(max_long_side_px or 0)
@@ -462,6 +616,9 @@ def prepare_image(
             sha256=hashlib.sha256(data).hexdigest(),
             original_mode=original_mode,
             frame_count=frame_count,
+            rotation_deg=rotation,
+            uploaded_width=uploaded_width,
+            uploaded_height=uploaded_height,
             original_array=original_array,
         )
 
@@ -478,6 +635,9 @@ def prepare_image(
         sha256=hashlib.sha256(data).hexdigest(),
         original_mode=original_mode,
         frame_count=frame_count,
+        rotation_deg=rotation,
+        uploaded_width=uploaded_width,
+        uploaded_height=uploaded_height,
     )
 
 

@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name='hydride-segmentation',
-    version='1.1.1',
+    version='1.2.0',
     description='Toolkit for zirconium hydride segmentation and analysis',
     packages=find_packages(),
     include_package_data=True,

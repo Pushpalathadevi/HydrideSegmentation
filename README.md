@@ -1,6 +1,6 @@
 # HydrideSegmentation -> MicroSeg Platform (Transition)
 
-Current release version: `1.1.1`
+Current release version: `1.2.0`
 
 This repository is transitioning from a hydride-specific toolkit into a general local platform for microstructural segmentation.
 Hydride segmentation is the first validated workflow.

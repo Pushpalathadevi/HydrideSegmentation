@@ -20,12 +20,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_is_consistent_across_public_metadata() -> None:
     """Every user-visible packaging surface must publish the same version."""
 
-    assert __version__ == "1.1.1"
+    assert __version__ == "1.2.0"
     pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert pyproject["project"]["version"] == __version__
 
     setup_text = (REPO_ROOT / "setup.py").read_text(encoding="utf-8")
-    assert re.search(r"version=['\"]1\.1\.1['\"]", setup_text)
+    assert re.search(r"version=['\"]1\.2\.0['\"]", setup_text)
 
     for relative in (
         "README.md",

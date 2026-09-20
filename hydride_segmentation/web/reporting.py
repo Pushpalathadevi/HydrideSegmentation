@@ -131,9 +131,17 @@ def build_pdf_report(result: dict[str, Any], *, app_version: str, job_meta: dict
             f"Mean orientation: {_fmt(metrics.get('orientation_mean_deg'))}°\n"
             f"Mean feature area: {_fmt(metrics.get('size_mean_pixels'))} px"
         )
+        # Fn is read against the image axes, so the rotation the user applied
+        # before the run is part of the result and belongs on the report.
+        rotation_line = (
+            f"Rotation applied: {_fmt(image_meta.get('rotation_deg'))} deg"
+            if image_meta.get("rotation_applied")
+            else "Rotation applied: none (as uploaded)"
+        )
         right = (
             f"Processed size: {_fmt(image_meta.get('width'))} × {_fmt(image_meta.get('height'))} px\n"
             f"Fn threshold: {_fmt(quant.get('fn_angle_threshold_deg'))}°\n"
+            f"{rotation_line}\n"
             f"Total processing time: {_fmt((manifest.get('timing') or {}).get('total_seconds'))} s"
         )
         for x, text_value in ((0.0, left), (0.35, middle), (0.69, right)):

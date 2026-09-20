@@ -44,7 +44,7 @@ python -m http.server 8000 -d docs/_build/html
 
 ## Current State Snapshot
 
-- Stable release version 1.1.1 is defined across Python, package, desktop, web,
+- Stable release version 1.2.0 is defined across Python, package, desktop, web,
   and installer metadata.
 - CPU-first local inference is available.
 - Qt desktop workflows, correction export, and result packaging are implemented.
@@ -123,6 +123,7 @@ windows_offline_installer
 releases/v1.0.0
 releases/v1.0.0.closeout
 releases/v1.1.1
+releases/v1.2.0
 phase33_interactive_conventional_gui
 phase34_model_installation
 phase35_intranet_web_app

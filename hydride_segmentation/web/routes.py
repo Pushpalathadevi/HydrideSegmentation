@@ -25,7 +25,7 @@ from hydride_segmentation.version import __version__
 from .config import WebServerConfig
 from .downloads import DownloadCatalog
 from .jobs import WebJobManager
-from .library import THUMBNAIL_MIMETYPE, ImageLibrary
+from .library import THUMBNAIL_MIMETYPE, ImageLibrary, render_thumbnail_bytes
 from .models import CONVENTIONAL_MODEL_ID, ModelCatalog
 from src.microseg.io.mask_download import MaskEncodingError, build_mask_bundle
 
@@ -42,6 +42,7 @@ from .segmentation import (
     SegmentationRequestError,
     build_conventional_params,
     build_quantification_config,
+    normalize_rotation,
     prepare_image,
     run_web_segmentation,
     validate_upload_name,
@@ -378,6 +379,38 @@ def create_web_blueprint() -> Blueprint:
         response.headers["Cache-Control"] = "private, max-age=300"
         return response
 
+    @bp.post("/api/preview")
+    def upload_preview():
+        """Return a small preview of the image a request names.
+
+        Browsers cannot display TIFF, which is what most micrographs arrive as,
+        so the orientation editor asks the server to decode one for it. The
+        bytes are rendered and discarded; nothing is stored, and no segmentation
+        is run.
+        """
+
+        config = _config()
+        try:
+            data, source_name, _origin = _read_request_image(config)
+            validate_upload_name(source_name)
+        except _ImageRequestError as exc:
+            return _error(exc.code, exc.detail, exc.status)
+        except SegmentationRequestError as exc:
+            return _error("VALIDATION", str(exc), 400)
+
+        try:
+            payload = render_thumbnail_bytes(data)
+        except Exception:
+            _LOGGER.warning("Could not render a preview for %s", source_name, exc_info=True)
+            return _error(
+                "THUMBNAIL_FAILED",
+                f"{source_name} could not be previewed. It can still be segmented.",
+                415,
+            )
+        response = current_app.response_class(payload, mimetype=THUMBNAIL_MIMETYPE)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @bp.post("/api/segment")
     def segment():
         """Run one segmentation job for an uploaded or example image."""
@@ -408,6 +441,7 @@ def create_web_blueprint() -> Blueprint:
                 max_long_side_px=config.max_long_side_px,
                 max_image_pixels=config.max_image_pixels,
                 expected_extension=validate_upload_name(source_name),
+                rotation_deg=normalize_rotation(request.form.get("rotation_deg", "")),
             )
 
             form = request.form.to_dict()
@@ -511,6 +545,7 @@ def create_web_blueprint() -> Blueprint:
                 max_long_side_px=config.max_long_side_px,
                 max_image_pixels=config.max_image_pixels,
                 expected_extension=validate_upload_name(source_name),
+                rotation_deg=normalize_rotation(request.form.get("rotation_deg", "")),
             )
             form = request.form.to_dict()
             params = (
