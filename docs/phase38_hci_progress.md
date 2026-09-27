@@ -62,3 +62,4 @@ machine-readable closeout is
 - the desktop (Qt) card;
 - a faster path solver;
 - fixed-δ_max comparison protocols.
+- 2026-09-27: Committed 81e8d8d ("Release 2.0.0 …") and pushed to origin/main.
