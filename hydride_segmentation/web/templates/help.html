@@ -22,6 +22,7 @@
     <a href="#pipeline">How the processing works</a>
     <a href="#fn">Radial hydride fraction (Fn)</a>
     <a href="#orientation">Image orientation and rotation</a>
+    <a href="#hci">Hydride Connectivity Index (HCI)</a>
     <a href="#formulae">Formulae</a>
     <a href="#conventional">Conventional settings</a>
     <a href="#reading">Reading the results</a>
@@ -278,6 +279,164 @@
     <p class="callout">
       Fn depends on the segmentation being right in the first place. Check the Overlay tab before
       trusting any number, and prefer the trained model where it is available.
+    </p>
+  </section>
+
+  <section id="hci">
+    <h2>Hydride Connectivity Index (HCI)</h2>
+    <p>
+      Area fraction says <em>how much</em> hydride there is and Fn says <em>which way</em> it points.
+      Neither says whether hydrides link into long, connected paths &mdash; yet two micrographs with
+      the same area fraction and Fn can differ completely in that respect: short isolated platelets
+      versus the same platelets stacked into a through-wall chain. The HCI measures that difference.
+      It is dimensionless, lies between 0 and 1, and is reported in three directions: radial
+      (through-wall), circumferential and isotropic.
+    </p>
+    <figure class="diagram">
+      <img src="{{ url_for('microseg_web.static', filename='img/hci_concept.svg') }}"
+           alt="HCI concept: hydrides linked across matrix gaps up to delta form clusters; the connectivity function C of delta rises in steps and its average up to delta max is the HCI.">
+      <figcaption>How the HCI is built: link hydrides across matrix gaps up to &delta;, measure how much of
+        the field each linked cluster covers, and average that connectivity over &delta; from 0 to
+        &delta;<sub>max</sub>.</figcaption>
+    </figure>
+
+    <h3>1. Definitions</h3>
+    <p>
+      Let \(M\) be the cleaned binary hydride mask on an \(H \times W\) field with pixel size \(a\)
+      (&micro;m per pixel; \(a = 1\) and lengths in pixels when no pixel size is given). Image rows are
+      the radial direction \(R\) and columns the circumferential direction \(C\), as for Fn.
+    </p>
+    <ul>
+      <li><strong>Components.</strong> \(C_1, \dots, C_n\) are the 8-connected components of \(M\), with
+        areas \(A_j\).</li>
+      <li><strong>Surface gap</strong> between two components: the matrix ligament on the straight line
+        joining their nearest pixels,
+        \[ g_{jk} = a\left(\min_{p \in C_j,\; q \in C_k} \lVert p - q \rVert - 1\right). \]</li>
+      <li><strong>Clusters at level \(\delta\).</strong> Join every pair with \(g_{jk} \le \delta\); the
+        connected groups are the clusters \(K \in \mathcal{K}(\delta)\) (single-linkage clustering).
+        The joins are <em>synthetic bridges</em>: they add no area and are never drawn into the mask.</li>
+      <li><strong>Projected coverage.</strong> \(S_K(R)\) and \(S_K(C)\) are the lengths of the union of the
+        projections of the cluster's hydride pixels onto the radial and circumferential axes, so bridged
+        gaps add nothing. For the isotropic variant \(S_K(\mathrm{iso})\) is the maximum Feret diameter.</li>
+      <li><strong>Reference length</strong> \(L_u\): the field extent along \(u\) (\(Ha\), \(Wa\),
+        \(\min(H,W)\,a\)) unless you enter one, e.g. the wall thickness for \(L_R\).</li>
+    </ul>
+
+    <h3>2. Connectivity function and the HCI</h3>
+    <p>For direction \(u \in \{R, C, \mathrm{iso}\}\), the <strong>connectivity function</strong> is the
+      area-weighted fraction of the reference length covered by the cluster a hydride belongs to:</p>
+    \[
+      C_u(\delta) \;=\; \frac{\displaystyle\sum_{K \in \mathcal{K}(\delta)} A_K \,\min\!\left(1, \frac{S_K(u)}{L_u}\right)}
+                             {\displaystyle\sum_{K} A_K},
+      \qquad A_K = \sum_{j \in K} A_j .
+    \]
+    <p>\(C_u(\delta)\) is a non-decreasing step function: it jumps exactly when \(\delta\) reaches a gap that
+      merges two clusters. The <strong>Hydride Connectivity Index</strong> is its mean over the range of
+      matrix ligaments regarded as bridgeable:</p>
+    \[
+      \mathrm{HCI}_u \;=\; \frac{1}{\delta_{\max}} \int_{0}^{\delta_{\max}} C_u(\delta)\,\mathrm{d}\delta
+      \;\in\; (0, 1].
+    \]
+    <p>Averaging over \(\delta\), rather than choosing one threshold, makes the index respond smoothly to
+      every gap below \(\delta_{\max}\) and keeps it stable when segmentation noise shifts a gap by a pixel.</p>
+
+    <h3>3. The bridging range \(\delta_{\max}\)</h3>
+    <p>By default \(\delta_{\max}\) is set automatically to one fifth of the length of the smallest hydride
+      that survives clean-up:</p>
+    \[
+      \delta_{\max} \;=\; f \,\min_{j} \ell_j , \qquad f = \tfrac{1}{5},
+      \qquad \ell_j = \text{maximum Feret length of } C_j ,
+    \]
+    <p>floored at one pixel. Because it is a ratio of two lengths on the same image, the automatic value
+      does not depend on magnification. You can instead use one fifth of the <em>median</em> hydride length,
+      or a <em>fixed</em> value.</p>
+    <p class="callout">
+      <strong>Comparing specimens.</strong> The automatic value is recomputed for every image, so two images
+      are generally integrated over different ranges, and one small fragment can shrink the range for the
+      whole image. On the synthetic validation benchmark, cutting a few 2-pixel breaks into straight
+      hydrides lowered the automatic-min HCI by about 60 %, while a fixed \(\delta_{\max}\) changed it by
+      under 2 %. For any comparison between specimens, choose <em>Fixed</em> and use the same value, pixel
+      size and reference length for every image.
+    </p>
+
+    <h3>4. Values reported with the HCI</h3>
+    <ul>
+      <li><strong>Critical linking distance</strong> \(\delta_{1/2,u} = \min\{\delta : C_u(\delta) \ge \tfrac12\}\):
+        the matrix gap that must be bridged for half the hydride to belong to half-field clusters.
+        It is a physical spacing in &micro;m, and on the benchmark it recovers the designed gap exactly.</li>
+      <li><strong>Connectivity length</strong>
+        \(\xi_u = \sum_K A_K S_K(u) / \sum_K A_K\) at \(\delta_{\max}\): the area-weighted mean cluster
+        extent, the analogue of the percolation correlation length.</li>
+      <li><strong>Path continuity</strong> (companion). With cost \(\varepsilon\) in hydride and 1 in
+        matrix, \(\ell(p)\) is the matrix ligament of the cheapest edge-to-edge path through pixel \(p\);
+        \[ \Pi_u = \big\langle \max(0,\, 1 - \ell(p)/L_u) \big\rangle_{p \in M}, \qquad
+           \Pi_u^{\mathrm{best}} = \max\!\big(0,\, 1 - \min_p \ell(p) / L_u\big). \]
+        \(\Pi_u^{\mathrm{best}}\) is a weakest-path (RHCP-type) measure.</li>
+      <li><strong>Skeleton topology</strong> (companion): free ends \(N_E\), junctions with degrees
+        \(d_j\), branching excess \(\beta = \sum_j (d_j - 2)\), skeleton components \(C\) and independent
+        loops \(\mu\). They obey the identity
+        \[ N_E = \beta + 2C - 2\mu, \]
+        which defines the bounded <strong>network closure</strong>
+        \[ \kappa = \frac{2\mu}{\beta + 2C} = 1 - \frac{N_E}{\beta + 2C} \in [0, 1]: \]
+        0 for free-ended (tree-like) hydrides, 1 for networks without free ends. Loops alone do not mean
+        continuity: rings score a low HCI.</li>
+    </ul>
+
+    <h3>5. Properties</h3>
+    <ul>
+      <li>Bounded: \(0 < C_u(\delta) \le 1\) and \(0 < \mathrm{HCI}_u \le 1\) for any non-empty mask.</li>
+      <li>Monotone: closing a gap or linking two clusters never lowers \(C_u\) or the HCI.</li>
+      <li>Defined for a single cluster: \(C_u = \min(1, S/L_u)\), e.g. 1 for a hydride spanning the field.
+        An empty mask returns <em>not applicable</em>, never 0.</li>
+      <li>Exact symmetries: flips leave every value unchanged; a 90&deg; turn swaps radial and circumferential.</li>
+    </ul>
+
+    <h3>6. Algorithm</h3>
+    <figure class="diagram">
+      <img src="{{ url_for('microseg_web.static', filename='img/hci_algorithm_flow.svg') }}"
+           alt="HCI algorithm flow sheet from mask clean-up through the gap graph and single linkage to the HCI, with path continuity and topology branches, outputs and validation gates.">
+    </figure>
+    <ol>
+      <li><strong>Binarise and clean</strong>: remove components under 5 &micro;m&sup2; (20 px without a pixel size)
+        and fill holes of the same size.</li>
+      <li><strong>Label</strong> 8-connected components; record areas, occupied rows and columns, and convex hulls.</li>
+      <li><strong>Gap graph</strong>: a Euclidean distance transform of the matrix assigns every matrix pixel
+        its nearest hydride component; neighbouring pixels with different nearest components give candidate
+        gaps. The minimum per pair forms the Voronoi-neighbour graph, which contains every link single linkage
+        needs. Cost is linear in the number of pixels.</li>
+      <li><strong>Linkage</strong>: sort gaps and merge with union-find (Kruskal), recording \(C_u\) after each merge.
+        This gives the whole step function exactly.</li>
+      <li><strong>Integrate</strong> \(C_u\) exactly over \([0, \delta_{\max}]\); read off \(\delta_{1/2}\) and \(\xi_u\).</li>
+      <li><strong>Companions</strong>: two geodesic sweeps per direction for \(\Pi_u\); skeletonise, merge junction
+        pixels within the local half-thickness, and count ends, junctions and loops.</li>
+    </ol>
+
+    <h3>7. Settings</h3>
+    <table class="settings-table">
+      <thead><tr><th>Setting</th><th>Default</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td>Bridging range \(\delta_{\max}\)</td><td>automatic, \(\tfrac15\) of smallest hydride</td><td>Upper limit of the integral. Use a fixed value to compare specimens.</td></tr>
+        <tr><td>Pixel size</td><td>none (pixels)</td><td>Converts thresholds and lengths to &micro;m, so results compare across magnifications.</td></tr>
+        <tr><td>Radial reference length \(L_R\)</td><td>image height</td><td>Set to the wall thickness so HCI radial = 1 means a through-wall network.</td></tr>
+        <tr><td>Minimum hydride area</td><td>5 &micro;m&sup2; / 20 px</td><td>Clean-up of specks before analysis (same as the prototype).</td></tr>
+        <tr><td>Path hydride cost \(\varepsilon\)</td><td>0</td><td>0 = pure matrix ligament; 0.02 reproduces the RHCP toughness ratio (CLI).</td></tr>
+      </tbody>
+    </table>
+
+    <h3>8. Reading and reporting</h3>
+    <ul>
+      <li>Report HCI radial with \(\delta_{\max}\), its source (automatic or fixed), the pixel size, the reference
+        length and the segmentation method. All are in the downloaded JSON and on the HCI page of the PDF report.</li>
+      <li>Check the <em>HCI clusters</em> view: red lines are synthetic bridges, not hydride.</li>
+      <li>A cluster touching the image border is truncated, so the value is a lower bound; image the full wall
+        thickness where possible.</li>
+      <li>The HCI describes a 2D section. Hydrides that appear separate may connect out of plane.</li>
+      <li>The HCI is experimental: validated on a controlled synthetic benchmark, and still awaiting validation
+        against measured mechanical properties. Interpret it together with area fraction and Fn.</li>
+    </ul>
+    <p>
+      The full specification, the derivations and the validation evidence are in the MicroSeg documentation:
+      <em>Hydride Connectivity Index: theory and algorithm</em> and <em>HCI specification</em>.
     </p>
   </section>
 
@@ -683,8 +842,9 @@
       when they are stated alongside it; all three are recorded in the downloadable JSON.
     </p>
     <p class="callout">
-      Measurements from this browser tool are in pixels, so any value quoted in physical
-      units must come from the desktop application, where the image scale is known. See
+      Area fraction, Fn and feature measurements from this browser tool are in pixels, so any of
+      those quoted in physical units must come from the desktop application, where the image scale
+      is known. The HCI accepts an optional pixel size and then reports lengths in micrometres. See
       <a href="#formulae">Scale calibration</a>.
     </p>
   </section>

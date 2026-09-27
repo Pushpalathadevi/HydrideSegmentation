@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" role="img" aria-labelledby="title desc">
+  <title id="title">Hydride Connectivity Index concept</title>
+  <desc id="desc">Three panels. Left: hydride components separated by matrix gaps g1, g2 and g3. Middle: at an association distance delta between g1 and g2, the gap g1 is bridged by a synthetic link and the linked cluster covers a longer radial extent. Right: the connectivity function C of delta rises in steps at each gap; the shaded area up to delta max divided by delta max is the HCI, and delta half is where C first reaches one half.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f5f9fc"/>
+      <stop offset="1" stop-color="#e9f1f7"/>
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#35627d"/>
+    </marker>
+    <marker id="dim" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#6446a3"/>
+    </marker>
+    <style>
+      .title{font:700 30px Arial,sans-serif;fill:#163247}
+      .sub{font:400 16px Arial,sans-serif;fill:#526c7e}
+      .ptitle{font:700 19px Arial,sans-serif;fill:#163247}
+      .lab{font:400 16px Arial,sans-serif;fill:#355468}
+      .gap{font:italic 700 17px 'Times New Roman',serif;fill:#c1121f}
+      .math{font:italic 400 19px 'Times New Roman',serif;fill:#20435a}
+      .mathb{font:italic 700 20px 'Times New Roman',serif;fill:#20435a}
+      .panel{fill:#ffffff;stroke:#b9cfdd;stroke-width:1.5}
+      .hyd{fill:#3b4a54}
+      .axis{stroke:#355468;stroke-width:2;fill:none}
+    </style>
+  </defs>
+  <rect width="1400" height="700" rx="24" fill="url(#bg)"/>
+  <text x="50" y="56" class="title">Hydride Connectivity Index: link, measure coverage, integrate</text>
+  <text x="50" y="84" class="sub">Rows are the radial direction (through-wall) and columns the circumferential direction, as for Fn.</text>
+
+  <!-- Panel 1 -->
+  <rect x="40" y="110" width="410" height="440" rx="16" class="panel"/>
+  <text x="60" y="142" class="ptitle">1. Components and matrix gaps</text>
+  <rect x="113" y="170" width="14" height="110" rx="7" class="hyd"/>
+  <rect x="113" y="292" width="14" height="100" rx="7" class="hyd"/>
+  <rect x="113" y="440" width="14" height="80" rx="7" class="hyd"/>
+  <rect x="243" y="190" width="14" height="150" rx="7" class="hyd"/>
+  <rect x="243" y="400" width="14" height="110" rx="7" class="hyd"/>
+  <rect x="353" y="215" width="14" height="260" rx="7" class="hyd"/>
+  <line x1="140" y1="281" x2="140" y2="291" stroke="#c1121f" stroke-width="2"/>
+  <text x="148" y="292" class="gap">g₁</text>
+  <line x1="140" y1="393" x2="140" y2="439" stroke="#c1121f" stroke-width="2"/>
+  <text x="148" y="422" class="gap">g₂</text>
+  <line x1="270" y1="341" x2="270" y2="399" stroke="#c1121f" stroke-width="2"/>
+  <text x="278" y="376" class="gap">g₃</text>
+  <text x="60" y="540" class="lab">g = shortest matrix ligament between components</text>
+
+  <!-- Panel 2 -->
+  <rect x="480" y="110" width="410" height="440" rx="16" class="panel"/>
+  <text x="500" y="142" class="ptitle">2. Link gaps ≤ δ (here g₁ ≤ δ &lt; g₂)</text>
+  <rect x="553" y="170" width="14" height="110" rx="7" fill="#1f77b4"/>
+  <rect x="553" y="292" width="14" height="100" rx="7" fill="#1f77b4"/>
+  <line x1="560" y1="281" x2="560" y2="291" stroke="#e63946" stroke-width="5"/>
+  <rect x="553" y="440" width="14" height="80" rx="7" fill="#2ca02c"/>
+  <rect x="683" y="190" width="14" height="150" rx="7" fill="#9467bd"/>
+  <rect x="683" y="400" width="14" height="110" rx="7" fill="#ff7f0e"/>
+  <rect x="793" y="215" width="14" height="260" rx="7" fill="#17becf"/>
+  <line x1="530" y1="172" x2="530" y2="390" stroke="#6446a3" stroke-width="2" marker-start="url(#dim)" marker-end="url(#dim)"/>
+  <text x="498" y="290" class="math" transform="rotate(-90 498 290)">S_K(R)</text>
+  <text x="590" y="236" class="lab">one cluster K</text>
+  <text x="590" y="256" class="lab">(red = synthetic bridge,</text>
+  <text x="590" y="276" class="lab">no area added)</text>
+  <text x="500" y="540" class="lab">coverage S_K counts hydride rows only</text>
+
+  <!-- Panel 3 -->
+  <rect x="920" y="110" width="440" height="440" rx="16" class="panel"/>
+  <text x="940" y="142" class="ptitle">3. Connectivity function C(δ)</text>
+  <line x1="980" y1="490" x2="1335" y2="490" class="axis" marker-end="url(#arr)"/>
+  <line x1="980" y1="490" x2="980" y2="170" class="axis" marker-end="url(#arr)"/>
+  <text x="1318" y="516" class="math">δ</text>
+  <text x="944" y="186" class="math">C</text>
+  <text x="962" y="494" class="lab">0</text>
+  <text x="962" y="205" class="lab">1</text>
+  <line x1="976" y1="200" x2="984" y2="200" class="axis"/>
+  <line x1="980" y1="345" x2="1330" y2="345" stroke="#9aa9b5" stroke-dasharray="5 5"/>
+  <text x="940" y="350" class="lab">½</text>
+  <!-- shaded integral to δmax at x=1215 -->
+  <path d="M980 490 L980 400 L1030 400 L1030 330 L1120 330 L1120 280 L1215 280 L1215 490 Z" fill="#e76f51" fill-opacity="0.18"/>
+  <path d="M980 400 L1030 400 L1030 330 L1120 330 L1120 280 L1250 280 L1250 235 L1320 235" fill="none" stroke="#e76f51" stroke-width="4"/>
+  <line x1="1215" y1="490" x2="1215" y2="215" stroke="#163247" stroke-width="2" stroke-dasharray="7 5"/>
+  <text x="1188" y="210" class="math">δ_max</text>
+  <circle cx="1030" cy="345" r="7" fill="#6446a3"/>
+  <text x="1037" y="375" class="math" fill="#6446a3">δ½</text>
+  <text x="1022" y="516" class="gap">g₁</text>
+  <text x="1112" y="516" class="gap">g₃</text>
+  <text x="1242" y="516" class="gap">g₂</text>
+  <text x="1035" y="455" class="lab">shaded area ÷ δ_max = HCI</text>
+
+  <!-- Formula band -->
+  <rect x="40" y="572" width="1320" height="104" rx="16" fill="#ffffff" stroke="#b9cfdd" stroke-width="1.5"/>
+  <text x="70" y="612" class="mathb">C_u(δ) = Σ_K A_K · min(1, S_K(u) / L_u) / Σ_K A_K</text>
+  <text x="640" y="612" class="mathb">HCI_u = (1/δ_max) ∫₀^δmax C_u(δ) dδ  ∈ (0, 1]</text>
+  <text x="70" y="652" class="math">A_K cluster hydride area · L_u reference length (field extent or wall thickness) · default δ_max = ⅕ × smallest accepted hydride length</text>
+</svg>

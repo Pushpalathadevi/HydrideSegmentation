@@ -582,3 +582,26 @@ Exit criteria:
   and live browser interaction checks.
 
 Status: implemented and recorded in [`phase35_intranet_web_app.md`](phase35_intranet_web_app.md).
+
+## Phase 37 - HCI specification and constant-area-fraction benchmark (Implemented)
+
+- Replace the on-hold intern HCI formula with the `hci.v1-candidate` specification: an integrated
+  single-linkage connectivity index with projected-coverage extents, the critical linking distance
+  δ½, companion path continuity (RHCP-type) and skeleton topology with the closure identity.
+- Deliver a deterministic synthetic benchmark (`test_data/hci_synthetic_v1`, 203 masks at 5 % area
+  fraction) with exact centerline ground truth, and a study harness scoring the prototype and v1
+  against ten design axioms.
+
+Status: implemented and recorded in
+[`phase37_hci_specification_and_benchmark.md`](phase37_hci_specification_and_benchmark.md).
+
+## Phases 38-40 - HCI implementation, interfaces and scientific validation (Planned)
+
+- Phase 38: core library in `src/microseg/evaluation/continuity/` with the automated axiom suite.
+- Phase 39: CLI, inference-export, correction-loop, desktop and web integration behind an
+  experimental flag, with an interface-parity test.
+- Phase 40: realism benchmark v2, real-specimen validation, literature baselines, expert ranking,
+  property correlation and the manuscript.
+
+Plan: [`hci_implementation_plan.md`](hci_implementation_plan.md). Starts after owner sign-off of the
+specification decisions.

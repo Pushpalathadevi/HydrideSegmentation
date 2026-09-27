@@ -1,6 +1,6 @@
 # HydrideSegmentation -> MicroSeg Platform (Transition)
 
-Current release version: `1.2.0`
+Current release version: `2.0.0`
 
 This repository is transitioning from a hydride-specific toolkit into a general local platform for microstructural segmentation.
 Hydride segmentation is the first validated workflow.
@@ -545,7 +545,7 @@ Full walkthrough: `docs/gui_model_integration_guide.md`.
 - Training data requirements: `docs/training_data_requirements.md`
 - GUI user guide: `docs/gui_user_guide.md`
 - Intranet web app deployment: `docs/intranet_web_app.md`
-- Deferred Hydride Connectivity Index specification and audit: `docs/hydride_connectivity_index.md`
+- Hydride Connectivity Index (experimental, not yet in the product): specification `docs/hci_specification.md`, synthetic validation benchmark `docs/hci_synthetic_benchmark.md` (generate with `python scripts/generate_hci_synthetic_benchmark.py`), implementation plan `docs/hci_implementation_plan.md`, prototype audit `docs/hydride_connectivity_index.md`
 - Windows offline installer workflow: `docs/windows_offline_installer.md`
 - HPC GA user guide: `docs/hpc_ga_user_guide.md`
 - HPC GA developer guide: `docs/hpc_ga_developer_guide.md`

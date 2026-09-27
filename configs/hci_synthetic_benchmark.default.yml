@@ -1,0 +1,19 @@
+# Controlled synthetic benchmark for Hydride Connectivity Index (HCI) validation.
+# Schema: microseg.hci_synthetic_benchmark.v1 (see docs/hci_synthetic_benchmark.md).
+# Override any key with --set, e.g. --set benchmark.replicates=3
+output_dir: test_data/hci_synthetic_v1
+render_overview: true
+benchmark:
+  height: 512
+  width: 512
+  thickness_px: 4.0              # hydride platelet thickness (capsule diameter)
+  target_area_fraction: 0.05     # every area-matched sample reproduces this
+  area_fraction_tolerance: 0.0005
+  clearance_px: 12.0             # min matrix ligament between intended-separate objects
+  margin_px: 16.0
+  pixel_size_um: 0.5             # nominal; recorded for physical-unit formulations
+  base_seed: 20260927
+  replicates: 5                  # orientation/boolean_model use 3, degenerate 1
+  families: null                 # null = all; or a list, e.g. [gap_sweep, invariance]
+  max_placement_attempts: 2000
+docs_figure: null                # e.g. docs/diagrams/hci_synthetic_benchmark_overview.svg

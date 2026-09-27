@@ -44,7 +44,7 @@ python -m http.server 8000 -d docs/_build/html
 
 ## Current State Snapshot
 
-- Stable release version 1.2.0 is defined across Python, package, desktop, web,
+- Stable release version 2.0.0 is defined across Python, package, desktop, web,
   and installer metadata.
 - CPU-first local inference is available.
 - Qt desktop workflows, correction export, and result packaging are implemented.
@@ -105,6 +105,11 @@ tutorials/index
 why_tradeoffs
 algorithms
 conventional_segmentation_pipeline
+hci_user_guide
+hci_theory
+hci_specification
+hci_synthetic_benchmark
+hci_implementation_plan
 hydride_connectivity_index
 model_selection_decision_tree
 worked_example_conventional_vs_ml
@@ -124,10 +129,13 @@ releases/v1.0.0
 releases/v1.0.0.closeout
 releases/v1.1.1
 releases/v1.2.0
+releases/v2.0.0
 phase33_interactive_conventional_gui
 phase34_model_installation
 phase35_intranet_web_app
 phase36_memory_safe_interfaces_and_hci_spec
+phase37_hci_specification_and_benchmark
+phase38_hci_progress
 configuration_workflow
 scientific_validation
 model_architecture_manuscript_foundation

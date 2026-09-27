@@ -1,0 +1,1228 @@
+{
+ "schema_version": "microseg.hci_real_image_study.v1",
+ "pixel_size_um": {
+  "optical": 2.150537634408602,
+  "report_mask": 3.2070517629407354
+ },
+ "prototype_reported_hci": {
+  "25ppm": 2.5891,
+  "70ppm": 3.3764,
+  "200ppm": 8.0192
+ },
+ "specimens": {
+  "25ppm": {
+   "report_mask_area_fraction": 0.052652334595276726,
+   "report_mask": {
+    "auto_min": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.0345328681838767,
+      "circumferential": 0.14070003832008718,
+      "isotropic": 0.18897254490983662
+     },
+     "C_at_dmax": {
+      "radial": 0.035290146097406,
+      "circumferential": 0.14438212591881114,
+      "isotropic": 0.19385332027747595
+     },
+     "delta_half": {
+      "radial": 87.55874570039457,
+      "circumferential": 58.73140573155631,
+      "isotropic": 43.488326746698
+     },
+     "max_bridge_distance_um": 3.2070517629407354,
+     "max_bridge_distance_source": "auto:min",
+     "smallest_hydride_length_um": 10.37823751223676,
+     "path_continuity": {
+      "radial": 0.2646421220888822,
+      "radial_best": 0.29081177229272426,
+      "radial_best_ligament": 586.796065828762,
+      "circumferential": 0.7330629464525682,
+      "circumferential_best": 0.7754219941978517,
+      "circumferential_best_ligament": 247.76025156237
+     },
+     "topology": {
+      "endpoints": 160,
+      "junctions": 17,
+      "junction_degree_histogram": {
+       "3": 16,
+       "4": 1
+      },
+      "branching_excess": 18,
+      "loops": 2,
+      "skeleton_components": 73,
+      "network_closure": 0.024390243902439025,
+      "identity_residual": 0,
+      "skeleton_length": 7002.2090193249705,
+      "density_unit": "per_mm2",
+      "endpoints_density": 175.27900322606388,
+      "junctions_density": 18.62339409276929,
+      "loops_density": 2.1909875403257986
+     },
+     "area_fraction_cleaned": 0.052652334595276726,
+     "n_components": 73,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "auto_max_bridge_distance_floored_to_one_pixel",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    },
+    "auto_median": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.0393584553884581,
+      "circumferential": 0.15996377155821517,
+      "isotropic": 0.21488128799853629
+     },
+     "C_at_dmax": {
+      "radial": 0.04435591564272407,
+      "circumferential": 0.18114452644832513,
+      "isotropic": 0.2438091970362171
+     },
+     "delta_half": {
+      "radial": 87.55874570039457,
+      "circumferential": 58.73140573155631,
+      "isotropic": 43.488326746698
+     },
+     "max_bridge_distance_um": 12.3460509303938,
+     "max_bridge_distance_source": "auto:percentile",
+     "smallest_hydride_length_um": 10.37823751223676,
+     "path_continuity": {
+      "radial": 0.2646421220888822,
+      "radial_best": 0.29081177229272426,
+      "radial_best_ligament": 586.796065828762,
+      "circumferential": 0.7330629464525682,
+      "circumferential_best": 0.7754219941978517,
+      "circumferential_best_ligament": 247.76025156237
+     },
+     "topology": {
+      "endpoints": 160,
+      "junctions": 17,
+      "junction_degree_histogram": {
+       "3": 16,
+       "4": 1
+      },
+      "branching_excess": 18,
+      "loops": 2,
+      "skeleton_components": 73,
+      "network_closure": 0.024390243902439025,
+      "identity_residual": 0,
+      "skeleton_length": 7002.2090193249705,
+      "density_unit": "per_mm2",
+      "endpoints_density": 175.27900322606388,
+      "junctions_density": 18.62339409276929,
+      "loops_density": 2.1909875403257986
+     },
+     "area_fraction_cleaned": 0.052652334595276726,
+     "n_components": 73,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    },
+    "fixed_10um": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.03819869247442885,
+      "circumferential": 0.15505561254017816,
+      "isotropic": 0.20818295113091478
+     },
+     "C_at_dmax": {
+      "radial": 0.044010039531068294,
+      "circumferential": 0.17957626443846142,
+      "isotropic": 0.24149853341222027
+     },
+     "delta_half": {
+      "radial": 87.55874570039457,
+      "circumferential": 58.73140573155631,
+      "isotropic": 43.488326746698
+     },
+     "max_bridge_distance_um": 10.0,
+     "max_bridge_distance_source": "user",
+     "smallest_hydride_length_um": 10.37823751223676,
+     "path_continuity": {
+      "radial": 0.2646421220888822,
+      "radial_best": 0.29081177229272426,
+      "radial_best_ligament": 586.796065828762,
+      "circumferential": 0.7330629464525682,
+      "circumferential_best": 0.7754219941978517,
+      "circumferential_best_ligament": 247.76025156237
+     },
+     "topology": {
+      "endpoints": 160,
+      "junctions": 17,
+      "junction_degree_histogram": {
+       "3": 16,
+       "4": 1
+      },
+      "branching_excess": 18,
+      "loops": 2,
+      "skeleton_components": 73,
+      "network_closure": 0.024390243902439025,
+      "identity_residual": 0,
+      "skeleton_length": 7002.2090193249705,
+      "density_unit": "per_mm2",
+      "endpoints_density": 175.27900322606388,
+      "junctions_density": 18.62339409276929,
+      "loops_density": 2.1909875403257986
+     },
+     "area_fraction_cleaned": 0.052652334595276726,
+     "n_components": 73,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    }
+   },
+   "prototype_on_report_mask": {
+    "status": "ok",
+    "workbook_hci": 2.438,
+    "compute_hci": 2.9697,
+    "n_clusters": 42,
+    "mean_primary_length_px": 45.76857142857143,
+    "sum_junctions": 9,
+    "seconds": 2.82
+   },
+   "resegmented": {
+    "hydride_conventional": {
+     "fixed_10um": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.05409469269148476,
+       "circumferential": 0.17333138899557862,
+       "isotropic": 0.23302030051783482
+      },
+      "C_at_dmax": {
+       "radial": 0.06035038551617064,
+       "circumferential": 0.20586023359496072,
+       "isotropic": 0.27661130312721627
+      },
+      "delta_half": {
+       "radial": 73.88244958995135,
+       "circumferential": 52.59321316713056,
+       "isotropic": 38.254396189367604
+      },
+      "max_bridge_distance_um": 10.0,
+      "max_bridge_distance_source": "user",
+      "smallest_hydride_length_um": 65.39974696710857,
+      "path_continuity": {
+       "radial": 0.3329346684092383,
+       "radial_best": 0.3488340437115821,
+       "radial_best_ligament": 537.7370477736612,
+       "circumferential": 0.7764732436821635,
+       "circumferential_best": 0.8234818248164477,
+       "circumferential_best_ligament": 194.73940617024147
+      },
+      "topology": {
+       "endpoints": 141,
+       "junctions": 64,
+       "junction_degree_histogram": {
+        "3": 55,
+        "4": 9
+       },
+       "branching_excess": 73,
+       "loops": 5,
+       "skeleton_components": 39,
+       "network_closure": 0.06622516556291391,
+       "identity_residual": 0,
+       "skeleton_length": 8046.801653514543,
+       "density_unit": "per_mm2",
+       "endpoints_density": 154.76631030701756,
+       "junctions_density": 70.24853801169591,
+       "loops_density": 5.4881670321637435
+      },
+      "area_fraction_cleaned": 0.06430210363872645,
+      "n_components": 39,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "largest_cluster_touches_border"
+      ]
+     },
+     "auto_min": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.05648014166804698,
+       "circumferential": 0.185094335436031,
+       "isotropic": 0.24894328688085973
+      },
+      "C_at_dmax": {
+       "radial": 0.06460808597142183,
+       "circumferential": 0.22468199128647112,
+       "isotropic": 0.3025463727428501
+      },
+      "delta_half": {
+       "radial": 73.88244958995135,
+       "circumferential": 52.59321316713056,
+       "isotropic": 38.254396189367604
+      },
+      "max_bridge_distance_um": 13.079949393421714,
+      "max_bridge_distance_source": "auto:min",
+      "smallest_hydride_length_um": 65.39974696710857,
+      "path_continuity": {
+       "radial": 0.3329346684092383,
+       "radial_best": 0.3488340437115821,
+       "radial_best_ligament": 537.7370477736612,
+       "circumferential": 0.7764732436821635,
+       "circumferential_best": 0.8234818248164477,
+       "circumferential_best_ligament": 194.73940617024147
+      },
+      "topology": {
+       "endpoints": 141,
+       "junctions": 64,
+       "junction_degree_histogram": {
+        "3": 55,
+        "4": 9
+       },
+       "branching_excess": 73,
+       "loops": 5,
+       "skeleton_components": 39,
+       "network_closure": 0.06622516556291391,
+       "identity_residual": 0,
+       "skeleton_length": 8046.801653514543,
+       "density_unit": "per_mm2",
+       "endpoints_density": 154.76631030701756,
+       "junctions_density": 70.24853801169591,
+       "loops_density": 5.4881670321637435
+      },
+      "area_fraction_cleaned": 0.06430210363872645,
+      "n_components": 39,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "largest_cluster_touches_border"
+      ]
+     },
+     "area_fraction": 0.06426656920077972
+    },
+    "hydride_ml": {
+     "fixed_10um": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.0323080443946732,
+       "circumferential": 0.13920678125016103,
+       "isotropic": 0.18713932504882652
+      },
+      "C_at_dmax": {
+       "radial": 0.03763095364285211,
+       "circumferential": 0.1602951210027518,
+       "isotropic": 0.21551106584190136
+      },
+      "delta_half": {
+       "radial": 60.547869837046235,
+       "circumferential": 52.804010060991985,
+       "isotropic": 41.128197413974426
+      },
+      "max_bridge_distance_um": 10.0,
+      "max_bridge_distance_source": "user",
+      "smallest_hydride_length_um": 6.959285973117827,
+      "path_continuity": {
+       "radial": 0.22293341146084908,
+       "radial_best": 0.24306523202108776,
+       "radial_best_ligament": 625.0816148471017,
+       "circumferential": 0.7255952810431002,
+       "circumferential_best": 0.747262516700681,
+       "circumferential_best_ligament": 278.8265138334422
+      },
+      "topology": {
+       "endpoints": 229,
+       "junctions": 26,
+       "junction_degree_histogram": {
+        "3": 23,
+        "4": 3
+       },
+       "branching_excess": 29,
+       "loops": 3,
+       "skeleton_components": 103,
+       "network_closure": 0.02553191489361702,
+       "identity_residual": 0,
+       "skeleton_length": 7963.004853268105,
+       "density_unit": "per_mm2",
+       "endpoints_density": 251.35805007309943,
+       "junctions_density": 28.538468567251464,
+       "loops_density": 3.2929002192982457
+      },
+      "area_fraction_cleaned": 0.047890269655620536,
+      "n_components": 103,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "hydride_thickness_below_3_px_topology_unreliable"
+      ]
+     },
+     "auto_min": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.027315041781499544,
+       "circumferential": 0.11842962764601184,
+       "isotropic": 0.15921419682172652
+      },
+      "C_at_dmax": {
+       "radial": 0.028264069235389728,
+       "circumferential": 0.1232020880883338,
+       "isotropic": 0.16556745987254157
+      },
+      "delta_half": {
+       "radial": 60.547869837046235,
+       "circumferential": 52.804010060991985,
+       "isotropic": 41.128197413974426
+      },
+      "max_bridge_distance_um": 2.150537634408602,
+      "max_bridge_distance_source": "auto:min",
+      "smallest_hydride_length_um": 6.959285973117827,
+      "path_continuity": {
+       "radial": 0.22293341146084908,
+       "radial_best": 0.24306523202108776,
+       "radial_best_ligament": 625.0816148471017,
+       "circumferential": 0.7255952810431002,
+       "circumferential_best": 0.747262516700681,
+       "circumferential_best_ligament": 278.8265138334422
+      },
+      "topology": {
+       "endpoints": 229,
+       "junctions": 26,
+       "junction_degree_histogram": {
+        "3": 23,
+        "4": 3
+       },
+       "branching_excess": 29,
+       "loops": 3,
+       "skeleton_components": 103,
+       "network_closure": 0.02553191489361702,
+       "identity_residual": 0,
+       "skeleton_length": 7963.004853268105,
+       "density_unit": "per_mm2",
+       "endpoints_density": 251.35805007309943,
+       "junctions_density": 28.538468567251464,
+       "loops_density": 3.2929002192982457
+      },
+      "area_fraction_cleaned": 0.047890269655620536,
+      "n_components": 103,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "auto_max_bridge_distance_floored_to_one_pixel",
+       "hydride_thickness_below_3_px_topology_unreliable"
+      ]
+     },
+     "area_fraction": 0.04796641487979207
+    }
+   }
+  },
+  "70ppm": {
+   "report_mask_area_fraction": 0.09133315305570579,
+   "report_mask": {
+    "auto_min": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.03983215285942324,
+      "circumferential": 0.1575760617096321,
+      "isotropic": 0.21243075884594462
+     },
+     "C_at_dmax": {
+      "radial": 0.04466540494556438,
+      "circumferential": 0.17795429128552165,
+      "isotropic": 0.23995927531824626
+     },
+     "delta_half": {
+      "radial": 51.312828207051766,
+      "circumferential": 31.333952813953495,
+      "isotropic": 22.64902616202273
+     },
+     "max_bridge_distance_um": 3.2070517629407354,
+     "max_bridge_distance_source": "auto:min",
+     "smallest_hydride_length_um": 10.37823751223676,
+     "path_continuity": {
+      "radial": 0.418221573245767,
+      "radial_best": 0.45241017599592237,
+      "radial_best_ligament": 453.08641889369653,
+      "circumferential": 0.8180780850434016,
+      "circumferential_best": 0.8667173185903562,
+      "circumferential_best_ligament": 147.04089368418772
+     },
+     "topology": {
+      "endpoints": 233,
+      "junctions": 44,
+      "junction_degree_histogram": {
+       "3": 43,
+       "4": 1
+      },
+      "branching_excess": 45,
+      "loops": 5,
+      "skeleton_components": 99,
+      "network_closure": 0.0411522633744856,
+      "identity_residual": 0,
+      "skeleton_length": 11333.809778869141,
+      "density_unit": "per_mm2",
+      "endpoints_density": 255.25004844795552,
+      "junctions_density": 48.20172588716757,
+      "loops_density": 5.477468850814496
+     },
+     "area_fraction_cleaned": 0.09137822246259239,
+     "n_components": 99,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "auto_max_bridge_distance_floored_to_one_pixel",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    },
+    "auto_median": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.05195613690297053,
+      "circumferential": 0.20127282839305935,
+      "isotropic": 0.2721303034868352
+     },
+     "C_at_dmax": {
+      "radial": 0.06757233389728443,
+      "circumferential": 0.2640771513778567,
+      "isotropic": 0.35767250862066485
+     },
+     "delta_half": {
+      "radial": 51.312828207051766,
+      "circumferential": 31.333952813953495,
+      "isotropic": 22.64902616202273
+     },
+     "max_bridge_distance_um": 14.983781851180199,
+     "max_bridge_distance_source": "auto:percentile",
+     "smallest_hydride_length_um": 10.37823751223676,
+     "path_continuity": {
+      "radial": 0.418221573245767,
+      "radial_best": 0.45241017599592237,
+      "radial_best_ligament": 453.08641889369653,
+      "circumferential": 0.8180780850434016,
+      "circumferential_best": 0.8667173185903562,
+      "circumferential_best_ligament": 147.04089368418772
+     },
+     "topology": {
+      "endpoints": 233,
+      "junctions": 44,
+      "junction_degree_histogram": {
+       "3": 43,
+       "4": 1
+      },
+      "branching_excess": 45,
+      "loops": 5,
+      "skeleton_components": 99,
+      "network_closure": 0.0411522633744856,
+      "identity_residual": 0,
+      "skeleton_length": 11333.809778869141,
+      "density_unit": "per_mm2",
+      "endpoints_density": 255.25004844795552,
+      "junctions_density": 48.20172588716757,
+      "loops_density": 5.477468850814496
+     },
+     "area_fraction_cleaned": 0.09137822246259239,
+     "n_components": 99,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    },
+    "fixed_10um": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.04622254977809117,
+      "circumferential": 0.18236439519091155,
+      "isotropic": 0.2460547115619464
+     },
+     "C_at_dmax": {
+      "radial": 0.05352517229183992,
+      "circumferential": 0.2141219568147276,
+      "isotropic": 0.28927375350680073
+     },
+     "delta_half": {
+      "radial": 51.312828207051766,
+      "circumferential": 31.333952813953495,
+      "isotropic": 22.64902616202273
+     },
+     "max_bridge_distance_um": 10.0,
+     "max_bridge_distance_source": "user",
+     "smallest_hydride_length_um": 10.37823751223676,
+     "path_continuity": {
+      "radial": 0.418221573245767,
+      "radial_best": 0.45241017599592237,
+      "radial_best_ligament": 453.08641889369653,
+      "circumferential": 0.8180780850434016,
+      "circumferential_best": 0.8667173185903562,
+      "circumferential_best_ligament": 147.04089368418772
+     },
+     "topology": {
+      "endpoints": 233,
+      "junctions": 44,
+      "junction_degree_histogram": {
+       "3": 43,
+       "4": 1
+      },
+      "branching_excess": 45,
+      "loops": 5,
+      "skeleton_components": 99,
+      "network_closure": 0.0411522633744856,
+      "identity_residual": 0,
+      "skeleton_length": 11333.809778869141,
+      "density_unit": "per_mm2",
+      "endpoints_density": 255.25004844795552,
+      "junctions_density": 48.20172588716757,
+      "loops_density": 5.477468850814496
+     },
+     "area_fraction_cleaned": 0.09137822246259239,
+     "n_components": 99,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "largest_cluster_touches_border",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    }
+   },
+   "prototype_on_report_mask": {
+    "status": "ok",
+    "workbook_hci": 3.1211,
+    "compute_hci": 2.2594,
+    "n_clusters": 52,
+    "mean_primary_length_px": 59.22826923076924,
+    "sum_junctions": 20,
+    "seconds": 2.86
+   },
+   "resegmented": {
+    "hydride_conventional": {
+     "fixed_10um": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.0743234536485646,
+       "circumferential": 0.22352348201173922,
+       "isotropic": 0.3035502122696707
+      },
+      "C_at_dmax": {
+       "radial": 0.11822254666208637,
+       "circumferential": 0.30794004532857555,
+       "isotropic": 0.4204080424547799
+      },
+      "delta_half": {
+       "radial": 29.81950268240539,
+       "circumferential": 16.223663968424795,
+       "isotropic": 12.903225806451612
+      },
+      "max_bridge_distance_um": 10.0,
+      "max_bridge_distance_source": "user",
+      "smallest_hydride_length_um": 56.97870444723424,
+      "path_continuity": {
+       "radial": 0.6219877617144234,
+       "radial_best": 0.6535598734661694,
+       "radial_best_ligament": 286.0924915892279,
+       "circumferential": 0.8905963122047502,
+       "circumferential_best": 0.9244663989443876,
+       "circumferential_best_ligament": 83.33061793877238
+      },
+      "topology": {
+       "endpoints": 296,
+       "junctions": 147,
+       "junction_degree_histogram": {
+        "3": 119,
+        "4": 25,
+        "5": 3
+       },
+       "branching_excess": 178,
+       "loops": 14,
+       "skeleton_components": 73,
+       "network_closure": 0.08641975308641975,
+       "identity_residual": 0,
+       "skeleton_length": 16424.048154877455,
+       "density_unit": "per_mm2",
+       "endpoints_density": 324.8994883040936,
+       "junctions_density": 161.35211074561406,
+       "loops_density": 15.36686769005848
+      },
+      "area_fraction_cleaned": 0.1329952485380117,
+      "n_components": 73,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "largest_cluster_touches_border"
+      ]
+     },
+     "auto_min": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.08044145635317168,
+       "circumferential": 0.23508855304445492,
+       "isotropic": 0.31958213452580764
+      },
+      "C_at_dmax": {
+       "radial": 0.12930966274158048,
+       "circumferential": 0.3236617441538882,
+       "isotropic": 0.44267543344491544
+      },
+      "delta_half": {
+       "radial": 29.81950268240539,
+       "circumferential": 16.223663968424795,
+       "isotropic": 12.903225806451612
+      },
+      "max_bridge_distance_um": 11.39574088944685,
+      "max_bridge_distance_source": "auto:min",
+      "smallest_hydride_length_um": 56.97870444723424,
+      "path_continuity": {
+       "radial": 0.6219877617144234,
+       "radial_best": 0.6535598734661694,
+       "radial_best_ligament": 286.0924915892279,
+       "circumferential": 0.8905963122047502,
+       "circumferential_best": 0.9244663989443876,
+       "circumferential_best_ligament": 83.33061793877238
+      },
+      "topology": {
+       "endpoints": 296,
+       "junctions": 147,
+       "junction_degree_histogram": {
+        "3": 119,
+        "4": 25,
+        "5": 3
+       },
+       "branching_excess": 178,
+       "loops": 14,
+       "skeleton_components": 73,
+       "network_closure": 0.08641975308641975,
+       "identity_residual": 0,
+       "skeleton_length": 16424.048154877455,
+       "density_unit": "per_mm2",
+       "endpoints_density": 324.8994883040936,
+       "junctions_density": 161.35211074561406,
+       "loops_density": 15.36686769005848
+      },
+      "area_fraction_cleaned": 0.1329952485380117,
+      "n_components": 73,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "largest_cluster_touches_border"
+      ]
+     },
+     "area_fraction": 0.13290895061728394
+    },
+    "hydride_ml": {
+     "fixed_10um": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.038558306946861166,
+       "circumferential": 0.1558394192724003,
+       "isotropic": 0.2104384703375415
+      },
+      "C_at_dmax": {
+       "radial": 0.047860913067438185,
+       "circumferential": 0.1939144816569833,
+       "isotropic": 0.26217042490263576
+      },
+      "delta_half": {
+       "radial": 49.507149029954036,
+       "circumferential": 31.852447958799775,
+       "isotropic": 25.806451612903224
+      },
+      "max_bridge_distance_um": 10.0,
+      "max_bridge_distance_source": "user",
+      "smallest_hydride_length_um": 5.1918571233829995,
+      "path_continuity": {
+       "radial": 0.35555021154106464,
+       "radial_best": 0.3923038045330016,
+       "radial_best_ligament": 501.8394388372632,
+       "circumferential": 0.8164324815702131,
+       "circumferential_best": 0.8763736642947701,
+       "circumferential_best_ligament": 136.38776390706005
+      },
+      "topology": {
+       "endpoints": 306,
+       "junctions": 51,
+       "junction_degree_histogram": {
+        "3": 47,
+        "4": 3,
+        "5": 1
+       },
+       "branching_excess": 56,
+       "loops": 6,
+       "skeleton_components": 131,
+       "network_closure": 0.03773584905660377,
+       "identity_residual": 0,
+       "skeleton_length": 11885.773552628945,
+       "density_unit": "per_mm2",
+       "endpoints_density": 335.8758223684211,
+       "junctions_density": 55.97930372807018,
+       "loops_density": 6.5858004385964914
+      },
+      "area_fraction_cleaned": 0.07369334795321637,
+      "n_components": 131,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "largest_cluster_touches_border",
+       "hydride_thickness_below_3_px_topology_unreliable"
+      ]
+     },
+     "auto_min": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.03065407510734541,
+       "circumferential": 0.12110128059849438,
+       "isotropic": 0.16345669435472202
+      },
+      "C_at_dmax": {
+       "radial": 0.03452651058529082,
+       "circumferential": 0.1429733319314681,
+       "isotropic": 0.19287545628692693
+      },
+      "delta_half": {
+       "radial": 49.507149029954036,
+       "circumferential": 31.852447958799775,
+       "isotropic": 25.806451612903224
+      },
+      "max_bridge_distance_um": 2.150537634408602,
+      "max_bridge_distance_source": "auto:min",
+      "smallest_hydride_length_um": 5.1918571233829995,
+      "path_continuity": {
+       "radial": 0.35555021154106464,
+       "radial_best": 0.3923038045330016,
+       "radial_best_ligament": 501.8394388372632,
+       "circumferential": 0.8164324815702131,
+       "circumferential_best": 0.8763736642947701,
+       "circumferential_best_ligament": 136.38776390706005
+      },
+      "topology": {
+       "endpoints": 306,
+       "junctions": 51,
+       "junction_degree_histogram": {
+        "3": 47,
+        "4": 3,
+        "5": 1
+       },
+       "branching_excess": 56,
+       "loops": 6,
+       "skeleton_components": 131,
+       "network_closure": 0.03773584905660377,
+       "identity_residual": 0,
+       "skeleton_length": 11885.773552628945,
+       "density_unit": "per_mm2",
+       "endpoints_density": 335.8758223684211,
+       "junctions_density": 55.97930372807018,
+       "loops_density": 6.5858004385964914
+      },
+      "area_fraction_cleaned": 0.07369334795321637,
+      "n_components": 131,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "auto_max_bridge_distance_floored_to_one_pixel",
+       "largest_cluster_touches_border",
+       "hydride_thickness_below_3_px_topology_unreliable"
+      ]
+     },
+     "area_fraction": 0.07375934048083171
+    }
+   }
+  },
+  "200ppm": {
+   "report_mask_area_fraction": 0.1370673336938886,
+   "report_mask": {
+    "auto_min": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.046411510626734175,
+      "circumferential": 0.1939147763570659,
+      "isotropic": 0.2603406368322742
+     },
+     "C_at_dmax": {
+      "radial": 0.0505687615015685,
+      "circumferential": 0.21192802044299516,
+      "isotropic": 0.28478880946586244
+     },
+     "delta_half": {
+      "radial": 24.194010511052095,
+      "circumferential": 12.828207051762941,
+      "isotropic": 9.621155288822205
+     },
+     "max_bridge_distance_um": 3.2070517629407354,
+     "max_bridge_distance_source": "auto:min",
+     "smallest_hydride_length_um": 9.621155288822205,
+     "path_continuity": {
+      "radial": 0.5816482369693955,
+      "radial_best": 0.5944673759768624,
+      "radial_best_ligament": 335.54554213527354,
+      "circumferential": 0.9261357351039624,
+      "circumferential_best": 0.9650129828315909,
+      "circumferential_best_ligament": 38.59858023095458
+     },
+     "topology": {
+      "endpoints": 349,
+      "junctions": 111,
+      "junction_degree_histogram": {
+       "3": 87,
+       "4": 18,
+       "5": 6
+      },
+      "branching_excess": 141,
+      "loops": 26,
+      "skeleton_components": 130,
+      "network_closure": 0.12967581047381546,
+      "identity_residual": 0,
+      "skeleton_length": 18534.98951885838,
+      "density_unit": "per_mm2",
+      "endpoints_density": 382.3273257868519,
+      "junctions_density": 121.59980848808182,
+      "loops_density": 28.48283802423538
+     },
+     "area_fraction_cleaned": 0.13740535424553812,
+     "n_components": 130,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "auto_max_bridge_distance_floored_to_one_pixel",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    },
+    "auto_median": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.1028938330525595,
+      "circumferential": 0.3889819169717843,
+      "isotropic": 0.48142628789399067
+     },
+     "C_at_dmax": {
+      "radial": 0.19923275201744273,
+      "circumferential": 0.6938230021835101,
+      "isotropic": 0.7683259355790218
+     },
+     "delta_half": {
+      "radial": 24.194010511052095,
+      "circumferential": 12.828207051762941,
+      "isotropic": 9.621155288822205
+     },
+     "max_bridge_distance_um": 17.471504084890775,
+     "max_bridge_distance_source": "auto:percentile",
+     "smallest_hydride_length_um": 9.621155288822205,
+     "path_continuity": {
+      "radial": 0.5816482369693955,
+      "radial_best": 0.5944673759768624,
+      "radial_best_ligament": 335.54554213527354,
+      "circumferential": 0.9261357351039624,
+      "circumferential_best": 0.9650129828315909,
+      "circumferential_best_ligament": 38.59858023095458
+     },
+     "topology": {
+      "endpoints": 349,
+      "junctions": 111,
+      "junction_degree_histogram": {
+       "3": 87,
+       "4": 18,
+       "5": 6
+      },
+      "branching_excess": 141,
+      "loops": 26,
+      "skeleton_components": 130,
+      "network_closure": 0.12967581047381546,
+      "identity_residual": 0,
+      "skeleton_length": 18534.98951885838,
+      "density_unit": "per_mm2",
+      "endpoints_density": 382.3273257868519,
+      "junctions_density": 121.59980848808182,
+      "loops_density": 28.48283802423538
+     },
+     "area_fraction_cleaned": 0.13740535424553812,
+     "n_components": 130,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "largest_cluster_touches_border",
+      "cluster_extent_capped_at_reference_length",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    },
+    "fixed_10um": {
+     "status": "ok",
+     "HCI": {
+      "radial": 0.06102001636249318,
+      "circumferential": 0.26102185122687943,
+      "isotropic": 0.3470756336001001
+     },
+     "C_at_dmax": {
+      "radial": 0.09104252282832911,
+      "circumferential": 0.423443176292228,
+      "isotropic": 0.5287314385223165
+     },
+     "delta_half": {
+      "radial": 24.194010511052095,
+      "circumferential": 12.828207051762941,
+      "isotropic": 9.621155288822205
+     },
+     "max_bridge_distance_um": 10.0,
+     "max_bridge_distance_source": "user",
+     "smallest_hydride_length_um": 9.621155288822205,
+     "path_continuity": {
+      "radial": 0.5816482369693955,
+      "radial_best": 0.5944673759768624,
+      "radial_best_ligament": 335.54554213527354,
+      "circumferential": 0.9261357351039624,
+      "circumferential_best": 0.9650129828315909,
+      "circumferential_best_ligament": 38.59858023095458
+     },
+     "topology": {
+      "endpoints": 349,
+      "junctions": 111,
+      "junction_degree_histogram": {
+       "3": 87,
+       "4": 18,
+       "5": 6
+      },
+      "branching_excess": 141,
+      "loops": 26,
+      "skeleton_components": 130,
+      "network_closure": 0.12967581047381546,
+      "identity_residual": 0,
+      "skeleton_length": 18534.98951885838,
+      "density_unit": "per_mm2",
+      "endpoints_density": 382.3273257868519,
+      "junctions_density": 121.59980848808182,
+      "loops_density": 28.48283802423538
+     },
+     "area_fraction_cleaned": 0.13740535424553812,
+     "n_components": 130,
+     "quality_flags": [
+      "cleaning_thresholds_raised_to_resolution_floor",
+      "largest_cluster_touches_border",
+      "cluster_extent_capped_at_reference_length",
+      "hydride_thickness_below_3_px_topology_unreliable"
+     ]
+    }
+   },
+   "prototype_on_report_mask": {
+    "status": "ok",
+    "workbook_hci": 6.9704,
+    "compute_hci": 4.6464,
+    "n_clusters": 35,
+    "mean_primary_length_px": 109.6437142857143,
+    "sum_junctions": 64,
+    "seconds": 11.39
+   },
+   "resegmented": {
+    "hydride_conventional": {
+     "fixed_10um": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.07470468285643202,
+       "circumferential": 0.28278667336078034,
+       "isotropic": 0.3775234541314918
+      },
+      "C_at_dmax": {
+       "radial": 0.1769639510415768,
+       "circumferential": 0.5285421075560773,
+       "isotropic": 0.6546791487321616
+      },
+      "delta_half": {
+       "radial": 15.053763440860214,
+       "circumferential": 9.430461950826889,
+       "isotropic": 8.602150537634408
+      },
+      "max_bridge_distance_um": 10.0,
+      "max_bridge_distance_source": "user",
+      "smallest_hydride_length_um": 77.78711997879128,
+      "path_continuity": {
+       "radial": 0.7078681576981932,
+       "radial_best": 0.7212840835036949,
+       "radial_best_ligament": 230.16540200985193,
+       "circumferential": 0.9424136678344195,
+       "circumferential_best": 0.9667230646942193,
+       "circumferential_best_ligament": 36.71197378895801
+      },
+      "topology": {
+       "endpoints": 346,
+       "junctions": 209,
+       "junction_degree_histogram": {
+        "3": 160,
+        "4": 37,
+        "5": 7,
+        "6": 4,
+        "7": 1
+       },
+       "branching_excess": 276,
+       "loops": 44,
+       "skeleton_components": 79,
+       "network_closure": 0.20276497695852536,
+       "identity_residual": 0,
+       "skeleton_length": 22105.37602435101,
+       "density_unit": "per_mm2",
+       "endpoints_density": 379.78115862573105,
+       "junctions_density": 229.40538194444446,
+       "loops_density": 48.29586988304094
+      },
+      "area_fraction_cleaned": 0.17650970597790774,
+      "n_components": 79,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "largest_cluster_touches_border",
+       "cluster_extent_capped_at_reference_length"
+      ]
+     },
+     "auto_min": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.18878050776919889,
+       "circumferential": 0.44139541530641385,
+       "isotropic": 0.5303169198130278
+      },
+      "C_at_dmax": {
+       "radial": 0.5080953027187408,
+       "circumferential": 0.8567662113175694,
+       "isotropic": 0.901280348835141
+      },
+      "delta_half": {
+       "radial": 15.053763440860214,
+       "circumferential": 9.430461950826889,
+       "isotropic": 8.602150537634408
+      },
+      "max_bridge_distance_um": 15.557423995758256,
+      "max_bridge_distance_source": "auto:min",
+      "smallest_hydride_length_um": 77.78711997879128,
+      "path_continuity": {
+       "radial": 0.7078681576981932,
+       "radial_best": 0.7212840835036949,
+       "radial_best_ligament": 230.16540200985193,
+       "circumferential": 0.9424136678344195,
+       "circumferential_best": 0.9667230646942193,
+       "circumferential_best_ligament": 36.71197378895801
+      },
+      "topology": {
+       "endpoints": 346,
+       "junctions": 209,
+       "junction_degree_histogram": {
+        "3": 160,
+        "4": 37,
+        "5": 7,
+        "6": 4,
+        "7": 1
+       },
+       "branching_excess": 276,
+       "loops": 44,
+       "skeleton_components": 79,
+       "network_closure": 0.20276497695852536,
+       "identity_residual": 0,
+       "skeleton_length": 22105.37602435101,
+       "density_unit": "per_mm2",
+       "endpoints_density": 379.78115862573105,
+       "junctions_density": 229.40538194444446,
+       "loops_density": 48.29586988304094
+      },
+      "area_fraction_cleaned": 0.17650970597790774,
+      "n_components": 79,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "largest_cluster_touches_border",
+       "cluster_extent_capped_at_reference_length"
+      ]
+     },
+     "area_fraction": 0.17642848440545808
+    },
+    "hydride_ml": {
+     "fixed_10um": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.048830857751870904,
+       "circumferential": 0.22118808001558987,
+       "isotropic": 0.29803098322521726
+      },
+      "C_at_dmax": {
+       "radial": 0.07710050580741849,
+       "circumferential": 0.35820476446332283,
+       "isotropic": 0.48357864931251
+      },
+      "delta_half": {
+       "radial": 21.893204059137524,
+       "circumferential": 12.903225806451612,
+       "isotropic": 10.75268817204301
+      },
+      "max_bridge_distance_um": 10.0,
+      "max_bridge_distance_source": "user",
+      "smallest_hydride_length_um": 6.959285973117827,
+      "path_continuity": {
+       "radial": 0.5542462570678338,
+       "radial_best": 0.573216728357161,
+       "radial_best_ligament": 352.44037916311873,
+       "circumferential": 0.9085399594436565,
+       "circumferential_best": 0.9376505236369619,
+       "circumferential_best_ligament": 68.78555134244853
+      },
+      "topology": {
+       "endpoints": 568,
+       "junctions": 158,
+       "junction_degree_histogram": {
+        "3": 125,
+        "4": 23,
+        "5": 7,
+        "6": 3
+       },
+       "branching_excess": 204,
+       "loops": 40,
+       "skeleton_components": 221,
+       "network_closure": 0.1238390092879257,
+       "identity_residual": 2,
+       "skeleton_length": 21930.287195096327,
+       "density_unit": "per_mm2",
+       "endpoints_density": 623.4557748538012,
+       "junctions_density": 173.4260782163743,
+       "loops_density": 43.90533625730995
+      },
+      "area_fraction_cleaned": 0.12193896198830409,
+      "n_components": 221,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "largest_cluster_touches_border",
+       "hydride_thickness_below_3_px_topology_unreliable",
+       "topology_identity_residual_nonzero"
+      ]
+     },
+     "auto_min": {
+      "status": "ok",
+      "HCI": {
+       "radial": 0.03205994667860067,
+       "circumferential": 0.15244003926713573,
+       "isotropic": 0.20469931546753617
+      },
+      "C_at_dmax": {
+       "radial": 0.035682753285319786,
+       "circumferential": 0.16799749536894007,
+       "isotropic": 0.225610727367396
+      },
+      "delta_half": {
+       "radial": 21.893204059137524,
+       "circumferential": 12.903225806451612,
+       "isotropic": 10.75268817204301
+      },
+      "max_bridge_distance_um": 2.150537634408602,
+      "max_bridge_distance_source": "auto:min",
+      "smallest_hydride_length_um": 6.959285973117827,
+      "path_continuity": {
+       "radial": 0.5542462570678338,
+       "radial_best": 0.573216728357161,
+       "radial_best_ligament": 352.44037916311873,
+       "circumferential": 0.9085399594436565,
+       "circumferential_best": 0.9376505236369619,
+       "circumferential_best_ligament": 68.78555134244853
+      },
+      "topology": {
+       "endpoints": 568,
+       "junctions": 158,
+       "junction_degree_histogram": {
+        "3": 125,
+        "4": 23,
+        "5": 7,
+        "6": 3
+       },
+       "branching_excess": 204,
+       "loops": 40,
+       "skeleton_components": 221,
+       "network_closure": 0.1238390092879257,
+       "identity_residual": 2,
+       "skeleton_length": 21930.287195096327,
+       "density_unit": "per_mm2",
+       "endpoints_density": 623.4557748538012,
+       "junctions_density": 173.4260782163743,
+       "loops_density": 43.90533625730995
+      },
+      "area_fraction_cleaned": 0.12193896198830409,
+      "n_components": 221,
+      "quality_flags": [
+       "cleaning_thresholds_raised_to_resolution_floor",
+       "auto_max_bridge_distance_floored_to_one_pixel",
+       "hydride_thickness_below_3_px_topology_unreliable",
+       "topology_identity_residual_nonzero"
+      ]
+     },
+     "area_fraction": 0.12188312215724496
+    }
+   }
+  }
+ }
+}

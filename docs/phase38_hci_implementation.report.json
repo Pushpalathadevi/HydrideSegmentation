@@ -1,0 +1,86 @@
+{
+  "schema_version": "microseg.phase_closeout.v1",
+  "phase": 38,
+  "title": "HCI implementation, documentation, review deck and release 2.0.0",
+  "status": "complete",
+  "release": "2.0.0",
+  "formulation_id": "hci.v1",
+  "owner_decisions": {
+    "adopt_v1": true,
+    "name": "Hydride Connectivity Index",
+    "delta_max_default": "auto: 1/5 of smallest accepted hydride (editable)",
+    "field_validation": "out of scope; owner's team",
+    "web_default": "enabled"
+  },
+  "delivered": {
+    "library": "src/microseg/evaluation/continuity/",
+    "cli": "scripts/microseg_cli.py hci + configs/hci.default.yml",
+    "web": [
+      "hydride_segmentation/web/segmentation.py",
+      "routes.py",
+      "reporting.py",
+      "templates/index.html",
+      "templates/help.html",
+      "static/js/app.js",
+      "static/img/hci_concept.svg",
+      "static/img/hci_algorithm_flow.svg"
+    ],
+    "docs": [
+      "docs/hci_theory.md",
+      "docs/hci_user_guide.md",
+      "docs/hci_specification.md",
+      "docs/hci_synthetic_benchmark.md",
+      "docs/hci_implementation_plan.md",
+      "docs/releases/v2.0.0.md"
+    ],
+    "evidence": [
+      "docs/hci_evidence/",
+      "docs/hci_evidence/delta_max_rules/",
+      "docs/hci_evidence/real_report_images/"
+    ],
+    "deck": "docs/presentations/hci_review/hci_v1_review.pptx",
+    "tests": [
+      "tests/test_phase38_hci_core.py",
+      "tests/test_phase38_hci_interfaces.py"
+    ]
+  },
+  "verification": {
+    "full_repository_tests": {
+      "passed": 437,
+      "skipped": 1,
+      "failed": 0
+    },
+    "phase_gate": "pass (strict)",
+    "deck_validation": "passed; rendered through PowerPoint; all text >= 18 pt Arial",
+    "web_live_check": "HCI panel, views, Help KaTeX (63 formulas, 0 errors)",
+    "sphinx_build": "no HCI warnings"
+  },
+  "key_findings": {
+    "fixed_10um_axioms": "all ordering families pass in every replicate",
+    "auto_min_comparability": "arrangement 3/5, orientation 1/3; 2-px breaks -61 %",
+    "real_report_images_fixed_10um": {
+      "HCI_circumferential": [
+        0.155,
+        0.182,
+        0.261
+      ],
+      "HCI_radial": [
+        0.038,
+        0.046,
+        0.061
+      ],
+      "delta_half_radial_um": [
+        88,
+        51,
+        24
+      ]
+    }
+  },
+  "remaining_gaps": [
+    "Field-data validation and property correlation (owner's team)",
+    "Desktop (Qt) HCI card",
+    "2048^2 runtime 8.4 s (path continuity)",
+    "Auto delta_max not comparable across images: fixed value required for comparisons",
+    "Report images are figure resolution; original acquisitions needed"
+  ]
+}

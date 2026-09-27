@@ -13,7 +13,11 @@
     fn_angle_threshold_png_b64: "Orientation histogram with the Fn threshold marked. Shows how sensitive Fn is to where you set the threshold.",
     orientation_map_png_b64: "Detected features coloured by their measured orientation angle.",
     size_histogram_png_b64: "Distribution of feature sizes across the image.",
-    angle_histogram_png_b64: "Distribution of feature orientation angles across the image."
+    angle_histogram_png_b64: "Distribution of feature orientation angles across the image.",
+    hci_clusters_png_b64: "Hydride clusters linked at the bridging range, one colour per cluster. Red lines are synthetic bridges across matrix gaps, not hydride.",
+    hci_curve_png_b64: "Connectivity C(\u03b4) against the matrix gap \u03b4 treated as bridged. The shaded area divided by \u03b4max is the radial HCI; dots mark \u03b4\u00bd.",
+    hci_topology_png_b64: "Skeleton of the hydrides with free ends (red) and junctions (navy) used for the topology descriptors.",
+    hci_path_png_b64: "Weakest edge-to-edge radial path: the route that crosses the least matrix, i.e. an RHCP-type crack path."
   };
 
   var METRIC_LABELS = {
@@ -780,6 +784,18 @@
 
     modelSelect.addEventListener("change", onModelChanged);
 
+    function syncHciControls() {
+      var on = $("chk-hci").checked;
+      var mode = $("hci-bridge-mode");
+      mode.disabled = !on;
+      $("hci-pixel-size").disabled = !on;
+      $("hci-wall").disabled = !on;
+      $("hci-max-bridge").disabled = !on || mode.value !== "fixed";
+    }
+    $("chk-hci").addEventListener("change", syncHciControls);
+    $("hci-bridge-mode").addEventListener("change", syncHciControls);
+    syncHciControls();
+
     $("reset-params").addEventListener("click", function () {
       for (var i = 0; i < allControls.length; i++) {
         var control = allControls[i];
@@ -949,6 +965,48 @@
       $("fn-context").textContent = context;
     }
 
+    function fmt3(value) {
+      return (value === null || value === undefined) ? "n/a" : Number(value).toFixed(3);
+    }
+
+    function renderHciPanel(payload) {
+      var panel = $("hci-panel");
+      var hci = payload.hci || {};
+      if (!hci.enabled) {
+        panel.setAttribute("hidden", "");
+        return;
+      }
+      panel.removeAttribute("hidden");
+      if (hci.status !== "ok") {
+        $("hci-radial").textContent = "n/a";
+        $("hci-circ").textContent = "n/a";
+        $("hci-iso").textContent = "n/a";
+        $("hci-radial-detail").textContent = "";
+        $("hci-context").textContent = "HCI not applicable: " + (hci.status_reason || hci.status) + ".";
+        return;
+      }
+      var spec = hci.specimen || {};
+      var unit = hci.unit === "um" ? "\u00b5m" : "px";
+      var h = spec.HCI || {};
+      $("hci-radial").textContent = fmt3(h.radial);
+      $("hci-circ").textContent = fmt3(h.circumferential);
+      $("hci-iso").textContent = fmt3(h.isotropic);
+      var half = (spec.critical_linking_distance || {}).radial;
+      $("hci-radial-detail").textContent = half === null || half === undefined
+        ? "\u03b4\u00bd not reached"
+        : "\u03b4\u00bd = " + Number(half).toFixed(2) + " " + unit;
+      var topo = spec.topology || {};
+      var parts = [
+        "\u03b4max = " + Number(spec.max_bridge_distance).toFixed(2) + " " + unit + " (" + (spec.max_bridge_distance_source || "") + ")",
+        spec.n_components + " hydride components, " + spec.n_clusters_at_report_distance + " clusters at \u03b4max",
+        "path continuity \u03a0 radial " + fmt3((spec.path_continuity || {}).radial),
+        "closure \u03ba " + fmt3(topo.network_closure) + " (" + topo.endpoints + " free ends, " + topo.junctions + " junctions, " + topo.loops + " loops)"
+      ];
+      if (hci.unit !== "um") { parts.push("lengths in pixels: enter the pixel size to compare magnifications"); }
+      if ((hci.quality_flags || []).length) { parts.push("flags: " + hci.quality_flags.join(", ").replace(/_/g, " ")); }
+      $("hci-context").textContent = parts.join("  |  ") + ".";
+    }
+
     function renderMetricGroups(payload) {
       metricGroups.innerHTML = "";
       var groups = payload.metric_groups || [];
@@ -1007,6 +1065,7 @@
       }
 
       renderFnPanel(payload);
+      renderHciPanel(payload);
       renderMetricGroups(payload);
 
       var image = (payload.manifest && payload.manifest.image) || {};
@@ -1072,6 +1131,7 @@
         model: state.result.model_display_name,
         model_id: state.result.model_id,
         fn: state.result.fn,
+        hci: state.result.hci,
         metrics: state.result.metrics,
         quantification: state.result.manifest && state.result.manifest.quantification,
         image: state.result.manifest && state.result.manifest.image,
@@ -1133,6 +1193,11 @@
         if (qInput) { form.append(quantControls[q].key, qInput.value); }
       }
       form.append("include_fn_classification", $("chk-fn-classification").checked ? "true" : "false");
+      form.append("hci_enabled", $("chk-hci").checked ? "true" : "false");
+      form.append("hci_bridge_mode", $("hci-bridge-mode").value);
+      if ($("hci-bridge-mode").value === "fixed") { form.append("hci_max_bridge_distance", $("hci-max-bridge").value); }
+      if ($("hci-pixel-size").value) { form.append("hci_pixel_size_um", $("hci-pixel-size").value); }
+      if ($("hci-wall").value) { form.append("hci_reference_length_radial_um", $("hci-wall").value); }
       form.append("rotation_deg", String(currentRotation()));
 
       var started = Date.now();

@@ -6,6 +6,31 @@ release, v1.0.0.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-27
+
+### Added
+
+- **Hydride Connectivity Index (HCI), formulation `hci.v1`.** It measures how far segmented
+  hydrides link into connected paths, independently of the amount of hydride. HCI is the mean over
+  bridgeable matrix gaps (0 … δ_max) of the area-weighted fraction of the field covered by each
+  single-linkage cluster. It is reported radially, circumferentially and isotropically, with the
+  critical linking distance δ½, an RHCP-type path continuity and skeleton topology (network
+  closure κ). δ_max defaults to 1/5 of the smallest accepted hydride; median-based and fixed
+  modes are offered, and a fixed value is required to compare specimens.
+- Web UI: **5. Connectivity (HCI)**, on by default, with a results panel, four HCI views, an HCI
+  page in the PDF report and a *Connectivity* XLSX sheet. The Help page carries the full theory in
+  KaTeX.
+- CLI `hci` subcommand and `configs/hci.default.yml`; Python `analyze_continuity()` in
+  `src/microseg/evaluation/continuity/`.
+- A constant-area-fraction synthetic benchmark (`test_data/hci_synthetic_v1`, 203 masks with exact
+  ground truth), evidence scripts, the real report images, Sphinx theory and user-guide pages, and
+  the review deck `docs/presentations/hci_review/hci_v1_review.pptx`.
+
+### Changed
+
+- Web results include an `hci` block and `timing.hci_seconds`. The detailed report has an extra
+  page. Submit `hci_enabled=false` to reproduce 1.2.0 output exactly.
+
 ## [1.2.0] - 2026-09-20
 
 ### Added

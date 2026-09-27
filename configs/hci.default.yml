@@ -1,0 +1,24 @@
+# Hydride Connectivity Index (HCI) — schema microseg.hci_result.v1, formulation hci.v1.
+# Theory and parameters: docs/hci_specification.md and docs/hci_theory.md.
+# Override with --set, e.g. --set hci.max_bridge_distance=10 --set run.pixel_size_um=0.5
+run:
+  mask: null                  # mask file or folder (0 = matrix, 1 = hydride)
+  output_dir: outputs/hci
+  pixel_size_um: null         # null = report lengths in pixels
+hci:
+  foreground_class_indices: [1]
+  min_feature_area_um2: 5.0   # used when the pixel size is known
+  min_feature_area_px: 20.0   # used when uncalibrated
+  max_hole_area_um2: 5.0
+  max_hole_area_px: 20.0
+  max_bridge_distance: auto   # δ_max: 'auto' or a length in µm (px when uncalibrated)
+  auto_bridge_fraction: 0.2   # auto δ_max = 1/5 of the reference hydride length
+  auto_size_statistic: min    # 'min' (smallest accepted hydride) or 'percentile'
+  auto_size_percentile: 10.0  # used when auto_size_statistic = percentile
+  report_distance: auto       # δ0 for the cluster table; 'auto' = δ_max
+  reference_length_radial_um: null          # e.g. wall thickness; null = field height
+  reference_length_circumferential_um: null  # null = field width
+  path_enabled: true
+  path_hydride_cost: 0.0      # 0 = pure matrix ligament; 0.02 = RHCP toughness ratio
+  topology_enabled: true
+  curve_points: 41

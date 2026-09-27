@@ -2,6 +2,13 @@
 
 ## Status
 
+> **Update (Phase 37, 2026-09-27).** The formulation decisions requested below are answered by a
+> proposed replacement, `hci.v1-candidate`, in [`hci_specification.md`](hci_specification.md). It was
+> validated against the constant-area-fraction benchmark in
+> [`hci_synthetic_benchmark.md`](hci_synthetic_benchmark.md), and its implementation is planned in
+> [`hci_implementation_plan.md`](hci_implementation_plan.md). This page remains the audit record of the
+> intern prototype. HCI is still not a production metric until the owner signs off the specification.
+
 The Hydride Continuity Index (HCI) is a promising advanced morphology descriptor,
 but it is **not approved for production use** in MicroSeg. Development is on hold
 until the scientific decisions in this document are resolved.

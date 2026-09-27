@@ -19,7 +19,12 @@ Start here:
 - [`results_analysis.md`](results_analysis.md) for output locations and report inspection
 - [`algorithms.md`](algorithms.md) for the mathematics behind the metrics and trainers
 - [`conventional_segmentation_pipeline.md`](conventional_segmentation_pipeline.md) for the classical algorithm flow sheet and parameter guide
-- [`hydride_connectivity_index.md`](hydride_connectivity_index.md) for the deferred HCI candidate formulation, prototype audit, scientific decisions, and promotion gates
+- [`hci_user_guide.md`](hci_user_guide.md) for measuring hydride connectivity (HCI) in the browser, the CLI and Python
+- [`hci_theory.md`](hci_theory.md) for the HCI theory, proofs, algorithm and complexity, with typeset mathematics
+- [`hci_specification.md`](hci_specification.md) for the Hydride Connectivity Index v1 candidate: formulation, algorithm, parameters, output contract and synthetic-benchmark evidence
+- [`hci_synthetic_benchmark.md`](hci_synthetic_benchmark.md) for the constant-area-fraction synthetic masks used to validate HCI
+- [`hci_implementation_plan.md`](hci_implementation_plan.md) for the Phase 38–40 implementation, validation and manuscript plan
+- [`hydride_connectivity_index.md`](hydride_connectivity_index.md) for the intern HCI prototype audit and original development hold
 - [`phase33_interactive_conventional_gui.md`](phase33_interactive_conventional_gui.md) for the side-by-side live conventional-segmentation GUI closeout
 - [`model_selection_decision_tree.md`](model_selection_decision_tree.md) for a simple model choice guide
 - [`worked_example_conventional_vs_ml.md`](worked_example_conventional_vs_ml.md) for a side-by-side comparison workflow
@@ -31,6 +36,8 @@ Start here:
 - [`releases/v1.0.0.closeout.md`](releases/v1.0.0.closeout.md) for the human-readable release stocktake, final installer checksum, validation results, and remaining gaps
 - [`phase35_intranet_web_app.md`](phase35_intranet_web_app.md) for the intranet web application closeout
 - [`phase36_memory_safe_interfaces_and_hci_spec.md`](phase36_memory_safe_interfaces_and_hci_spec.md) for memory-safe interfaces and the HCI candidate-spec closeout
+- [`phase37_hci_specification_and_benchmark.md`](phase37_hci_specification_and_benchmark.md) for the HCI specification and synthetic-benchmark closeout
+- [`phase38_hci_progress.md`](phase38_hci_progress.md) for the HCI implementation progress record and the 2.0.0 closeout
 - [`frozen_checkpoint_registry.md`](frozen_checkpoint_registry.md) for the registry metadata the installer writes when adding a new trained model
 - [`developer_guide.md`](developer_guide.md) for extension and contribution guidance
 

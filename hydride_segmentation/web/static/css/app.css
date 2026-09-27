@@ -920,3 +920,10 @@ kbd {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+
+/* HCI help settings table and result panel -------------------------------- */
+
+.settings-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 10px 0 16px; }
+.settings-table th, .settings-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.settings-table th { color: var(--text-muted); font-weight: 600; }
+#hci .diagram { margin: 12px 0 18px; }

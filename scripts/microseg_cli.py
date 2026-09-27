@@ -552,6 +552,36 @@ def _train(args: argparse.Namespace) -> int:
     return 0
 
 
+def _hci(args: argparse.Namespace) -> int:
+    """Hydride Connectivity Index for one mask or a folder of masks."""
+
+    from src.microseg.evaluation.continuity import ContinuityAnalysisConfig
+    from src.microseg.evaluation.continuity.batch import collect_masks, run_hci_batch
+
+    cfg = resolve_config(args.config, args.set)
+    hci_cfg = dict(cfg.get("hci", {}))
+    if args.max_bridge_distance is not None:
+        hci_cfg["max_bridge_distance"] = args.max_bridge_distance
+    run = cfg.get("run", {})
+    mask_path = args.mask or run.get("mask")
+    if not mask_path:
+        print("error: --mask (file or folder) is required", file=sys.stderr)
+        return 2
+    output_dir = args.output_dir or run.get("output_dir", "outputs/hci")
+    pixel = args.pixel_size_um if args.pixel_size_um is not None else run.get("pixel_size_um")
+    summary = run_hci_batch(
+        collect_masks(mask_path),
+        output_dir,
+        ContinuityAnalysisConfig.from_mapping(hci_cfg),
+        pixel_size_um=None if pixel in (None, "", "none") else float(pixel),
+        mask_source=args.mask_source,
+        write_overlays=args.overlays,
+        log=print,
+    )
+    print(f"HCI report: {summary.report_path} (ok={summary.n_ok}, not_applicable={summary.n_not_applicable}, failed={summary.n_failed})")
+    return 1 if summary.n_failed else 0
+
+
 def _evaluate(args: argparse.Namespace) -> int:
     cfg = resolve_config(args.config, args.set)
     dataset_dir = args.dataset_dir or cfg.get("dataset_dir")
@@ -1763,6 +1793,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default="off",
     )
     ev.set_defaults(handler=_evaluate)
+
+    hci = sub.add_parser("hci", help="Hydride Connectivity Index of segmented masks (see docs/hci_specification.md)")
+    hci.add_argument("--config", type=str, default="configs/hci.default.yml", help="YAML config path")
+    hci.add_argument("--set", action="append", default=[], help="Override key=value, e.g. hci.max_bridge_distance=10")
+    hci.add_argument("--mask", type=str, help="Mask file or folder of masks (0 = matrix, hydride class index 1)")
+    hci.add_argument("--output-dir", type=str, help="Output folder (default outputs/hci)")
+    hci.add_argument("--pixel-size-um", type=float, default=None, help="Pixel size in µm; omit to report lengths in pixels")
+    hci.add_argument("--max-bridge-distance", type=str, default=None, help="δ_max in µm (px if uncalibrated) or 'auto'")
+    hci.add_argument("--mask-source", choices=["predicted", "corrected"], default="predicted")
+    hci.add_argument("--overlays", action=argparse.BooleanOptionalAction, default=True)
+    hci.set_defaults(handler=_hci)
 
     models = sub.add_parser("models", help="List available GUI/CLI models and frozen-checkpoint metadata")
     models.add_argument("--details", action="store_true", help="Show long descriptions and application notes")

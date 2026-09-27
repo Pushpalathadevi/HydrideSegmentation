@@ -14,6 +14,7 @@ import logging
 import math
 import threading
 import time
+import base64
 import hashlib
 import io
 from collections.abc import Callable
@@ -31,6 +32,12 @@ from src.microseg.evaluation.hydride_statistics import (
     render_fn_debug_visualizations,
     render_hydride_visualizations,
     statistics_to_json,
+)
+from src.microseg.evaluation.continuity import (
+    Calibration,
+    ContinuityAnalysisConfig,
+    ContinuityAnalysisResult,
+    analyze_continuity,
 )
 from src.microseg.utils import image_to_png_base64, mask_overlay
 
@@ -765,6 +772,97 @@ def build_quantification_config(form: dict[str, Any]) -> HydrideVisualizationCon
     )
 
 
+#: Browser choices for the HCI bridging range δ_max.
+HCI_BRIDGE_MODES: dict[str, str] = {
+    "auto_min": "Automatic: 1/5 of the smallest accepted hydride (default)",
+    "auto_median": "Automatic: 1/5 of the median hydride length",
+    "fixed": "Fixed value (use to compare specimens)",
+}
+
+
+@dataclass(frozen=True)
+class HciRequest:
+    """Hydride Connectivity Index options submitted with a segmentation request."""
+
+    enabled: bool
+    config: ContinuityAnalysisConfig
+    calibration: Calibration
+    bridge_mode: str = "auto_min"
+
+    def to_metadata(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "bridge_mode": self.bridge_mode,
+            "pixel_size_um": self.calibration.pixel_size_um,
+            "config": self.config.to_dict(),
+        }
+
+
+def build_hci_request(form: dict[str, Any]) -> HciRequest:
+    """Translate browser form values into HCI options.
+
+    The HCI is enabled unless ``hci_enabled`` is submitted as false. Lengths are
+    in µm when a pixel size is given and in pixels otherwise.
+
+    Raises
+    ------
+    SegmentationRequestError
+        If a submitted value is not a positive number where one is required.
+    """
+
+    def _optional_positive(key: str, label: str) -> float | None:
+        raw = form.get(key)
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise SegmentationRequestError(f"{label} must be a number, got {raw!r}.") from exc
+        if not math.isfinite(value) or value <= 0:
+            raise SegmentationRequestError(f"{label} must be greater than zero.")
+        return value
+
+    enabled_raw = form.get("hci_enabled")
+    enabled = True if enabled_raw is None else str(enabled_raw).strip().lower() in {"1", "true", "yes", "on"}
+    mode = str(form.get("hci_bridge_mode") or "auto_min").strip()
+    if mode not in HCI_BRIDGE_MODES:
+        raise SegmentationRequestError(f"Unknown HCI bridging mode {mode!r}.")
+    pixel = _optional_positive("hci_pixel_size_um", "Pixel size")
+    wall = _optional_positive("hci_reference_length_radial_um", "Radial reference length")
+    options: dict[str, Any] = {}
+    if mode == "fixed":
+        value = _optional_positive("hci_max_bridge_distance", "Maximum bridging distance")
+        if value is None:
+            raise SegmentationRequestError("Enter a maximum bridging distance, or choose an automatic mode.")
+        options["max_bridge_distance"] = value
+    elif mode == "auto_median":
+        options.update({"auto_size_statistic": "percentile", "auto_size_percentile": 50.0})
+    if wall is not None:
+        if pixel is None:
+            raise SegmentationRequestError("A radial reference length in µm needs the pixel size.")
+        options["reference_length_radial_um"] = wall
+    return HciRequest(
+        enabled=enabled,
+        config=ContinuityAnalysisConfig(**options),
+        calibration=Calibration(pixel, "user" if pixel else "none"),
+        bridge_mode=mode,
+    )
+
+
+def hci_web_summary(result: ContinuityAnalysisResult, request: HciRequest, seconds: float) -> dict[str, Any]:
+    """Browser/report payload of an HCI result: specimen values, curve and the largest clusters."""
+
+    payload = result.to_dict(include_clusters=False)
+    payload["enabled"] = True
+    payload["bridge_mode"] = request.bridge_mode
+    payload["seconds"] = round(float(seconds), 3)
+    payload["clusters_top"] = [
+        {k: v for k, v in c.to_dict().items() if k != "bridges"} | {"n_bridges": len(c.bridges)}
+        for c in result.clusters[:25]
+    ]
+    return payload
+
+
 def summarize_fn(metrics: dict[str, Any]) -> dict[str, Any]:
     """Extract the Fn headline summary shown above the measurements table.
 
@@ -895,6 +993,7 @@ def run_web_segmentation(
     include_fn_classification: bool = False,
     source_name: str = "in-memory image",
     progress_hook: Callable[[str, int, str], None] | None = None,
+    hci: HciRequest | None = None,
 ) -> dict[str, Any]:
     """Run one segmentation request and return a browser-ready payload.
 
@@ -914,6 +1013,8 @@ def run_web_segmentation(
     include_fn_classification:
         Whether to also render the annotated Fn classification view, which is
         noticeably more expensive than the standard figures.
+    hci:
+        Hydride Connectivity Index options; ``None`` or disabled skips it.
 
     Returns
     -------
@@ -1001,6 +1102,26 @@ def run_web_segmentation(
             )
     analysis_seconds = max(0.0, time.perf_counter() - analysis_started)
 
+    hci_payload: dict[str, Any] = {"enabled": False}
+    hci_seconds = 0.0
+    if hci is not None and hci.enabled and mask.size:
+        if progress_hook is not None:
+            progress_hook("connectivity", 95, "Computing the Hydride Connectivity Index.")
+        hci_started = time.perf_counter()
+        from src.microseg.evaluation.continuity import visualization as hci_viz
+
+        hci_result = analyze_continuity(mask, hci.config, hci.calibration, mask_source="predicted")
+        hci_seconds = max(0.0, time.perf_counter() - hci_started)
+        hci_payload = hci_web_summary(hci_result, hci, hci_seconds)
+        if hci_result.ok:
+            def _b64(data: bytes) -> str:
+                return base64.b64encode(data).decode("ascii")
+
+            images["hci_clusters_png_b64"] = _b64(hci_viz.to_png_bytes(hci_viz.cluster_overlay(hci_result)))
+            images["hci_topology_png_b64"] = _b64(hci_viz.to_png_bytes(hci_viz.topology_overlay(hci_result)))
+            images["hci_path_png_b64"] = _b64(hci_viz.to_png_bytes(hci_viz.path_overlay(hci_result, "radial")))
+            images["hci_curve_png_b64"] = _b64(hci_viz.curve_figure(hci_result))
+
     manifest = dict(result.manifest or {})
     manifest["image"] = prepared.to_metadata()
     manifest["quantification"] = {
@@ -1011,6 +1132,7 @@ def run_web_segmentation(
         "include_analysis": bool(include_analysis),
         "include_fn_classification": bool(include_fn_classification),
     }
+    manifest["hci"] = hci.to_metadata() if hci is not None else {"enabled": False}
     manifest["privacy"] = {
         "input_transport": "memory",
         "source_persisted": False,
@@ -1023,12 +1145,14 @@ def run_web_segmentation(
         "metric_groups": group_metrics(metrics),
         "analysis_data": analysis_data,
         "fn": summarize_fn(metrics),
+        "hci": hci_payload,
         "images": images,
         "manifest": manifest,
         "timing": {
-            "total_seconds": round(predictor_seconds + analysis_seconds, 3),
+            "total_seconds": round(predictor_seconds + analysis_seconds + hci_seconds, 3),
             "inference_seconds": round(predictor_seconds, 3),
             "analysis_seconds": round(analysis_seconds, 3),
+            "hci_seconds": round(hci_seconds, 3),
         },
     }
 

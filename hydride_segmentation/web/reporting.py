@@ -78,6 +78,7 @@ def _report_manifest(result: dict[str, Any], *, app_version: str, job_meta: dict
         "privacy": result.get("privacy") or (result.get("manifest") or {}).get("privacy", {}),
         "timing": result.get("timing", {}),
         "fn": result.get("fn", {}),
+        "hci": result.get("hci", {"enabled": False}),
         "metrics": result.get("metrics", {}),
         "analysis_data": result.get("analysis_data", {}),
     }
@@ -167,7 +168,59 @@ def build_pdf_report(result: dict[str, Any], *, app_version: str, job_meta: dict
         fig.text(0.04, 0.015, f"Report schema {REPORT_SCHEMA_VERSION}  |  Job {job_meta.get('job_id', '—')}  |  Results retained only in server memory.", fontsize=7.5, color="#4f6272")
         pdf.savefig(fig); plt.close(fig)
 
+        hci = manifest.get("hci") or {}
+        if hci.get("enabled"):
+            _hci_pdf_page(pdf, hci, images, job_meta)
+
     return buffer.getvalue()
+
+
+def _hci_value_lines(hci: dict[str, Any]) -> list[str]:
+    """Human-readable HCI summary lines shared by the PDF report."""
+
+    if hci.get("status") != "ok":
+        return [f"HCI not applicable: {hci.get('status_reason') or hci.get('status')}"]
+    spec = hci.get("specimen", {})
+    unit = "µm" if hci.get("unit") == "um" else "px"
+    h = spec.get("HCI", {})
+    half = spec.get("critical_linking_distance", {})
+    path = spec.get("path_continuity", {})
+    topo = spec.get("topology", {})
+    return [
+        f"HCI radial: {_fmt(h.get('radial'))}    circumferential: {_fmt(h.get('circumferential'))}    isotropic: {_fmt(h.get('isotropic'))}",
+        f"Critical linking distance δ½ (radial): {_fmt(half.get('radial'))} {unit}" if half.get("radial") is not None else "Critical linking distance δ½ (radial): not reached",
+        f"Bridging range δ_max: {_fmt(spec.get('max_bridge_distance'))} {unit} ({spec.get('max_bridge_distance_source')}); smallest accepted hydride {_fmt(spec.get('smallest_hydride_length'))} {unit}",
+        f"Path continuity Π radial: {_fmt(path.get('radial'))} (best path {_fmt(path.get('radial_best'))})",
+        f"Topology: {topo.get('endpoints', '—')} free ends, {topo.get('junctions', '—')} junctions, {topo.get('loops', '—')} loops, closure κ = {_fmt(topo.get('network_closure'))}",
+        f"Components {spec.get('n_components')}, clusters at δ_max {spec.get('n_clusters_at_report_distance')}; quality flags: {', '.join(hci.get('quality_flags') or []) or 'none'}",
+    ]
+
+
+def _hci_pdf_page(pdf: Any, hci: dict[str, Any], images: dict[str, Any], job_meta: dict[str, Any]) -> None:
+    """Third report page: Hydride Connectivity Index values and views."""
+
+    fig = plt.figure(figsize=(11.69, 8.27), facecolor="white")
+    grid = fig.add_gridspec(2, 3, height_ratios=[1.0, 0.62], hspace=0.28, wspace=0.12)
+    for column, (key, title) in enumerate(
+        (
+            ("hci_clusters_png_b64", "Clusters at δ_max (red = synthetic bridges)"),
+            ("hci_topology_png_b64", "Skeleton topology (red ends, navy junctions)"),
+            ("hci_curve_png_b64", "Connectivity function C(δ)"),
+        )
+    ):
+        ax = fig.add_subplot(grid[0, column]); ax.axis("off"); ax.set_title(title, fontsize=9.5, weight="bold", pad=5)
+        image = _decode_png(images.get(key))
+        if image is not None:
+            ax.imshow(image)
+        else:
+            ax.text(0.5, 0.5, "Not generated for this run", ha="center", va="center", color="#777777")
+    text = fig.add_subplot(grid[1, :]); text.axis("off")
+    for row, line in enumerate(_hci_value_lines(hci)):
+        text.text(0.0, 0.95 - row * 0.15, line, fontsize=9.5, va="top")
+    text.text(0.0, 0.02, "HCI = (1/δ_max) ∫ C(δ) dδ, with C(δ) the area-weighted projected coverage of hydride clusters linked by matrix gaps ≤ δ (formulation hci.v1; see Help).", fontsize=7.8, color="#6b4b16")
+    fig.suptitle("Hydride Connectivity Index (HCI)", x=0.04, ha="left", fontsize=16, weight="bold", color="#123f5a")
+    fig.text(0.04, 0.015, f"Report schema {REPORT_SCHEMA_VERSION}  |  Job {job_meta.get('job_id', '—')}  |  Formulation {hci.get('formulation_id', 'hci.v1')}", fontsize=7.5, color="#4f6272")
+    pdf.savefig(fig); plt.close(fig)
 
 
 def build_excel_workbook(result: dict[str, Any], *, app_version: str, job_meta: dict[str, Any]) -> bytes:
@@ -249,6 +302,53 @@ def build_excel_workbook(result: dict[str, Any], *, app_version: str, job_meta: 
     if size_counts:
         chart = workbook.add_chart({"type": "column"}); chart.add_series({"name": "Feature count", "categories": ["Histograms", 1, 3, len(size_counts), 3], "values": ["Histograms", 1, 5, len(size_counts), 5], "fill": {"color": "#4E79A7"}}); chart.set_title({"name": "Feature-size distribution"}); chart.set_x_axis({"name": "Area bin lower edge (px)"}); chart.set_y_axis({"name": "Count"}); hist.insert_chart("H19", chart)
     hist.freeze_panes(1, 0)
+
+    hci = manifest.get("hci") or {}
+    if hci.get("enabled") and hci.get("status") == "ok":
+        conn = workbook.add_worksheet("Connectivity")
+        conn.set_column("A:A", 44); conn.set_column("B:H", 18)
+        spec = hci.get("specimen", {})
+        conn.write_row(0, 0, ["Hydride Connectivity Index (unit: " + str(hci.get("unit")) + ")", "Value"], header)
+        conn_rows = [
+            ("HCI radial", spec.get("HCI", {}).get("radial")),
+            ("HCI circumferential", spec.get("HCI", {}).get("circumferential")),
+            ("HCI isotropic", spec.get("HCI", {}).get("isotropic")),
+            ("Critical linking distance, radial", spec.get("critical_linking_distance", {}).get("radial")),
+            ("Connectivity length, radial", spec.get("connectivity_length", {}).get("radial")),
+            ("Max bridging distance δ_max", spec.get("max_bridge_distance")),
+            ("δ_max source", spec.get("max_bridge_distance_source")),
+            ("Smallest accepted hydride length", spec.get("smallest_hydride_length")),
+            ("Path continuity, radial", spec.get("path_continuity", {}).get("radial")),
+            ("Path continuity, radial best path", spec.get("path_continuity", {}).get("radial_best")),
+            ("Network closure κ", spec.get("topology", {}).get("network_closure")),
+            ("Free ends", spec.get("topology", {}).get("endpoints")),
+            ("Junctions", spec.get("topology", {}).get("junctions")),
+            ("Loops", spec.get("topology", {}).get("loops")),
+            ("Components", spec.get("n_components")),
+            ("Clusters at δ_max", spec.get("n_clusters_at_report_distance")),
+            ("Area fraction after clean-up", spec.get("area_fraction_cleaned")),
+        ]
+        for row, (label, value) in enumerate(conn_rows, 1):
+            conn.write(row, 0, label, cell); conn.write(row, 1, value, number if isinstance(value, (int, float)) and not isinstance(value, bool) else cell)
+        curve = hci.get("curve", {})
+        start = len(conn_rows) + 3
+        conn.write_row(start, 0, ["δ", "C radial", "C circumferential", "C isotropic", "Clusters"], header)
+        deltas = curve.get("delta") or []
+        for i, d in enumerate(deltas):
+            conn.write_row(start + 1 + i, 0, [d, curve.get("C_radial", [None])[i], curve.get("C_circumferential", [None])[i], curve.get("C_isotropic", [None])[i], curve.get("n_clusters", [None])[i]], number)
+        if deltas:
+            chart = workbook.add_chart({"type": "scatter", "subtype": "straight"})
+            for col, name, color in ((1, "C radial", "#E76F51"), (2, "C circumferential", "#2A9D8F"), (3, "C isotropic", "#6A4C93")):
+                chart.add_series({"name": name, "categories": ["Connectivity", start + 1, 0, start + len(deltas), 0], "values": ["Connectivity", start + 1, col, start + len(deltas), col], "line": {"color": color}})
+            chart.set_title({"name": "Connectivity function C(δ)"}); chart.set_x_axis({"name": "δ"}); chart.set_y_axis({"name": "C(δ)", "min": 0, "max": 1})
+            conn.insert_chart("D2", chart)
+        clusters = hci.get("clusters_top") or []
+        cstart = start + len(deltas) + 3
+        conn.write_row(cstart, 0, ["Cluster", "Members", "Area", "Radial coverage", "Circ. coverage", "Feret", "Weight radial", "Bridges"], header)
+        for i, c in enumerate(clusters, 1):
+            ext = c.get("extent", {})
+            conn.write_row(cstart + i, 0, [c.get("cluster_id"), len(c.get("members", [])), c.get("area"), ext.get("radial_coverage"), ext.get("circumferential_coverage"), ext.get("feret"), c.get("weight", {}).get("radial"), c.get("n_bridges")], cell)
+        conn.freeze_panes(1, 0)
 
     metadata = workbook.add_worksheet("Metadata")
     metadata.set_column("A:A", 34); metadata.set_column("B:B", 80)

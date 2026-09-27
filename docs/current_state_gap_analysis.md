@@ -51,6 +51,7 @@ High-priority gaps:
 - Hardware profile capture beyond current run metadata basics
 - Formal uncertainty quantification pathways in inference outputs
 - Comprehensive GUI-native visualization for training/evaluation reports
+- Hydride connectivity (HCI): specified and benchmarked in Phase 37 ([`hci_specification.md`](hci_specification.md)); the library, interfaces and real-data validation are planned in Phases 38-40 ([`hci_implementation_plan.md`](hci_implementation_plan.md))
 
 Medium-priority gaps:
 - Multi-feature default registries beyond hydrides

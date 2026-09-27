@@ -221,6 +221,70 @@
       </label>
     </fieldset>
 
+    <fieldset class="field-group" id="hci-fieldset">
+      <legend>
+        5. Connectivity (HCI)
+        <button type="button" class="help-toggle" data-help-target="hci-help"
+                aria-expanded="false" aria-controls="hci-help">What is HCI?</button>
+      </legend>
+      <div id="hci-help" class="help-box" hidden>
+        <strong>The Hydride Connectivity Index (HCI)</strong> measures how far hydrides link into
+        long connected paths, independently of how much hydride there is. Hydrides separated by a matrix
+        gap up to a distance &delta; are treated as linked. The connectivity C(&delta;) is the
+        area-weighted fraction of the field that each linked cluster spans, and the HCI is its average
+        over &delta; from 0 to the bridging range &delta;<sub>max</sub>. It lies between 0 and 1 and is
+        reported radially (through-wall), circumferentially and isotropically.
+        <a href="{{ url_for('microseg_web.help_page') }}#hci">Read the full theory and algorithm</a>.
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="chk-hci" checked>
+        <span>
+          Compute the Hydride Connectivity Index
+          <span class="check-note">Enabled by default. Adds cluster, topology, weakest-path and
+          connectivity-curve views, and an HCI page in the detailed report.</span>
+        </span>
+      </label>
+      <div class="controls-grid" id="hci-controls">
+        <div class="control">
+          <div class="control-head"><label for="hci-bridge-mode">Bridging range &delta;<sub>max</sub></label>
+            <button type="button" class="help-toggle help-toggle--icon" data-help-target="help-hci-bridge"
+                    aria-expanded="false" aria-controls="help-hci-bridge" aria-label="Help for the bridging range">?</button></div>
+          <select id="hci-bridge-mode" class="input">
+            {% for key, label in hci_bridge_modes.items() %}
+            <option value="{{ key }}"{% if key == 'auto_min' %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <p class="help-box" id="help-hci-bridge" hidden>The largest matrix gap still counted as a
+            potential link. <em>Automatic</em> sets it to one fifth of a hydride length measured on this
+            image, so it scales with the microstructure and ignores magnification. Such a value differs
+            between images, so choose <em>Fixed</em> with the same value for every specimen you intend to
+            compare.</p>
+        </div>
+        <div class="control">
+          <div class="control-head"><label for="hci-max-bridge">Fixed &delta;<sub>max</sub> (&micro;m, or px without pixel size)</label></div>
+          <input class="input" type="number" id="hci-max-bridge" min="0" step="0.1" placeholder="e.g. 10" disabled>
+        </div>
+        <div class="control">
+          <div class="control-head"><label for="hci-pixel-size">Pixel size (&micro;m/px, optional)</label>
+            <button type="button" class="help-toggle help-toggle--icon" data-help-target="help-hci-pixel"
+                    aria-expanded="false" aria-controls="help-hci-pixel" aria-label="Help for the pixel size">?</button></div>
+          <input class="input" type="number" id="hci-pixel-size" min="0" step="0.001" placeholder="blank = pixels">
+          <p class="help-box" id="help-hci-pixel" hidden>With a pixel size, the clean-up thresholds and all
+            lengths are in micrometres, so results compare across magnifications. Without it, lengths are
+            in pixels and the result is flagged as uncalibrated.</p>
+        </div>
+        <div class="control">
+          <div class="control-head"><label for="hci-wall">Radial reference length (&micro;m, optional)</label>
+            <button type="button" class="help-toggle help-toggle--icon" data-help-target="help-hci-wall"
+                    aria-expanded="false" aria-controls="help-hci-wall" aria-label="Help for the reference length">?</button></div>
+          <input class="input" type="number" id="hci-wall" min="0" step="1" placeholder="blank = image height">
+          <p class="help-box" id="help-hci-wall" hidden>The length against which radial extent is judged.
+            Enter the tube wall thickness so that HCI radial = 1 means a through-wall hydride network.
+            Needs the pixel size.</p>
+        </div>
+      </div>
+    </fieldset>
+
   </section>
 
   <section class="panel results" aria-label="Results">
@@ -308,6 +372,40 @@
         </p>
       </section>
 
+      <section id="hci-panel" class="fn-panel hci-panel" aria-label="Hydride Connectivity Index" hidden>
+        <div class="fn-head">
+          <h3>Hydride Connectivity Index (HCI)</h3>
+          <button type="button" class="help-toggle" data-help-target="hci-result-help"
+                  aria-expanded="false" aria-controls="hci-result-help">How to read this</button>
+        </div>
+        <div class="fn-values">
+          <div class="fn-value">
+            <span class="fn-number" id="hci-radial">-</span>
+            <span class="fn-label">Radial (through-wall)</span>
+            <span class="fn-detail" id="hci-radial-detail"></span>
+          </div>
+          <div class="fn-value">
+            <span class="fn-number" id="hci-circ">-</span>
+            <span class="fn-label">Circumferential</span>
+          </div>
+          <div class="fn-value">
+            <span class="fn-number" id="hci-iso">-</span>
+            <span class="fn-label">Isotropic</span>
+          </div>
+        </div>
+        <p class="fn-context" id="hci-context"></p>
+        <p class="help-box" id="hci-result-help" hidden>
+          Each HCI is between 0 and 1. It is the average, over matrix gaps up to &delta;<sub>max</sub>, of the
+          area-weighted fraction of the field covered by linked hydride clusters. 0 means isolated specks;
+          1 means every hydride belongs to a cluster spanning the field. The <strong>critical linking
+          distance &delta;&frac12;</strong> is the matrix gap at which half the hydride joins half-field
+          clusters, a physical spacing measure. Compare specimens only at the same &delta;<sub>max</sub>,
+          pixel size and reference length. See the <em>HCI</em> tabs below for the clusters (red lines are
+          synthetic bridges, not hydride), the skeleton topology, the weakest radial path and the full
+          connectivity curve.
+        </p>
+      </section>
+
       <h3 class="supplementary-title">Additional analysis views</h3>
       <div class="tabs" role="tablist" aria-label="Additional result views">
         <button class="tab active" role="tab" data-view="overlay_png_b64" aria-selected="true">Overlay</button>
@@ -318,6 +416,10 @@
         <button class="tab" role="tab" data-view="orientation_map_png_b64" aria-selected="false">Orientation</button>
         <button class="tab" role="tab" data-view="size_histogram_png_b64" aria-selected="false">Size</button>
         <button class="tab" role="tab" data-view="angle_histogram_png_b64" aria-selected="false">Angle</button>
+        <button class="tab" role="tab" data-view="hci_clusters_png_b64" aria-selected="false">HCI clusters</button>
+        <button class="tab" role="tab" data-view="hci_curve_png_b64" aria-selected="false">HCI curve</button>
+        <button class="tab" role="tab" data-view="hci_topology_png_b64" aria-selected="false">HCI topology</button>
+        <button class="tab" role="tab" data-view="hci_path_png_b64" aria-selected="false">HCI path</button>
       </div>
 
       <figure class="viewer">

@@ -41,6 +41,8 @@ from .segmentation import (
     QUANTIFICATION_CONTROLS,
     SegmentationRequestError,
     build_conventional_params,
+    HCI_BRIDGE_MODES,
+    build_hci_request,
     build_quantification_config,
     normalize_rotation,
     prepare_image,
@@ -200,6 +202,7 @@ def create_web_blueprint() -> Blueprint:
             default_model_id=catalog.default_model_id(config.default_model_id),
             controls=[control.to_dict() for control in CONVENTIONAL_CONTROLS],
             quantification_controls=[control.to_dict() for control in QUANTIFICATION_CONTROLS],
+            hci_bridge_modes=HCI_BRIDGE_MODES,
             samples=[{"id": item.sample_id, "label": item.label} for item in config.sample_images],
             # Rendered as a hint only; the picker fetches the live listing, so a
             # library populated after page load still works without a reload.
@@ -216,6 +219,7 @@ def create_web_blueprint() -> Blueprint:
             config=config,
             controls=[control.to_dict() for control in CONVENTIONAL_CONTROLS],
             quantification_controls=[control.to_dict() for control in QUANTIFICATION_CONTROLS],
+            hci_bridge_modes=HCI_BRIDGE_MODES,
             allowed_extensions=sorted(ALLOWED_EXTENSIONS),
             active_page="help",
         )
@@ -453,6 +457,7 @@ def create_web_blueprint() -> Blueprint:
                     "device_policy": config.device_policy,
                 }
             quantification = build_quantification_config(form)
+            hci_request = build_hci_request(form)
         except _ImageRequestError as exc:
             return _error(exc.code, exc.detail, exc.status)
         except SegmentationRequestError as exc:
@@ -481,6 +486,7 @@ def create_web_blueprint() -> Blueprint:
                 quantification=quantification,
                 include_fn_classification=include_fn_classification,
                 source_name=source_name,
+                hci=hci_request,
             )
         except MemoryError:
             return _error(
@@ -554,6 +560,7 @@ def create_web_blueprint() -> Blueprint:
                 else {"enable_gpu": config.enable_gpu, "device_policy": config.device_policy}
             )
             quantification = build_quantification_config(form)
+            hci_request = build_hci_request(form)
         except _ImageRequestError as exc:
             return _error(exc.code, exc.detail, exc.status)
         except SegmentationRequestError as exc:
@@ -578,6 +585,7 @@ def create_web_blueprint() -> Blueprint:
                 include_fn_classification=include_fn_classification,
                 source_name=source_name,
                 progress_hook=progress_hook,
+                hci=hci_request,
             )
             payload.update(
                 {

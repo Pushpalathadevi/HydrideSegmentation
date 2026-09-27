@@ -19,6 +19,7 @@ Additional workflow config:
 - `inference.default.yml` for default CLI inference
   - defaults to `Hydride ML (UNet)` and resolves the trained checkpoint through repo-relative `frozen_checkpoints/model_registry.json`
   - includes `result_export` switches for optional extended metrics and distribution charts
+- `hci_synthetic_benchmark.default.yml` for the constant-area-fraction HCI validation benchmark (`scripts/generate_hci_synthetic_benchmark.py`)
 - `phase_gate.default.yml` for end-of-phase closeout checks
 - `preflight.default.yml` for unified train/eval/benchmark/deploy preflight checks
 - `deployment_package.default.yml` for deployment bundle creation inputs

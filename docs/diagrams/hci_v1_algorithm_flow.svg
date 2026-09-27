@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="880" viewBox="0 0 1400 880" role="img" aria-labelledby="title desc">
+  <title id="title">HCI v1 candidate algorithm flow sheet</title>
+  <desc id="desc">Flow from a segmented mask through cleaning, component labelling, the surface-gap graph and single-linkage clustering to the directional Hydride Connectivity Index and its connectivity curve, with parallel branches for path continuity and skeleton topology, and the outputs and validation gates.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f5f9fc"/>
+      <stop offset="1" stop-color="#e9f1f7"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d9efff"/>
+      <stop offset="1" stop-color="#b8ddf4"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d7f4ed"/>
+      <stop offset="1" stop-color="#a9dfd2"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eee5ff"/>
+      <stop offset="1" stop-color="#d2bdf5"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff1cc"/>
+      <stop offset="1" stop-color="#f3d38a"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#17324a" flood-opacity=".15"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#35627d"/>
+    </marker>
+    <style>
+      .title{font:700 32px Arial,sans-serif;fill:#163247}
+      .subtitle{font:400 16px Arial,sans-serif;fill:#526c7e}
+      .section{font:700 18px Arial,sans-serif;fill:#163247}
+      .label{font:700 16px Arial,sans-serif;fill:#17364c}
+      .body{font:400 13px Arial,sans-serif;fill:#355468}
+      .math{font:italic 400 13px 'Times New Roman',serif;fill:#20435a}
+      .num{font:700 15px Arial,sans-serif;fill:#fff}
+      .line{stroke:#35627d;stroke-width:2.5;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#9a6208;stroke-width:2.2;fill:none;stroke-dasharray:7 6;marker-end:url(#arrow)}
+    </style>
+  </defs>
+
+  <rect width="1400" height="880" rx="24" fill="url(#bg)"/>
+  <text x="60" y="58" class="title">Hydride Connectivity Index v1 — Candidate Algorithm</text>
+  <text x="60" y="86" class="subtitle">One core computes all descriptors from a binary hydride mask; real hydride and synthetic association edges are never mixed.</text>
+
+  <!-- Row 1: primary HCI path -->
+  <text x="60" y="132" class="section">Primary descriptor: connectivity function C_u(δ) and its integral, the HCI</text>
+
+  <g filter="url(#shadow)">
+    <rect x="60" y="150" width="150" height="170" rx="16" fill="url(#blue)" stroke="#6ba7ca" stroke-width="2"/>
+    <circle cx="88" cy="178" r="15" fill="#176b9c"/><text x="83" y="183" class="num">1</text>
+    <text x="112" y="183" class="label">Input</text>
+    <text x="74" y="212" class="body">Indexed mask;</text>
+    <text x="74" y="230" class="body">class set → M</text>
+    <text x="74" y="252" class="body">Pixel size a (µm/px)</text>
+    <text x="74" y="270" class="body">Tube frame: x = circ.,</text>
+    <text x="74" y="288" class="body">y = radial</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="226" y="150" width="150" height="170" rx="16" fill="url(#blue)" stroke="#6ba7ca" stroke-width="2"/>
+    <circle cx="254" cy="178" r="15" fill="#176b9c"/><text x="249" y="183" class="num">2</text>
+    <text x="278" y="183" class="label">Clean</text>
+    <text x="240" y="212" class="body">Remove components</text>
+    <text x="240" y="230" class="math">area &lt; A_min</text>
+    <text x="240" y="252" class="body">Fill interior holes</text>
+    <text x="240" y="270" class="math">area &lt; A_hole</text>
+    <text x="240" y="292" class="body">(physical units)</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="392" y="150" width="150" height="170" rx="16" fill="url(#blue)" stroke="#6ba7ca" stroke-width="2"/>
+    <circle cx="420" cy="178" r="15" fill="#176b9c"/><text x="415" y="183" class="num">3</text>
+    <text x="444" y="183" class="label">Components</text>
+    <text x="406" y="212" class="body">8-connected labels</text>
+    <text x="406" y="230" class="math">C_1 … C_n, areas A_j</text>
+    <text x="406" y="252" class="body">bounding extents,</text>
+    <text x="406" y="270" class="body">convex hulls</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="558" y="150" width="150" height="170" rx="16" fill="url(#teal)" stroke="#5fb3a1" stroke-width="2"/>
+    <circle cx="586" cy="178" r="15" fill="#1d7f6b"/><text x="581" y="183" class="num">4</text>
+    <text x="610" y="183" class="label">Gap graph</text>
+    <text x="572" y="212" class="body">EDT nearest-feature</text>
+    <text x="572" y="230" class="body">map; Voronoi</text>
+    <text x="572" y="248" class="body">neighbours → gap</text>
+    <text x="572" y="270" class="math">g_jk = min‖p−q‖ − 1</text>
+    <text x="572" y="292" class="body">O(HW), no pair matrix</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="724" y="150" width="150" height="170" rx="16" fill="url(#teal)" stroke="#5fb3a1" stroke-width="2"/>
+    <circle cx="752" cy="178" r="15" fill="#1d7f6b"/><text x="747" y="183" class="num">5</text>
+    <text x="776" y="183" class="label">Linkage</text>
+    <text x="738" y="212" class="body">Sort gaps; Kruskal</text>
+    <text x="738" y="230" class="body">union-find merges</text>
+    <text x="738" y="252" class="body">clusters K at every δ</text>
+    <text x="738" y="270" class="body">(single linkage,</text>
+    <text x="738" y="288" class="body">order independent)</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="890" y="150" width="450" height="170" rx="16" fill="url(#violet)" stroke="#9f83d0" stroke-width="2"/>
+    <circle cx="918" cy="178" r="15" fill="#6446a3"/><text x="913" y="183" class="num">6</text>
+    <text x="942" y="183" class="label">Connectivity curve and HCI</text>
+    <text x="904" y="214" class="math">S_K(u): projected hydride coverage along u</text>
+    <text x="904" y="240" class="math">C_u(δ) = Σ A_K min(1, S_K(u)/L_u) / Σ A_K</text>
+    <text x="904" y="266" class="math">HCI_u = (1/δ_max) ∫ C_u(δ) dδ over [0, δ_max]</text>
+    <text x="904" y="288" class="body">Also report C_u(δ0), δ½ (µm),</text>
+    <text x="904" y="306" class="body">ξ_u (µm) and the full curve</text>
+  </g>
+
+  <path class="line" d="M210 235 H222"/>
+  <path class="line" d="M376 235 H388"/>
+  <path class="line" d="M542 235 H554"/>
+  <path class="line" d="M708 235 H720"/>
+  <path class="line" d="M874 235 H886"/>
+
+  <!-- Row 2: companion descriptors -->
+  <text x="560" y="378" class="section">Companion descriptors (same cleaned mask)</text>
+
+  <g filter="url(#shadow)">
+    <rect x="258" y="398" width="500" height="150" rx="16" fill="url(#teal)" stroke="#5fb3a1" stroke-width="2"/>
+    <circle cx="286" cy="426" r="15" fill="#1d7f6b"/><text x="281" y="431" class="num">7</text>
+    <text x="310" y="431" class="label">Path continuity Π_u (minimum matrix ligament)</text>
+    <text x="272" y="458" class="body">Cost ε in hydride, 1 in matrix; two geodesic sweeps from opposite field edges.</text>
+    <text x="272" y="480" class="math">ℓ(p) = D_in(p) + D_out(p);   Π_u = ⟨ 1 − ℓ(p)/L_u ⟩ over hydride pixels</text>
+    <text x="272" y="504" class="body">Π_u^best = 1 − min ℓ / L_u is the RHCP-type weakest path (Simon et al. 2021).</text>
+    <text x="272" y="526" class="body">No association threshold; sensitive to alignment, not to gap placement.</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="786" y="398" width="554" height="150" rx="16" fill="url(#teal)" stroke="#5fb3a1" stroke-width="2"/>
+    <circle cx="814" cy="426" r="15" fill="#1d7f6b"/><text x="809" y="431" class="num">8</text>
+    <text x="838" y="431" class="label">Skeleton topology (real hydride only)</text>
+    <text x="800" y="458" class="body">Skeletonise; collapse junction pixel clusters; trace branches.</text>
+    <text x="800" y="480" class="math">N_E, N_J, β = Σ(d_j − 2), μ = C − χ,  κ = 2μ / (β + 2C)</text>
+    <text x="800" y="504" class="body">Identity N_E = β + 2C − 2μ gives κ = 1 − N_E/(β + 2C) ∈ [0, 1].</text>
+    <text x="800" y="526" class="body">Reported as densities per mm² and per cluster.</text>
+  </g>
+
+  <path class="line" d="M301 320 V394"/>
+  <path class="line" d="M467 320 V346 H1060 V394"/>
+
+  <!-- Row 3: outputs and gates -->
+  <text x="60" y="610" class="section">Outputs and validation gates</text>
+
+  <g filter="url(#shadow)">
+    <rect x="60" y="628" width="600" height="200" rx="16" fill="url(#violet)" stroke="#9f83d0" stroke-width="2"/>
+    <circle cx="88" cy="656" r="15" fill="#6446a3"/><text x="83" y="661" class="num">9</text>
+    <text x="112" y="661" class="label">Result contract microseg.hci_result.v1</text>
+    <text x="74" y="690" class="body">• Status: ok | not_applicable (empty after cleaning) | failed, never a silent 0</text>
+    <text x="74" y="712" class="body">• Specimen values, curves, parameters in µm and px, formulation ID, code version</text>
+    <text x="74" y="734" class="body">• Cluster table: area, extents, members, bridge edges with gaps, topology</text>
+    <text x="74" y="756" class="body">• Overlays: clusters, synthetic bridges (distinct colour), best path, nodes</text>
+    <text x="74" y="778" class="body">• Quality flags: border-truncated clusters, clusters capped at 1, low pixel</text>
+    <text x="74" y="800" class="body">  support per thickness, resampled input</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="690" y="628" width="650" height="200" rx="16" fill="url(#amber)" stroke="#d2a33d" stroke-width="2"/>
+    <circle cx="718" cy="656" r="15" fill="#9a6208"/><text x="713" y="661" class="num">10</text>
+    <text x="746" y="661" class="label">Validation gates before release</text>
+    <text x="704" y="690" class="body">G1 Synthetic benchmark axioms at constant area fraction (hci_synthetic_v1)</text>
+    <text x="704" y="712" class="body">G2 Exact symmetry: transpose swaps R/C; flips invariant (bitwise)</text>
+    <text x="704" y="734" class="body">G3 Resolution (×0.5, ×2) and segmentation-noise tolerance</text>
+    <text x="704" y="756" class="body">G4 Topology extraction matches benchmark ground truth</text>
+    <text x="704" y="778" class="body">G5 Real micrographs: repeat fields, bootstrap CIs, δ sensitivity</text>
+    <text x="704" y="800" class="body">G6 Correlation with an independent mechanical measure (RCT, DBTT, DHC)</text>
+  </g>
+
+  <path class="line" d="M1340 235 H1368 V588 H400 V624"/>
+  <path class="line" d="M508 548 V624"/>
+  <path class="line" d="M1063 548 V588"/>
+  <path class="dash" d="M660 728 H686"/>
+</svg>

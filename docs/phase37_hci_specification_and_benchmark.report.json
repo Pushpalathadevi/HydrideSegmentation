@@ -1,0 +1,191 @@
+{
+  "schema_version": "microseg.phase_closeout.v1",
+  "phase": 37,
+  "title": "HCI Specification and Constant-Area-Fraction Benchmark",
+  "status": "complete",
+  "hci_status": "specified_awaiting_owner_signoff",
+  "formulation_id": "hci.v1-candidate",
+  "delivered": {
+    "specification": "docs/hci_specification.md",
+    "benchmark_doc": "docs/hci_synthetic_benchmark.md",
+    "implementation_plan": "docs/hci_implementation_plan.md",
+    "diagrams": [
+      "docs/diagrams/hci_v1_algorithm_flow.svg",
+      "docs/diagrams/hci_synthetic_benchmark_overview.svg",
+      "docs/diagrams/hci_candidate_evidence.svg"
+    ],
+    "generator": "src/microseg/evaluation/continuity/synthetic.py",
+    "generator_cli": "scripts/generate_hci_synthetic_benchmark.py",
+    "generator_config": "configs/hci_synthetic_benchmark.default.yml",
+    "benchmark_data": "test_data/hci_synthetic_v1",
+    "benchmark_samples": 203,
+    "study_harness": "scripts/hci_candidate_study.py",
+    "study_report": "docs/hci_candidate_study.report.json",
+    "study_summary": "docs/hci_candidate_study.summary.json",
+    "tests": "tests/test_phase37_hci_synthetic_benchmark.py"
+  },
+  "prototype": {
+    "path": "HARSHAD_WORK/HCI_2_4_works_1 (1).py",
+    "sha256": "f738c0b8fe2e44ab28ef4a31914b0c3ef2c177f3180c4e796bfbf7438725d222"
+  },
+  "study": {
+    "ordering_axioms": {
+      "gap_sweep": {
+        "HCI_R": {
+          "direction": "increasing",
+          "replicates_monotone": 5,
+          "replicates": 5,
+          "spearman_rho": 0.6396
+        },
+        "IBAR_R": {
+          "direction": "increasing",
+          "replicates_monotone": 5,
+          "replicates": 5,
+          "spearman_rho": 0.9866
+        },
+        "PI_R": {
+          "direction": "increasing",
+          "replicates_monotone": 0,
+          "replicates": 5,
+          "spearman_rho": 0.6934
+        },
+        "proto_workbook": {
+          "direction": "increasing",
+          "replicates_monotone": 1,
+          "replicates": 5,
+          "spearman_rho": 0.9415
+        }
+      },
+      "fragmentation": {
+        "HCI_R": {
+          "direction": "decreasing",
+          "replicates_monotone": 5,
+          "replicates": 5,
+          "spearman_rho": -0.9815
+        },
+        "IBAR_R": {
+          "direction": "decreasing",
+          "replicates_monotone": 5,
+          "replicates": 5,
+          "spearman_rho": -0.9806
+        },
+        "PI_R": {
+          "direction": "decreasing",
+          "replicates_monotone": 5,
+          "replicates": 5,
+          "spearman_rho": -0.9727
+        },
+        "proto_workbook": {
+          "direction": "decreasing",
+          "replicates_monotone": 5,
+          "replicates": 5,
+          "spearman_rho": -0.9806
+        }
+      },
+      "arrangement": {
+        "HCI_R": {
+          "direction": "increasing",
+          "replicates_monotone": 5,
+          "replicates": 5,
+          "spearman_rho": 0.9752
+        },
+        "IBAR_R": {
+          "direction": "increasing",
+          "replicates_monotone": 5,
+          "replicates": 5,
+          "spearman_rho": 0.9866
+        },
+        "PI_R": {
+          "direction": "increasing",
+          "replicates_monotone": 2,
+          "replicates": 5,
+          "spearman_rho": 0.9189
+        },
+        "proto_workbook": {
+          "direction": "increasing",
+          "replicates_monotone": 0,
+          "replicates": 5,
+          "spearman_rho": 0.849
+        }
+      },
+      "orientation": {
+        "HCI_R": {
+          "direction": "increasing",
+          "replicates_monotone": 3,
+          "replicates": 3,
+          "spearman_rho": 0.9925
+        },
+        "IBAR_R": {
+          "direction": "increasing",
+          "replicates_monotone": 3,
+          "replicates": 3,
+          "spearman_rho": 0.983
+        },
+        "PI_R": {
+          "direction": "increasing",
+          "replicates_monotone": 2,
+          "replicates": 3,
+          "spearman_rho": 0.9134
+        },
+        "proto_workbook": {
+          "direction": "increasing",
+          "replicates_monotone": 0,
+          "replicates": 3,
+          "spearman_rho": 0.1337
+        }
+      }
+    },
+    "key_values": {
+      "gap_sweep_HCI_R_v1_40px_to_0px": [
+        0.217,
+        0.253,
+        0.451,
+        0.527,
+        0.597,
+        0.655
+      ],
+      "arrangement_HCI_R_v1": {
+        "random_circumferential": 0.01,
+        "random_isotropic": 0.135,
+        "random_radial": 0.197,
+        "radial_stringers": 0.444,
+        "radial_stepped": 0.525,
+        "radial_continuous": 0.555
+      },
+      "prototype_zero_for": [
+        "rings",
+        "honeycomb_mesh",
+        "all single-cluster degenerate cases"
+      ],
+      "max_symmetry_change_HCI_R_v1": 0.0,
+      "max_resolution_change_HCI_R_v1": 0.021,
+      "max_boundary_roughness_change_HCI_R_v1": 0.054,
+      "prototype_timeouts_over_300s": 6
+    }
+  },
+  "verification": {
+    "full_repository_tests": {
+      "passed": 397,
+      "skipped": 1,
+      "failed": 0,
+      "duration_seconds": 294.05
+    },
+    "phase37_tests": {
+      "passed": 11,
+      "failed": 0
+    },
+    "committed_benchmark_regenerates_bitwise": true,
+    "svg_visual_check": "passed"
+  },
+  "product_behavior_changed": false,
+  "remaining_gaps": [
+    "Owner sign-off of specification decisions D1-D8.",
+    "HCI core library, axiom suite and interfaces (Phases 38-39).",
+    "Real-specimen validation, literature baselines, expert ranking and property correlation (Phase 40).",
+    "Boundary-roughness robustness of HCI_R is 5.4 %, slightly above the 5 % target.",
+    "Degree-4 crossings occasionally split in the skeleton; thickness-scaled junction collapse specified for Phase 38.",
+    "Realism benchmark v2 (curved/tapered platelets, blur, segmentation-model masks).",
+    "Citations marked with a dagger in the specification need re-verification before submission.",
+    "Prototype source in HARSHAD_WORK/ is untracked; SHA-256 recorded in the study report."
+  ]
+}
